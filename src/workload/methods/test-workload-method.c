@@ -15,11 +15,10 @@
 #include "codes/codes-workload.h"
 
 static int test_workload_load(const void* params, int app_id, int rank);
-static void test_workload_get_next(int app_id, int rank, struct codes_workload_op *op);
+static void test_workload_get_next(int app_id, int rank, struct codes_workload_op* op);
 
 /* state information for each rank that is retrieving requests */
-struct wkload_stream_state
-{
+struct wkload_stream_state {
     int rank;
     struct wkload_stream_state* next;
     struct codes_workload_op op_array[16];
@@ -30,16 +29,14 @@ struct wkload_stream_state
 struct wkload_stream_state* wkload_streams = NULL;
 
 /* fill in function pointers for this method */
-struct codes_workload_method test_workload_method = 
-{
+struct codes_workload_method test_workload_method = {
     .method_name = "test",
     .codes_workload_read_config = NULL,
     .codes_workload_load = test_workload_load,
     .codes_workload_get_next = test_workload_get_next,
 };
 
-static int test_workload_load(const void* params, int app_id, int rank)
-{
+static int test_workload_load(const void* params, int app_id, int rank) {
     /* no params in this case; this example will work with any number of
      * ranks
      */
@@ -48,8 +45,8 @@ static int test_workload_load(const void* params, int app_id, int rank)
     struct wkload_stream_state* newv;
 
     newv = (struct wkload_stream_state*)malloc(sizeof(*newv));
-    if(!newv)
-        return(-1);
+    if (!newv)
+        return (-1);
 
     newv->rank = rank;
 
@@ -57,8 +54,7 @@ static int test_workload_load(const void* params, int app_id, int rank)
     /* rank 0 sleeps 43 seconds, then does open and barrier, while all other
      * ranks immediately do open and barrier
      */
-    if(rank == 0)
-    {
+    if (rank == 0) {
         newv->op_array_len = 3;
         newv->op_array_index = 0;
         newv->op_array[0].op_type = CODES_WK_DELAY;
@@ -69,9 +65,7 @@ static int test_workload_load(const void* params, int app_id, int rank)
         newv->op_array[2].op_type = CODES_WK_BARRIER;
         newv->op_array[2].u.barrier.root = 0;
         newv->op_array[2].u.barrier.count = -1; /* all ranks */
-    }
-    else
-    {
+    } else {
         newv->op_array_len = 2;
         newv->op_array_index = 0;
         newv->op_array[0].op_type = CODES_WK_OPEN;
@@ -86,53 +80,42 @@ static int test_workload_load(const void* params, int app_id, int rank)
     newv->next = wkload_streams;
     wkload_streams = newv;
 
-    return(0);
+    return (0);
 }
 
 /* find the next workload operation to issue for this rank */
-static void test_workload_get_next(int app_id, int rank, struct codes_workload_op *op)
-{
+static void test_workload_get_next(int app_id, int rank, struct codes_workload_op* op) {
     (void)app_id;
     struct wkload_stream_state* tmp = wkload_streams;
     struct wkload_stream_state* tmp2 = wkload_streams;
 
     /* find stream associated with this rank */
-    while(tmp)
-    {
-        if(tmp->rank == rank)
+    while (tmp) {
+        if (tmp->rank == rank)
             break;
         tmp = tmp->next;
     }
 
-    if(!tmp)
-    {
+    if (!tmp) {
         op->op_type = CODES_WK_END;
         return;
     }
 
     assert(tmp->rank == rank);
 
-    if(tmp->op_array_index < tmp->op_array_len)
-    {
+    if (tmp->op_array_index < tmp->op_array_len) {
         *op = tmp->op_array[tmp->op_array_index];
         tmp->op_array_index++;
-    }
-    else
-    {
+    } else {
         /* no more operations */
         op->op_type = CODES_WK_END;
 
         /* destroy this instance */
-        if(wkload_streams == tmp)
-        {
+        if (wkload_streams == tmp) {
             wkload_streams = tmp->next;
-        }
-        else
-        {
-            while(tmp2)
-            {
-                if(tmp2->next == tmp)
-                {
+        } else {
+            while (tmp2) {
+                if (tmp2->next == tmp) {
                     tmp2->next = tmp->next;
                     break;
                 }

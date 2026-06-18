@@ -39,15 +39,15 @@ void print_surrogate_stats(void);
 
 /** Loads surrogate configuration, including packet latency predictor. */
 bool network_surrogate_configure(
-        char const * const annotation,
-        struct network_surrogate_config * const config,
-        struct packet_latency_predictor ** pl_pred //!< pointer to save packet latency predictor. Caller does not need to free pointer
+    char const* const annotation, struct network_surrogate_config* const config,
+    struct packet_latency_predictor**
+        pl_pred //!< pointer to save packet latency predictor. Caller does not need to free pointer
 );
 
 void application_surrogate_configure(
-    int num_terminals_on_pe,
-    int num_apps,
-    struct app_iteration_predictor ** iter_pred //!< pointer to save application iteration predictor. No need to free pointer
+    int num_terminals_on_pe, int num_apps,
+    struct app_iteration_predictor**
+        iter_pred //!< pointer to save application iteration predictor. No need to free pointer
 );
 void surrogates_finalize(void);
 

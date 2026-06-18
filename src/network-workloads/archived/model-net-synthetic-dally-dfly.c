@@ -53,74 +53,54 @@ static long long sum_global_messages_received = 0;
 static tw_stime mean_global_server_latency = 0.0;
 
 /* type of events */
-enum svr_event
-{
-    KICKOFF,	   /* kickoff event */
-    REMOTE,        /* remote event */
-    LOCAL      /* local event */
+enum svr_event {
+    KICKOFF, /* kickoff event */
+    REMOTE,  /* remote event */
+    LOCAL    /* local event */
 };
 
 /* type of synthetic traffic */
-enum TRAFFIC
-{
-	UNIFORM = 1, /* sends message to a randomly selected node */
-    RAND_PERM = 2, 
-	NEAREST_GROUP = 3, /* sends message to the node connected to the neighboring router */
-	NEAREST_NEIGHBOR = 4, /* sends message to the next node (potentially connected to the same router) */
+enum TRAFFIC {
+    UNIFORM = 1, /* sends message to a randomly selected node */
+    RAND_PERM = 2,
+    NEAREST_GROUP = 3, /* sends message to the node connected to the neighboring router */
+    NEAREST_NEIGHBOR =
+        4, /* sends message to the next node (potentially connected to the same router) */
     RANDOM_OTHER_GROUP = 5
 
 };
 
-struct svr_state
-{
-    int msg_sent_count;   /* requests sent */
-    int msg_recvd_count;  /* requests recvd */
+struct svr_state {
+    int msg_sent_count;    /* requests sent */
+    int msg_recvd_count;   /* requests recvd */
     int local_recvd_count; /* number of local messages received */
-    tw_stime start_ts;    /* time that we started sending requests */
-    tw_stime end_ts;      /* time that we ended sending requests */
+    tw_stime start_ts;     /* time that we started sending requests */
+    tw_stime end_ts;       /* time that we ended sending requests */
     int svr_id;
     int dest_id;
 
     tw_stime max_server_latency; /* maximum measured packet latency observed by server */
-    tw_stime sum_server_latency; /* running sum of measured latencies observed by server for calc of mean */
+    tw_stime
+        sum_server_latency; /* running sum of measured latencies observed by server for calc of mean */
 };
 
-struct svr_msg
-{
+struct svr_msg {
     enum svr_event svr_event_type;
-    tw_lpid src;          /* source of this request or ack */
+    tw_lpid src; /* source of this request or ack */
     tw_stime msg_start_time;
-    tw_stime saved_time; /* helper for reverse computation */
+    tw_stime saved_time;  /* helper for reverse computation */
     int incremented_flag; /* helper for reverse computation */
     model_net_event_return event_rc;
 };
 
-static void svr_init(
-    svr_state * ns,
-    tw_lp * lp);
-static void svr_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp);
-static void svr_rev_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp);
-static void svr_finalize(
-    svr_state * ns,
-    tw_lp * lp);
+static void svr_init(svr_state* ns, tw_lp* lp);
+static void svr_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp);
+static void svr_rev_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp);
+static void svr_finalize(svr_state* ns, tw_lp* lp);
 
 tw_lptype svr_lp = {
-    (init_f) svr_init,
-    (pre_run_f) NULL,
-    (event_f) svr_event,
-    (revent_f) svr_rev_event,
-    (commit_f) NULL,
-    (final_f)  svr_finalize,
-    (map_f) codes_mapping,
-    sizeof(svr_state),
+    (init_f)svr_init, (pre_run_f)NULL,       (event_f)svr_event,   (revent_f)svr_rev_event,
+    (commit_f)NULL,   (final_f)svr_finalize, (map_f)codes_mapping, sizeof(svr_state),
 };
 
 // /* setup for the ROSS event tracing
@@ -134,7 +114,7 @@ tw_lptype svr_lp = {
 // }
 
 // /* can add in any model level data to be collected along with simulation engine data
-//  * in the ROSS instrumentation.  Will need to update the last field in 
+//  * in the ROSS instrumentation.  Will need to update the last field in
 //  * svr_model_types[0] for the size of the data to save in each function call
 //  */
 // void dally_svr_model_stat_collect(svr_state *s, tw_lp *lp, char *buffer)
@@ -166,37 +146,31 @@ tw_lptype svr_lp = {
 //     st_model_type_register("nw-lp", dally_svr_get_model_stat_types());
 // }
 
-const tw_optdef app_opt [] =
-{
-        TWOPT_GROUP("Model net synthetic traffic " ),
-    	TWOPT_UINT("traffic", traffic, "UNIFORM RANDOM=1, NEAREST NEIGHBOR=2 "),
-    	TWOPT_UINT("num_messages", num_msgs, "Number of messages to be generated per terminal "),
-    	TWOPT_UINT("payload_sz",PAYLOAD_SZ, "size of the message being sent "),
-    	TWOPT_STIME("sampling-interval", sampling_interval, "the sampling interval "),
-    	TWOPT_STIME("sampling-end-time", sampling_end_time, "sampling end time "),
-	    TWOPT_STIME("arrival_time", arrival_time, "INTER-ARRIVAL TIME"),
-        TWOPT_CHAR("lp-io-dir", lp_io_dir, "Where to place io output (unspecified -> no output"),
-        TWOPT_UINT("lp-io-use-suffix", lp_io_use_suffix, "Whether to append uniq suffix to lp-io directory (default 0)"),
-        TWOPT_END()
-};
+const tw_optdef app_opt[] = {
+    TWOPT_GROUP("Model net synthetic traffic "),
+    TWOPT_UINT("traffic", traffic, "UNIFORM RANDOM=1, NEAREST NEIGHBOR=2 "),
+    TWOPT_UINT("num_messages", num_msgs, "Number of messages to be generated per terminal "),
+    TWOPT_UINT("payload_sz", PAYLOAD_SZ, "size of the message being sent "),
+    TWOPT_STIME("sampling-interval", sampling_interval, "the sampling interval "),
+    TWOPT_STIME("sampling-end-time", sampling_end_time, "sampling end time "),
+    TWOPT_STIME("arrival_time", arrival_time, "INTER-ARRIVAL TIME"),
+    TWOPT_CHAR("lp-io-dir", lp_io_dir, "Where to place io output (unspecified -> no output"),
+    TWOPT_UINT("lp-io-use-suffix", lp_io_use_suffix,
+               "Whether to append uniq suffix to lp-io directory (default 0)"),
+    TWOPT_END()};
 
-const tw_lptype* svr_get_lp_type()
-{
-            return(&svr_lp);
+const tw_lptype* svr_get_lp_type() {
+    return (&svr_lp);
 }
 
-static void svr_add_lp_type()
-{
-  lp_type_register("nw-lp", svr_get_lp_type());
+static void svr_add_lp_type() {
+    lp_type_register("nw-lp", svr_get_lp_type());
 }
 
-static void issue_event(
-    svr_state * ns,
-    tw_lp * lp)
-{
+static void issue_event(svr_state* ns, tw_lp* lp) {
     (void)ns;
-    tw_event *e;
-    svr_msg *m;
+    tw_event* e;
+    svr_msg* m;
     tw_stime kickoff_time;
 
     /* each server sends a dummy event to itself that will kick off the real
@@ -212,10 +186,7 @@ static void issue_event(
     tw_event_send(e);
 }
 
-static void svr_init(
-    svr_state * ns,
-    tw_lp * lp)
-{
+static void svr_init(svr_state* ns, tw_lp* lp) {
     ns->start_ts = 0.0;
     ns->dest_id = -1;
     ns->svr_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
@@ -226,37 +197,26 @@ static void svr_init(
     return;
 }
 
-static void handle_kickoff_rev_event(
-            svr_state * ns,
-            tw_bf * b,
-            svr_msg * m,
-            tw_lp * lp)
-{
-    if(m->incremented_flag)
+static void handle_kickoff_rev_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp) {
+    if (m->incremented_flag)
         return;
 
-    if(b->c1)
+    if (b->c1)
         tw_rand_reverse_unif(lp->rng);
 
-    if(b->c8)
+    if (b->c8)
         tw_rand_reverse_unif(lp->rng);
-    if(traffic == RANDOM_OTHER_GROUP) {
+    if (traffic == RANDOM_OTHER_GROUP) {
         tw_rand_reverse_unif(lp->rng);
         tw_rand_reverse_unif(lp->rng);
     }
 
     model_net_event_rc2(lp, &m->event_rc);
-	ns->msg_sent_count--;
+    ns->msg_sent_count--;
     tw_rand_reverse_unif(lp->rng);
 }
-static void handle_kickoff_event(
-	    svr_state * ns,
-	    tw_bf * b,
-	    svr_msg * m,
-	    tw_lp * lp)
-{
-    if(ns->msg_sent_count >= num_msgs)
-    {
+static void handle_kickoff_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp) {
+    if (ns->msg_sent_count >= num_msgs) {
         m->incremented_flag = 1;
         return;
     }
@@ -266,8 +226,8 @@ static void handle_kickoff_event(
     char anno[MAX_NAME_LENGTH];
     tw_lpid local_dest = -1, global_dest = -1;
 
-    svr_msg * m_local = malloc(sizeof(svr_msg));
-    svr_msg * m_remote = malloc(sizeof(svr_msg));
+    svr_msg* m_local = malloc(sizeof(svr_msg));
+    svr_msg* m_remote = malloc(sizeof(svr_msg));
 
     m_local->svr_event_type = LOCAL;
     m_local->src = lp->gid;
@@ -276,98 +236,78 @@ static void handle_kickoff_event(
     memcpy(m_remote, m_local, sizeof(svr_msg));
     m_remote->svr_event_type = REMOTE;
 
-    assert(net_id == DRAGONFLY || net_id == DRAGONFLY_DALLY); /* only supported for dragonfly model right now. */
+    assert(net_id == DRAGONFLY ||
+           net_id == DRAGONFLY_DALLY); /* only supported for dragonfly model right now. */
     ns->start_ts = tw_now(lp);
-    codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno, &rep_id, &offset);
+    codes_mapping_get_lp_info(lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, anno,
+                              &rep_id, &offset);
     int local_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
 
-   /* in case of uniform random traffic, send to a random destination. */
-   if(traffic == UNIFORM)
-   {
-    b->c1 = 1;
-    local_dest = tw_rand_integer(lp->rng, 1, num_nodes - 2);
-    local_dest = (ns->svr_id + local_dest) % num_nodes;
-   }
-   else if(traffic == NEAREST_GROUP)
-   {
-	local_dest = (local_id + num_nodes_per_grp) % num_nodes;
-	//printf("\n LP %ld sending to %ld num nodes %d ", local_id, local_dest, num_nodes);
-   }
-   else if(traffic == NEAREST_NEIGHBOR)
-   {
-	local_dest =  (local_id + 1) % num_nodes;
-//	 printf("\n LP %ld sending to %ld num nodes %d ", rep_id * 2 + offset, local_dest, num_nodes);
-   }
-   else if(traffic == RAND_PERM)
-   {
-       if(ns->dest_id == -1)
-       {
+    /* in case of uniform random traffic, send to a random destination. */
+    if (traffic == UNIFORM) {
+        b->c1 = 1;
+        local_dest = tw_rand_integer(lp->rng, 1, num_nodes - 2);
+        local_dest = (ns->svr_id + local_dest) % num_nodes;
+    } else if (traffic == NEAREST_GROUP) {
+        local_dest = (local_id + num_nodes_per_grp) % num_nodes;
+        //printf("\n LP %ld sending to %ld num nodes %d ", local_id, local_dest, num_nodes);
+    } else if (traffic == NEAREST_NEIGHBOR) {
+        local_dest = (local_id + 1) % num_nodes;
+        //	 printf("\n LP %ld sending to %ld num nodes %d ", rep_id * 2 + offset, local_dest, num_nodes);
+    } else if (traffic == RAND_PERM) {
+        if (ns->dest_id == -1) {
             b->c8 = 1;
-            ns->dest_id = tw_rand_integer(lp->rng, 0, num_nodes - 1); 
+            ns->dest_id = tw_rand_integer(lp->rng, 0, num_nodes - 1);
             local_dest = ns->dest_id;
-       }
-       else
-       {
-        local_dest = ns->dest_id; 
-       }
-   }
-   else if(traffic == RANDOM_OTHER_GROUP)
-   {
-       int my_group_id = local_id / num_nodes_per_grp;
+        } else {
+            local_dest = ns->dest_id;
+        }
+    } else if (traffic == RANDOM_OTHER_GROUP) {
+        int my_group_id = local_id / num_nodes_per_grp;
 
-       int other_groups[num_groups-1];
-       int added =0;
-       for(int i = 0; i < num_groups; i++)
-       {
-           if(i != my_group_id) {
-               other_groups[added] = i;
-               added++;
-           }
-       }
-        int rand_group = other_groups[tw_rand_integer(lp->rng,0,added -1)];
-        int rand_node_intra_id = tw_rand_integer(lp->rng, 0, num_nodes_per_grp-1);
+        int other_groups[num_groups - 1];
+        int added = 0;
+        for (int i = 0; i < num_groups; i++) {
+            if (i != my_group_id) {
+                other_groups[added] = i;
+                added++;
+            }
+        }
+        int rand_group = other_groups[tw_rand_integer(lp->rng, 0, added - 1)];
+        int rand_node_intra_id = tw_rand_integer(lp->rng, 0, num_nodes_per_grp - 1);
 
         local_dest = (rand_group * num_nodes_per_grp) + rand_node_intra_id;
         printf("\n LP %d sending to %llu num nodes %llu ", local_id, LLU(local_dest), num_nodes);
+    }
+    assert(local_dest < num_nodes);
+    //   codes_mapping_get_lp_id(group_name, lp_type_name, anno, 1, local_dest / num_servers_per_rep, local_dest % num_servers_per_rep, &global_dest);
+    global_dest =
+        codes_mapping_get_lpid_from_relative(local_dest, group_name, lp_type_name, NULL, 0);
+    ns->msg_sent_count++;
+    m->event_rc = model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg),
+                                  (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
 
-   }
-   assert(local_dest < num_nodes);
-//   codes_mapping_get_lp_id(group_name, lp_type_name, anno, 1, local_dest / num_servers_per_rep, local_dest % num_servers_per_rep, &global_dest);
-   global_dest = codes_mapping_get_lpid_from_relative(local_dest, group_name, lp_type_name, NULL, 0);
-   ns->msg_sent_count++;
-   m->event_rc = model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
-
-   issue_event(ns, lp);
-   return;
+    issue_event(ns, lp);
+    return;
 }
 
-static void handle_remote_rev_event(
-            svr_state * ns,
-            tw_bf * b,
-            svr_msg * m,
-            tw_lp * lp)
-{
-        (void)b;
-        (void)m;
-        (void)lp;
-        ns->msg_recvd_count--;
+static void handle_remote_rev_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp) {
+    (void)b;
+    (void)m;
+    (void)lp;
+    ns->msg_recvd_count--;
 
-        tw_stime packet_latency = tw_now(lp) - m->msg_start_time;
-        ns->sum_server_latency -= packet_latency;
-        if (b->c2)
-            ns->max_server_latency = m->saved_time;
+    tw_stime packet_latency = tw_now(lp) - m->msg_start_time;
+    ns->sum_server_latency -= packet_latency;
+    if (b->c2)
+        ns->max_server_latency = m->saved_time;
 }
 
-static void handle_remote_event(
-	    svr_state * ns,
-	    tw_bf * b,
-	    svr_msg * m,
-	    tw_lp * lp)
-{
-        (void)b;
-        (void)m;
-        (void)lp;
-	ns->msg_recvd_count++;
+static void handle_remote_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp) {
+    (void)b;
+    (void)m;
+    (void)lp;
+    ns->msg_recvd_count++;
 
     tw_stime packet_latency = tw_now(lp) - m->msg_start_time;
     ns->sum_server_latency += packet_latency;
@@ -376,43 +316,28 @@ static void handle_remote_event(
         m->saved_time = ns->max_server_latency;
         ns->max_server_latency = packet_latency;
     }
-
 }
 
-static void handle_local_rev_event(
-                svr_state * ns,
-                tw_bf * b,
-                svr_msg * m,
-                tw_lp * lp)
-{
-        (void)b;
-        (void)m;
-        (void)lp;
-	ns->local_recvd_count--;
+static void handle_local_rev_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp) {
+    (void)b;
+    (void)m;
+    (void)lp;
+    ns->local_recvd_count--;
 }
 
-static void handle_local_event(
-                svr_state * ns,
-                tw_bf * b,
-                svr_msg * m,
-                tw_lp * lp)
-{
-        (void)b;
-        (void)m;
-        (void)lp;
+static void handle_local_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp) {
+    (void)b;
+    (void)m;
+    (void)lp;
     ns->local_recvd_count++;
 }
 
 /* convert seconds to ns */
-static tw_stime s_to_ns(tw_stime ns)
-{
-    return(ns * (1000.0 * 1000.0 * 1000.0));
+static tw_stime s_to_ns(tw_stime ns) {
+    return (ns * (1000.0 * 1000.0 * 1000.0));
 }
 
-static void svr_finalize(
-    svr_state * ns,
-    tw_lp * lp)
-{
+static void svr_finalize(svr_state* ns, tw_lp* lp) {
     ns->end_ts = tw_now(lp);
 
     //add to the global running sums
@@ -432,90 +357,75 @@ static void svr_finalize(
     return;
 }
 
-static void svr_rev_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp)
-{
-    switch (m->svr_event_type)
-    {
-	case REMOTE:
-		handle_remote_rev_event(ns, b, m, lp);
-		break;
-	case LOCAL:
-		handle_local_rev_event(ns, b, m, lp);
-		break;
-	case KICKOFF:
-		handle_kickoff_rev_event(ns, b, m, lp);
-		break;
-	default:
-		assert(0);
-		break;
+static void svr_rev_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp) {
+    switch (m->svr_event_type) {
+    case REMOTE:
+        handle_remote_rev_event(ns, b, m, lp);
+        break;
+    case LOCAL:
+        handle_local_rev_event(ns, b, m, lp);
+        break;
+    case KICKOFF:
+        handle_kickoff_rev_event(ns, b, m, lp);
+        break;
+    default:
+        assert(0);
+        break;
     }
 }
 
-static void svr_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp)
-{
-   switch (m->svr_event_type)
-    {
-        case REMOTE:
-            handle_remote_event(ns, b, m, lp);
-            break;
-        case LOCAL:
-            handle_local_event(ns, b, m, lp);
-            break;
-	case KICKOFF:
-	    handle_kickoff_event(ns, b, m, lp);
-	    break;
-        default:
-            printf("\n Invalid message type %d ", m->svr_event_type);
-            assert(0);
+static void svr_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp) {
+    switch (m->svr_event_type) {
+    case REMOTE:
+        handle_remote_event(ns, b, m, lp);
+        break;
+    case LOCAL:
+        handle_local_event(ns, b, m, lp);
+        break;
+    case KICKOFF:
+        handle_kickoff_event(ns, b, m, lp);
+        break;
+    default:
+        printf("\n Invalid message type %d ", m->svr_event_type);
+        assert(0);
         break;
     }
 }
 
 // does MPI reduces across PEs to generate stats based on the global static variables in this file
-static void svr_report_stats()
-{
+static void svr_report_stats() {
     long long total_received_messages;
     tw_stime total_sum_latency, max_latency, mean_latency;
-    
 
-    MPI_Reduce( &sum_global_messages_received, &total_received_messages, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
-    MPI_Reduce( &sum_global_server_latency, &total_sum_latency, 1,MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
-    MPI_Reduce( &max_global_server_latency, &max_latency, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_CODES);
+
+    MPI_Reduce(&sum_global_messages_received, &total_received_messages, 1, MPI_LONG_LONG, MPI_SUM,
+               0, MPI_COMM_CODES);
+    MPI_Reduce(&sum_global_server_latency, &total_sum_latency, 1, MPI_DOUBLE, MPI_SUM, 0,
+               MPI_COMM_CODES);
+    MPI_Reduce(&max_global_server_latency, &max_latency, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_CODES);
 
     mean_latency = total_sum_latency / total_received_messages;
 
-    if(!g_tw_mynode)
-    {	
-        printf("\nSynthetic Workload LP Stats: Mean Message Latency: %lf us,  Maximum Message Latency: %lf us,  Total Messages Received: %lld\n",
-                (float)mean_latency / 1000, (float)max_latency / 1000, total_received_messages);
+    if (!g_tw_mynode) {
+        printf("\nSynthetic Workload LP Stats: Mean Message Latency: %lf us,  Maximum Message "
+               "Latency: %lf us,  Total Messages Received: %lld\n",
+               (float)mean_latency / 1000, (float)max_latency / 1000, total_received_messages);
     }
 }
 
-int main(
-    int argc,
-    char **argv)
-{
+int main(int argc, char** argv) {
     int nprocs;
     int rank;
     int num_nets;
-    int *net_ids;
+    int* net_ids;
 
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
 
-    if(argc < 2)
-    {
-            printf("\n Usage: mpirun <args> --sync=2/3 mapping_file_name.conf (optional --nkp) ");
-            MPI_Finalize();
-            return 0;
+    if (argc < 2) {
+        printf("\n Usage: mpirun <args> --sync=2/3 mapping_file_name.conf (optional --nkp) ");
+        MPI_Finalize();
+        return 0;
     }
 
     MPI_Comm_rank(MPI_COMM_CODES, &rank);
@@ -540,14 +450,13 @@ int main(
     g_tw_ts_end = s_to_ns(5 * 24 * 60 * 60);
     model_net_enable_sampling(sampling_interval, sampling_end_time);
 
-    if(net_id != DRAGONFLY && net_id != DRAGONFLY_DALLY)
-    {
-	printf("\n The test works with dragonfly model configuration only! %d %d ", DRAGONFLY_DALLY, net_id);
+    if (net_id != DRAGONFLY && net_id != DRAGONFLY_DALLY) {
+        printf("\n The test works with dragonfly model configuration only! %d %d ", DRAGONFLY_DALLY,
+               net_id);
         MPI_Finalize();
         return 0;
     }
-    num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1, "nw-lp",
-            NULL, 1);
+    num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1, "nw-lp", NULL, 1);
 
     int num_routers;
 
@@ -563,15 +472,14 @@ int main(
 
     assert(num_nodes);
 
-    if(lp_io_dir[0])
-    {
+    if (lp_io_dir[0]) {
         do_lp_io = 1;
         int flags = lp_io_use_suffix ? LP_IO_UNIQ_SUFFIX : 0;
         int ret = lp_io_prepare(lp_io_dir, flags, &io_handle, MPI_COMM_CODES);
         assert(ret == 0 || !"lp_io_prepare failure");
     }
     tw_run();
-    if (do_lp_io){
+    if (do_lp_io) {
         int ret = lp_io_flush(io_handle, MPI_COMM_CODES);
         assert(ret == 0 || !"lp_io_flush failure");
     }

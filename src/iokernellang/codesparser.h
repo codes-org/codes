@@ -33,44 +33,44 @@
 
 /* Tokens.  */
 #ifndef YYTOKENTYPE
-# define YYTOKENTYPE
-   /* Put the tokens into the symbol table, so that GDB and other debuggers
+#define YYTOKENTYPE
+/* Put the tokens into the symbol table, so that GDB and other debuggers
       know about them.  */
-   enum yytokentype {
-     INTEGER = 258,
-     VARIABLE = 259,
-     WHILE = 260,
-     IF = 261,
-     PRINT = 262,
-     WRITE = 263,
-     WRITEAT = 264,
-     WRITE_ALL = 265,
-     WRITEAT_ALL = 266,
-     READ = 267,
-     READAT = 268,
-     READ_ALL = 269,
-     READAT_ALL = 270,
-     SYNC = 271,
-     SLEEP = 272,
-     OPEN = 273,
-     CLOSE = 274,
-     DELETE = 275,
-     FLUSH = 276,
-     SEEK = 277,
-     EXIT = 278,
-     IFX = 279,
-     ELSE = 280,
-     NE = 281,
-     EQ = 282,
-     LE = 283,
-     GE = 284,
-     GETNUMGROUPS = 285,
-     GETGROUPID = 286,
-     GETCURTIME = 287,
-     GETGROUPSIZE = 288,
-     GETGROUPRANK = 289,
-     UMINUS = 290
-   };
+enum yytokentype {
+    INTEGER = 258,
+    VARIABLE = 259,
+    WHILE = 260,
+    IF = 261,
+    PRINT = 262,
+    WRITE = 263,
+    WRITEAT = 264,
+    WRITE_ALL = 265,
+    WRITEAT_ALL = 266,
+    READ = 267,
+    READAT = 268,
+    READ_ALL = 269,
+    READAT_ALL = 270,
+    SYNC = 271,
+    SLEEP = 272,
+    OPEN = 273,
+    CLOSE = 274,
+    DELETE = 275,
+    FLUSH = 276,
+    SEEK = 277,
+    EXIT = 278,
+    IFX = 279,
+    ELSE = 280,
+    NE = 281,
+    EQ = 282,
+    LE = 283,
+    GE = 284,
+    GETNUMGROUPS = 285,
+    GETGROUPID = 286,
+    GETCURTIME = 287,
+    GETGROUPSIZE = 288,
+    GETGROUPRANK = 289,
+    UMINUS = 290
+};
 #endif
 /* Tokens.  */
 #define INTEGER 258
@@ -108,66 +108,59 @@
 #define UMINUS 290
 
 
-
-
-#if ! defined YYSTYPE && ! defined YYSTYPE_IS_DECLARED
-typedef union YYSTYPE
-{
-
+#if !defined YYSTYPE && !defined YYSTYPE_IS_DECLARED
+typedef union YYSTYPE {
 /* Line 2068 of yacc.c  */
 #line 37 "codesparser.y"
 
-    int64_t iValue;                 /* integer value */
-    int64_t sIndex;              /* symbol table index */
-    nodeType *nPtr;             /* node pointer */
-
+    int64_t iValue; /* integer value */
+    int64_t sIndex; /* symbol table index */
+    nodeType* nPtr; /* node pointer */
 
 
 /* Line 2068 of yacc.c  */
 #line 128 "codesparser.h"
 } YYSTYPE;
-# define YYSTYPE_IS_TRIVIAL 1
-# define yystype YYSTYPE /* obsolescent; will be withdrawn */
-# define YYSTYPE_IS_DECLARED 1
+#define YYSTYPE_IS_TRIVIAL 1
+#define yystype YYSTYPE /* obsolescent; will be withdrawn */
+#define YYSTYPE_IS_DECLARED 1
 #endif
 
 
-
-#if ! defined YYLTYPE && ! defined YYLTYPE_IS_DECLARED
-typedef struct YYLTYPE
-{
-  int first_line;
-  int first_column;
-  int last_line;
-  int last_column;
+#if !defined YYLTYPE && !defined YYLTYPE_IS_DECLARED
+typedef struct YYLTYPE {
+    int first_line;
+    int first_column;
+    int last_line;
+    int last_column;
 } YYLTYPE;
-# define yyltype YYLTYPE /* obsolescent; will be withdrawn */
-# define YYLTYPE_IS_DECLARED 1
-# define YYLTYPE_IS_TRIVIAL 1
+#define yyltype YYLTYPE /* obsolescent; will be withdrawn */
+#define YYLTYPE_IS_DECLARED 1
+#define YYLTYPE_IS_TRIVIAL 1
 #endif
-
 
 
 #ifndef YYPUSH_DECLS
-#  define YYPUSH_DECLS
+#define YYPUSH_DECLS
 struct CodesIOKernel_pstate;
 typedef struct CodesIOKernel_pstate CodesIOKernel_pstate;
 enum { YYPUSH_MORE = 4 };
 #if defined __STDC__ || defined __cplusplus
-int CodesIOKernel_push_parse (CodesIOKernel_pstate *yyps, int yypushed_char, YYSTYPE const *yypushed_val, YYLTYPE const *yypushed_loc, CodesIOKernelContext * context);
+int CodesIOKernel_push_parse(CodesIOKernel_pstate* yyps, int yypushed_char,
+                             YYSTYPE const* yypushed_val, YYLTYPE const* yypushed_loc,
+                             CodesIOKernelContext* context);
 #else
-int CodesIOKernel_push_parse ();
+int CodesIOKernel_push_parse();
 #endif
 
 #if defined __STDC__ || defined __cplusplus
-CodesIOKernel_pstate * CodesIOKernel_pstate_new (void);
+CodesIOKernel_pstate* CodesIOKernel_pstate_new(void);
 #else
-CodesIOKernel_pstate * CodesIOKernel_pstate_new ();
+CodesIOKernel_pstate* CodesIOKernel_pstate_new();
 #endif
 #if defined __STDC__ || defined __cplusplus
-void CodesIOKernel_pstate_delete (CodesIOKernel_pstate *yyps);
+void CodesIOKernel_pstate_delete(CodesIOKernel_pstate* yyps);
 #else
-void CodesIOKernel_pstate_delete ();
+void CodesIOKernel_pstate_delete();
 #endif
 #endif
-

@@ -12,7 +12,7 @@ using namespace std;
 
 static void test_blockingcall() {
     cout << "* test_blockingcall" << endl;
-    
+
     vector<string> args = {"sleep", "1"};
     vector<string> result = zmqml_request("execute", args);
 
@@ -24,7 +24,7 @@ static void test_nonblockingcall() {
 
     vector<string> args = {"sleep", "3"};
     vector<string> ret = zmqml_request("launch", args);
-    
+
     string status = ret[0];
     string id = ret[1];
     cout << "status=" << status << " id=" << id << endl;
@@ -45,7 +45,7 @@ static void test_nonblockingcall() {
 
 static void test_send_binary() {
     cout << "* test_send_binary" << endl;
-    
+
     string data;
     ifstream file("model/ml-model.pt", ios::binary);
 
@@ -60,8 +60,7 @@ static void test_send_binary() {
         return;
     }
 
-    vector<string> ret = zmqml_request("send",
-                                       {"tmptestsend.dat"}, // dest filename
+    vector<string> ret = zmqml_request("send", {"tmptestsend.dat"}, // dest filename
                                        data);
     string status = ret[0];
     cout << "status=" << status << endl;
@@ -81,10 +80,12 @@ static void measure_latency() {
         tss.push_back(duration);
     }
     double sum = 0;
-    for (double ts : tss) sum += ts;
+    for (double ts : tss)
+        sum += ts;
     double mean = sum / tss.size();
     double sum_sq_diff = 0;
-    for (double ts : tss) sum_sq_diff += (ts - mean) * (ts - mean);
+    for (double ts : tss)
+        sum_sq_diff += (ts - mean) * (ts - mean);
     double std_dev = sqrt(sum_sq_diff / tss.size());
     cout << "zmqcmd latency: mean = " << mean << ", std deviation = " << std_dev << endl;
 }
@@ -93,13 +94,12 @@ static void measure_latency() {
 void test_mlpacketdelay_training() {
     std::cout << "* test_mlpacketdelay_training" << std::endl;
 
-    vector<string> args = {"mlpacketdelay_training", 
-                           "--method", "MLP", "--epoch", "1",
-                            "--input-file", "model/packets-delay.csv",
-                            "--model-path", "ml-model.pt"};
+    vector<string> args = {
+        "mlpacketdelay_training",  "--method",     "MLP",        "--epoch", "1", "--input-file",
+        "model/packets-delay.csv", "--model-path", "ml-model.pt"};
 
     vector<string> ret = zmqml_request("launch", args);
-    
+
     string status = ret[0];
     string id = ret[1];
     cout << "status=" << status << " id=" << id << endl;
@@ -119,9 +119,8 @@ void test_mlpacketdelay_training() {
 }
 
 
-
-int main () {
-    if(0) {
+int main() {
+    if (0) {
         test_send_binary();
         test_blockingcall();
         test_nonblockingcall();
@@ -129,7 +128,7 @@ int main () {
     }
 
     test_mlpacketdelay_training();
-    
+
     zmqml_request("exit");
     return 0;
 }

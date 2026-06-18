@@ -49,49 +49,27 @@ void resource_lp_configure();
  *                    request cannot be satisfied
  * return_tag, return_header - set in the return client event, using the offsets in cb
  */
-void resource_lp_get(
-        uint64_t req,
-        int block_on_unavail,
-        tw_lp *sender,
-        struct codes_mctx const * map_ctx,
-        int return_tag,
-        msg_header const *return_header,
-        struct codes_cb_info const *cb);
+void resource_lp_get(uint64_t req, int block_on_unavail, tw_lp* sender,
+                     struct codes_mctx const* map_ctx, int return_tag,
+                     msg_header const* return_header, struct codes_cb_info const* cb);
 /* no callback for frees thus far */
-void resource_lp_free(
-        uint64_t req,
-        tw_lp *sender,
-        struct codes_mctx const * map_ctx);
-void resource_lp_reserve(
-        uint64_t req,
-        int block_on_unavail,
-        tw_lp *sender,
-        struct codes_mctx const * map_ctx,
-        int return_tag,
-        msg_header const *return_header,
-        struct codes_cb_info const *cb);
-void resource_lp_get_reserved(
-        uint64_t req,
-        resource_token_t tok,
-        int block_on_unavail,
-        tw_lp *sender,
-        struct codes_mctx const * map_ctx,
-        int return_tag,
-        msg_header const *return_header,
-        struct codes_cb_info const *cb);
-void resource_lp_free_reserved(
-        uint64_t req,
-        resource_token_t tok,
-        tw_lp *sender,
-        struct codes_mctx const * map_ctx);
+void resource_lp_free(uint64_t req, tw_lp* sender, struct codes_mctx const* map_ctx);
+void resource_lp_reserve(uint64_t req, int block_on_unavail, tw_lp* sender,
+                         struct codes_mctx const* map_ctx, int return_tag,
+                         msg_header const* return_header, struct codes_cb_info const* cb);
+void resource_lp_get_reserved(uint64_t req, resource_token_t tok, int block_on_unavail,
+                              tw_lp* sender, struct codes_mctx const* map_ctx, int return_tag,
+                              msg_header const* return_header, struct codes_cb_info const* cb);
+void resource_lp_free_reserved(uint64_t req, resource_token_t tok, tw_lp* sender,
+                               struct codes_mctx const* map_ctx);
 
 /* rc functions - thankfully, they only use codes-local-latency, so no need 
  * to pass in any arguments */
-void resource_lp_get_rc(tw_lp *sender);
-void resource_lp_free_rc(tw_lp *sender);
-void resource_lp_reserve_rc(tw_lp *sender);
-void resource_lp_get_reserved_rc(tw_lp *sender);
-void resource_lp_free_reserved_rc(tw_lp *sender);
+void resource_lp_get_rc(tw_lp* sender);
+void resource_lp_free_rc(tw_lp* sender);
+void resource_lp_reserve_rc(tw_lp* sender);
+void resource_lp_get_reserved_rc(tw_lp* sender);
+void resource_lp_free_reserved_rc(tw_lp* sender);
 
 #ifdef __cplusplus
 }

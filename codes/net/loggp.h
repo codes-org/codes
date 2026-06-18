@@ -14,25 +14,23 @@ extern "C" {
 #include "../model-net-sched.h"
 
 /* types of events that will constitute triton requests */
-enum loggp_event_type 
-{
-    LG_MSG_READY = 1,  /* sender has transmitted msg to receiver */
-    LG_MSG_START,      /* initiate a transmission */
+enum loggp_event_type {
+    LG_MSG_READY = 1, /* sender has transmitted msg to receiver */
+    LG_MSG_START,     /* initiate a transmission */
 };
 
 typedef struct loggp_message loggp_message;
 
-struct loggp_message
-{
+struct loggp_message {
     int magic; /* magic number */
     enum loggp_event_type event_type;
-    tw_lpid src_gid; /* who transmitted this msg? */
-    tw_lpid src_mn_lp; // src modelnet id, provided by sender
-    tw_lpid final_dest_gid; /* who is eventually targetted with this msg? */
-    tw_lpid dest_mn_lp; // destination modelnet id, provided by sender
-    uint64_t net_msg_size_bytes;     /* size of modeled network message */
-    int event_size_bytes;     /* size of simulator event message that will be tunnelled to destination */
-    int local_event_size_bytes;     /* size of simulator event message that delivered locally upon local completion */
+    tw_lpid src_gid;             /* who transmitted this msg? */
+    tw_lpid src_mn_lp;           // src modelnet id, provided by sender
+    tw_lpid final_dest_gid;      /* who is eventually targetted with this msg? */
+    tw_lpid dest_mn_lp;          // destination modelnet id, provided by sender
+    uint64_t net_msg_size_bytes; /* size of modeled network message */
+    int event_size_bytes; /* size of simulator event message that will be tunnelled to destination */
+    int local_event_size_bytes; /* size of simulator event message that delivered locally upon local completion */
     char category[CATEGORY_NAME_MAX]; /* category for communication */
     model_net_event_return event_rc;
     int is_pull;

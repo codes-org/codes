@@ -14,7 +14,7 @@ struct avg_app_config {
     int num_iters_to_collect;
 };
 
-struct app_iteration_predictor avg_app_iteration_predictor(struct avg_app_config *);
+struct app_iteration_predictor avg_app_iteration_predictor(struct avg_app_config*);
 
 void free_avg_app_iteration_predictor(void);
 

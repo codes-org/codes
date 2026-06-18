@@ -27,7 +27,7 @@ int codes_mapping_get_lps_for_pe(void);
 tw_lpid codes_mapping_count_lps_of_type(char const lp_type_name[MAX_NAME_LENGTH]);
 
 /* Takes the global LP ID and returns the rank (PE id) on which the LP is mapped.*/
-tw_peid codes_mapping( tw_lpid gid);
+tw_peid codes_mapping(tw_lpid gid);
 
 /* loads the configuration file and sets up the number of LPs on each PE. */
 void codes_mapping_setup(void);
@@ -62,12 +62,8 @@ int codes_mapping_get_group_reps(const char* group_name);
  * returns the number of LPs found (0 in the case of some combination of group,
  * lp_type_name, and annotation not being found)
  */
-int codes_mapping_get_lp_count(
-        const char * group_name,
-        int          ignore_repetitions,
-        const char * lp_type_name,
-        const char * annotation,
-        int          ignore_annos);
+int codes_mapping_get_lp_count(const char* group_name, int ignore_repetitions,
+                               const char* lp_type_name, const char* annotation, int ignore_annos);
 
 /* Calculates the global LP ID given config identifying info. 
  *
@@ -82,14 +78,9 @@ int codes_mapping_get_lp_count(
  *
  * If the LP is unable to be found, a tw_error will occur
  */
-void codes_mapping_get_lp_id(
-        const char * group_name,
-        const char * lp_type_name,
-        const char * annotation,
-        int          ignore_anno,
-        int          rep_id,
-        int          offset,
-        tw_lpid    * gid);
+void codes_mapping_get_lp_id(const char* group_name, const char* lp_type_name,
+                             const char* annotation, int ignore_anno, int rep_id, int offset,
+                             tw_lpid* gid);
 
 /* Calculates the LP ID relative to other LPs (0..N-1, where N is the number of
  * LPs sharing the same type)
@@ -98,10 +89,7 @@ void codes_mapping_get_lp_id(
  * group_wise      - whether to compute id relative to the LP's group
  * annotation_wise - whether to compute id relative to the annotation the LP has
  */
-int codes_mapping_get_lp_relative_id(
-        tw_lpid gid,
-        int     group_wise,
-        int     annotation_wise);
+int codes_mapping_get_lp_relative_id(tw_lpid gid, int group_wise, int annotation_wise);
 
 /* Calculates the ROSS global LP ID of an LP given the relative ID and LP type
  * information
@@ -117,12 +105,9 @@ int codes_mapping_get_lp_relative_id(
  *                   the annotation parameter) or all annotations (ignoring the
  *                   annotation parameter)
  */
-tw_lpid codes_mapping_get_lpid_from_relative(
-        int          relative_id,
-        const char * group_name,
-        const char * lp_type_name,
-        const char * annotation,
-        int          annotation_wise);
+tw_lpid codes_mapping_get_lpid_from_relative(int relative_id, const char* group_name,
+                                             const char* lp_type_name, const char* annotation,
+                                             int annotation_wise);
 
 
 /* Returns configuration group information for a given LP-id
@@ -143,15 +128,8 @@ tw_lpid codes_mapping_get_lpid_from_relative(
  * repetition ID and/or the offset. Otherwise, the caller is expected to pass in
  * properly-allocated buffers for each (of size MAX_NAME_LENGTH)
  */
-void codes_mapping_get_lp_info(
-        tw_lpid gid,
-        char  * group_name,
-        int   * group_index,
-        char  * lp_type_name,
-        int   * lp_type_index,
-        char  * annotation,
-        int   * rep_id,
-        int   * offset);
+void codes_mapping_get_lp_info(tw_lpid gid, char* group_name, int* group_index, char* lp_type_name,
+                               int* lp_type_index, char* annotation, int* rep_id, int* offset);
 
 /* same end result as codes_mapping_get_lp_info, except:
  * - uses pointer-to-const instead of copying to output parameters.
@@ -163,13 +141,8 @@ void codes_mapping_get_lp_info(
  *
  * This function is preferred for performance and simplicity reasons
  */
-void codes_mapping_get_lp_info2(
-        tw_lpid gid,
-        char const * * group_name,
-        char const * * lp_type_name,
-        char const * * annotation,
-        int * rep_id,
-        int * offset);
+void codes_mapping_get_lp_info2(tw_lpid gid, char const** group_name, char const** lp_type_name,
+                                char const** annotation, int* rep_id, int* offset);
 
 //void codes_mapping_get_lp_info(tw_lpid gid, char* group_name, int* grp_id, int* lp_type_id, char* lp_type_name, int* grp_rep_id, int* offset);
 
@@ -184,9 +157,7 @@ void codes_mapping_get_lp_info2(
  *
  * Either the annotation string or NULL (in the case of an unannotated entry) is
  * returned. */
-const char* codes_mapping_get_annotation_by_name(
-        const char * group_name,
-        const char * lp_type_name);
+const char* codes_mapping_get_annotation_by_name(const char* group_name, const char* lp_type_name);
 
 /* Returns the annotation for the given LP. 
  *
@@ -206,8 +177,7 @@ const char* codes_mapping_get_annotation_by_lpid(tw_lpid gid);
  *
  * lp_name - lp name as used in the configuration
  */
-const config_anno_map_t * 
-codes_mapping_get_lp_anno_map(const char *lp_name);
+const config_anno_map_t* codes_mapping_get_lp_anno_map(const char* lp_name);
 
 /* the following functions are meant to aide in transferring LP mapping
  * information across PEs - basically, a canonical mapping of names (group,
@@ -216,20 +186,20 @@ codes_mapping_get_lp_anno_map(const char *lp_name);
  */
 
 /* returns a canonical index (cid) for the group name, or -1 if not found */
-int codes_mapping_get_group_cid_by_name(char const * group_name);
+int codes_mapping_get_group_cid_by_name(char const* group_name);
 int codes_mapping_get_group_cid_by_lpid(tw_lpid id);
-char const * codes_mapping_get_group_name_by_cid(int cid);
+char const* codes_mapping_get_group_name_by_cid(int cid);
 
 /* returns a canonical index (cid) for the LP name, or -1 if not found */
-int codes_mapping_get_lp_cid_by_name(char const * lp_type_name);
+int codes_mapping_get_lp_cid_by_name(char const* lp_type_name);
 int codes_mapping_get_lp_cid_by_lpid(tw_lpid id);
-char const * codes_mapping_get_lp_name_by_cid(int cid);
+char const* codes_mapping_get_lp_name_by_cid(int cid);
 
 /* returns a canonical index (cid) for an annotation, or -1 if not found.
  * NOTE: a NULL or "\0" annotation corresponds to the lack of an annotation */
-int codes_mapping_get_anno_cid_by_name(char const * annotation);
+int codes_mapping_get_anno_cid_by_name(char const* annotation);
 int codes_mapping_get_anno_cid_by_lpid(tw_lpid id);
-char const * codes_mapping_get_anno_name_by_cid(int cid);
+char const* codes_mapping_get_anno_name_by_cid(int cid);
 
 #ifdef __cplusplus
 }

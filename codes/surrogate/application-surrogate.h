@@ -32,7 +32,8 @@ struct application_director_config {
 };
 
 // Main function responsible for switching between high-fidelity and (application iteration) surrogate
-void application_director_configure(struct application_director_config *, struct app_iteration_predictor *);
+void application_director_configure(struct application_director_config*,
+                                    struct app_iteration_predictor*);
 
 void application_director_finalize(void);
 

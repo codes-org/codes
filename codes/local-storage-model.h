@@ -25,20 +25,21 @@ extern "C" {
  * stop-sequence markers */
 extern int lsm_in_sequence;
 extern tw_stime lsm_msg_offset;
-#define LSM_START_SEQ() do {\
-    lsm_in_sequence = 1; \
-    lsm_msg_offset = 0.0; \
-} while (0)
-#define LSM_END_SEQ() do {\
-    lsm_in_sequence = 0;\
-} while (0)
+#define LSM_START_SEQ()                                                                            \
+    do {                                                                                           \
+        lsm_in_sequence = 1;                                                                       \
+        lsm_msg_offset = 0.0;                                                                      \
+    } while (0)
+#define LSM_END_SEQ()                                                                              \
+    do {                                                                                           \
+        lsm_in_sequence = 0;                                                                       \
+    } while (0)
 
 /*
  * lsm_event_t
  *   - events supported by the local storage model
  */
-typedef enum lsm_event_e
-{
+typedef enum lsm_event_e {
     LSM_WRITE_REQUEST = 1,
     LSM_READ_REQUEST = 2,
     LSM_WRITE_COMPLETION = 3,
@@ -56,10 +57,8 @@ typedef struct {
  * Prototypes
  */
 
-/* given LP sender, find the LSM device LP in the same group */ 
-tw_lpid lsm_find_local_device(
-        struct codes_mctx const * map_ctx,
-        tw_lpid sender_gid);
+/* given LP sender, find the LSM device LP in the same group */
+tw_lpid lsm_find_local_device(struct codes_mctx const* map_ctx, tw_lpid sender_gid);
 
 /*
  * lsm_io_event
@@ -75,28 +74,18 @@ tw_lpid lsm_find_local_device(
  *   - io_type: read or write request
  */
 
-void lsm_io_event(
-        const char * lp_io_category,
-        uint64_t io_object,
-        int64_t  io_offset,
-        uint64_t io_size_bytes,
-        int      io_type,
-        tw_stime delay,
-        tw_lp *sender,
-        struct codes_mctx const * map_ctx,
-        int return_tag,
-        msg_header const * return_header,
-        struct codes_cb_info const * cb);
+void lsm_io_event(const char* lp_io_category, uint64_t io_object, int64_t io_offset,
+                  uint64_t io_size_bytes, int io_type, tw_stime delay, tw_lp* sender,
+                  struct codes_mctx const* map_ctx, int return_tag, msg_header const* return_header,
+                  struct codes_cb_info const* cb);
 
-void lsm_io_event_rc(tw_lp *sender);
+void lsm_io_event_rc(tw_lp* sender);
 
 /* get the priority count for the LSM scheduler.
  * returns 0 if priorities aren't being used, -1 if no LSMs were configured,
  * and >0 otherwise.
  * This should not be called before lsm_configure */
-int lsm_get_num_priorities(
-        struct codes_mctx const * map_ctx,
-        tw_lpid sender_id);
+int lsm_get_num_priorities(struct codes_mctx const* map_ctx, tw_lpid sender_id);
 
 /* set a request priority for the following lsm_event_*.
  * - tw_error will be called if the priority ends up being out-of-bounds

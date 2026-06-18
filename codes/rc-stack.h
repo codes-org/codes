@@ -31,27 +31,23 @@ extern "C" {
 
 struct rc_stack;
 
-void rc_stack_create(struct rc_stack **s);
-void rc_stack_destroy(struct rc_stack *s);
+void rc_stack_create(struct rc_stack** s);
+void rc_stack_destroy(struct rc_stack* s);
 
 /* push data to the stack with time given by tw_now(lp).
  * a NULL free function will do nothing with the data on GC
  * (useful for debugging) */
-void rc_stack_push(
-        tw_lp const *lp,
-        void *data,
-        void (*free_fn)(void*),
-        struct rc_stack *s);
+void rc_stack_push(tw_lp const* lp, void* data, void (*free_fn)(void*), struct rc_stack* s);
 
 /* pop data from the stack for rc (tw_error if stack empty) */
-void * rc_stack_pop(struct rc_stack *s);
+void* rc_stack_pop(struct rc_stack* s);
 
 /* get the number of entries on the stack (mostly for debug) */
-int rc_stack_count(struct rc_stack const *s);
+int rc_stack_count(struct rc_stack const* s);
 
 /* remove entries from the stack with generation time < GVT (lp->pe->GVT).
  * a NULL lp causes a delete-all */
-void rc_stack_gc(tw_lp const *lp, struct rc_stack *s);
+void rc_stack_gc(tw_lp const* lp, struct rc_stack* s);
 
 #ifdef __cplusplus
 }

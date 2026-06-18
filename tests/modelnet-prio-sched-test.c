@@ -28,15 +28,13 @@ typedef struct svr_msg svr_msg;
 typedef struct svr_state svr_state;
 
 /* types of events that will constitute triton requests */
-enum svr_event
-{
-    KICKOFF,    /* initial event */
-    RECV,       /* message received at sink */
-    ACK,        /* message received at source */
+enum svr_event {
+    KICKOFF, /* initial event */
+    RECV,    /* message received at sink */
+    ACK,     /* message received at source */
 };
 
-struct svr_state
-{
+struct svr_state {
     int server_idx;
     int num_recv[NUM_SERVERS];
     // for receiver - order messages are recv'd
@@ -46,81 +44,44 @@ struct svr_state
     int random_order[NUM_PRIOS];
 };
 
-struct svr_msg
-{
+struct svr_msg {
     msg_header h;
     int src_svr_idx;
     model_net_event_return ret[NUM_PRIOS];
     int msg_prio; // to check against message receipt order
 };
 
-static void svr_init(
-    svr_state * ns,
-    tw_lp * lp);
-static void svr_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp);
-static void svr_rev_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp);
-static void svr_finalize(
-    svr_state * ns,
-    tw_lp * lp);
+static void svr_init(svr_state* ns, tw_lp* lp);
+static void svr_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp);
+static void svr_rev_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp);
+static void svr_finalize(svr_state* ns, tw_lp* lp);
 
 tw_lptype svr_lp = {
-    (init_f) svr_init,
-    (pre_run_f) NULL,
-    (event_f) svr_event,
-    (revent_f) svr_rev_event,
-    (commit_f) NULL,
-    (final_f)  svr_finalize,
-    (map_f) codes_mapping,
-    sizeof(svr_state),
+    (init_f)svr_init, (pre_run_f)NULL,       (event_f)svr_event,   (revent_f)svr_rev_event,
+    (commit_f)NULL,   (final_f)svr_finalize, (map_f)codes_mapping, sizeof(svr_state),
 };
 
 static void svr_add_lp_type();
 static tw_stime s_to_ns(tw_stime ns);
-static void handle_kickoff_event(
-    svr_state * ns,
-    svr_msg * m,
-    tw_lp * lp);
-static void handle_recv_event(
-    svr_state * ns,
-    svr_msg * m);
-static void handle_kickoff_rev_event(
-    svr_state * ns,
-    svr_msg * m,
-    tw_lp * lp);
-static void handle_recv_rev_event(
-    svr_state * ns,
-    svr_msg * m);
+static void handle_kickoff_event(svr_state* ns, svr_msg* m, tw_lp* lp);
+static void handle_recv_event(svr_state* ns, svr_msg* m);
+static void handle_kickoff_rev_event(svr_state* ns, svr_msg* m, tw_lp* lp);
+static void handle_recv_rev_event(svr_state* ns, svr_msg* m);
 
-const tw_optdef app_opt [] =
-{
-	TWOPT_GROUP("Model net test case" ),
-	TWOPT_END()
-};
+const tw_optdef app_opt[] = {TWOPT_GROUP("Model net test case"), TWOPT_END()};
 
-int main(
-    int argc,
-    char **argv)
-{
+int main(int argc, char** argv) {
     int num_nets;
-    int *net_ids;
-    g_tw_ts_end = s_to_ns(60*60*24*365); /* one year, in nsecs */
+    int* net_ids;
+    g_tw_ts_end = s_to_ns(60 * 60 * 24 * 365); /* one year, in nsecs */
 
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
 
-    if(argc < 2)
-    {
-	    printf("\n Usage: mpirun <args> --sync=[1,3] -- mapping_file_name.conf (optional --nkp) ");
-	    MPI_Finalize();
-	    return 0;
+    if (argc < 2) {
+        printf("\n Usage: mpirun <args> --sync=[1,3] -- mapping_file_name.conf (optional --nkp) ");
+        MPI_Finalize();
+        return 0;
     }
 
     configuration_load(argv[2], MPI_COMM_WORLD, &config);
@@ -131,13 +92,12 @@ int main(
     codes_mapping_setup();
 
     net_ids = model_net_configure(&num_nets);
-    assert(num_nets==1);
+    assert(num_nets == 1);
     net_id = *net_ids;
     free(net_ids);
 
     assert(net_id == SIMPLENET);
-    assert(NUM_SERVERS == codes_mapping_get_lp_count("MODELNET_GRP", 0,
-                "nw-lp", NULL, 1));
+    assert(NUM_SERVERS == codes_mapping_get_lp_count("MODELNET_GRP", 0, "nw-lp", NULL, 1));
 
     tw_run();
 
@@ -145,109 +105,91 @@ int main(
     return prog_rtn;
 }
 
-static void svr_add_lp_type()
-{
-  lp_type_register("nw-lp", &svr_lp);
+static void svr_add_lp_type() {
+    lp_type_register("nw-lp", &svr_lp);
 }
 
-static void svr_init(
-    svr_state * ns,
-    tw_lp * lp)
-{
+static void svr_init(svr_state* ns, tw_lp* lp) {
     ns->server_idx = lp->gid / 2;
-    if (ns->server_idx < NUM_SERVERS-1){
-        for (int i = 0; i < NUM_PRIOS; i++){
+    if (ns->server_idx < NUM_SERVERS - 1) {
+        for (int i = 0; i < NUM_PRIOS; i++) {
             ns->random_order[i] = -1;
         }
-        for (int i = 0; i < NUM_PRIOS; i++){
-            for (;;){
-                int idx = tw_rand_integer(lp->rng, 0, NUM_PRIOS-1);
+        for (int i = 0; i < NUM_PRIOS; i++) {
+            for (;;) {
+                int idx = tw_rand_integer(lp->rng, 0, NUM_PRIOS - 1);
                 // not sure whether rand_integer is inclusive or not...
                 assert(idx < NUM_PRIOS);
-                if (ns->random_order[idx] == -1){
+                if (ns->random_order[idx] == -1) {
                     ns->random_order[idx] = i;
                     break;
                 }
             }
         }
-        tw_event *e = tw_event_new(lp->gid, codes_local_latency(lp), lp);
-        svr_msg * m = tw_event_data(e);
+        tw_event* e = tw_event_new(lp->gid, codes_local_latency(lp), lp);
+        svr_msg* m = tw_event_data(e);
         msg_set_header(666, KICKOFF, lp->gid, &m->h);
         tw_event_send(e);
-    }
-    else {
-        memset(ns->num_recv, 0, NUM_SERVERS*sizeof(*ns->num_recv));
+    } else {
+        memset(ns->num_recv, 0, NUM_SERVERS * sizeof(*ns->num_recv));
     }
 }
 
-static void svr_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp)
-{
+static void svr_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp) {
     (void)b;
-   switch (m->h.event_type)
-    {
-        case KICKOFF:
-            handle_kickoff_event(ns, m, lp);
-            break;
-        case RECV:
-            handle_recv_event(ns, m);
-            break;
-        default:
-	    printf("\n Invalid message type %d ", m->h.event_type);
-            assert(0);
+    switch (m->h.event_type) {
+    case KICKOFF:
+        handle_kickoff_event(ns, m, lp);
+        break;
+    case RECV:
+        handle_recv_event(ns, m);
+        break;
+    default:
+        printf("\n Invalid message type %d ", m->h.event_type);
+        assert(0);
         break;
     }
 }
 
-static void svr_rev_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp)
-{
+static void svr_rev_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp) {
     (void)b;
-    switch (m->h.event_type)
-    {
-        case KICKOFF:
-            handle_kickoff_rev_event(ns, m, lp);
-            break;
-        case RECV:
-            handle_recv_rev_event(ns, m);
-            break;
-        default:
-            assert(0);
-            break;
+    switch (m->h.event_type) {
+    case KICKOFF:
+        handle_kickoff_rev_event(ns, m, lp);
+        break;
+    case RECV:
+        handle_recv_rev_event(ns, m);
+        break;
+    default:
+        assert(0);
+        break;
     }
 
     return;
 }
 
-static void svr_finalize(
-    svr_state * ns,
-    tw_lp * lp)
-{
+static void svr_finalize(svr_state* ns, tw_lp* lp) {
     (void)lp;
-    if (ns->server_idx != NUM_SERVERS-1)
+    if (ns->server_idx != NUM_SERVERS - 1)
         return;
 
     int errs[NUM_SERVERS];
-    memset(errs, 0, NUM_SERVERS*sizeof(*errs));
-    for (int i = 0; i < NUM_SERVERS-1; i++){
-        for (int j = 0; j < NUM_PRIOS; j++){
-            if (ns->recv_order[i][j] != j){
+    memset(errs, 0, NUM_SERVERS * sizeof(*errs));
+    for (int i = 0; i < NUM_SERVERS - 1; i++) {
+        for (int j = 0; j < NUM_PRIOS; j++) {
+            if (ns->recv_order[i][j] != j) {
                 errs[i]++;
             }
         }
     }
-    for (int i = 0; i < NUM_SERVERS-1; i++){
-        if (errs[i] > 0){
-            fprintf(stderr, "ERROR: received from server %d in "
-                    "non-priority order:\n", i);
+    for (int i = 0; i < NUM_SERVERS - 1; i++) {
+        if (errs[i] > 0) {
+            fprintf(stderr,
+                    "ERROR: received from server %d in "
+                    "non-priority order:\n",
+                    i);
             fprintf(stderr, "     ");
-            for (int j = 0; j < NUM_PRIOS; j++){
+            for (int j = 0; j < NUM_PRIOS; j++) {
                 fprintf(stderr, " %d", ns->recv_order[i][j]);
             }
             fprintf(stderr, "\n");
@@ -257,18 +199,13 @@ static void svr_finalize(
 }
 
 /* convert seconds to ns */
-static tw_stime s_to_ns(tw_stime ns)
-{
-    return(ns * (1000.0 * 1000.0 * 1000.0));
+static tw_stime s_to_ns(tw_stime ns) {
+    return (ns * (1000.0 * 1000.0 * 1000.0));
 }
 
 /* handle initial event */
-static void handle_kickoff_event(
-    svr_state * ns,
-    svr_msg * m,
-    tw_lp * lp)
-{
-    assert(ns->server_idx < NUM_SERVERS-1);
+static void handle_kickoff_event(svr_state* ns, svr_msg* m, tw_lp* lp) {
+    assert(ns->server_idx < NUM_SERVERS - 1);
 
     // same msg header for all
     svr_msg m_remote;
@@ -276,47 +213,37 @@ static void handle_kickoff_event(
     m_remote.src_svr_idx = ns->server_idx;
 
     // dest LP is the same - the last server
-    tw_lpid dest = (NUM_SERVERS-1) * 2;
+    tw_lpid dest = (NUM_SERVERS - 1) * 2;
 
     MN_START_SEQ();
-    for (int i = 0; i < NUM_PRIOS; i++){
+    for (int i = 0; i < NUM_PRIOS; i++) {
         m_remote.msg_prio = ns->random_order[i];
         //printf("%lu: sending message with prio %d to %lu\n", lp->gid,
-                //m_remote.msg_prio, dest);
-        model_net_set_msg_param(MN_MSG_PARAM_SCHED, MN_SCHED_PARAM_PRIO,
-                (void*) &m_remote.msg_prio);
+        //m_remote.msg_prio, dest);
+        model_net_set_msg_param(MN_MSG_PARAM_SCHED, MN_SCHED_PARAM_PRIO, (void*)&m_remote.msg_prio);
         m->ret[i] = model_net_event(net_id, "test", dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg),
-                &m_remote, 0, NULL, lp);
+                                    &m_remote, 0, NULL, lp);
     }
     MN_END_SEQ();
 }
 
-static void handle_kickoff_rev_event(
-        svr_state *ns,
-        svr_msg *m,
-        tw_lp *lp){
-    assert(ns->server_idx < NUM_SERVERS-1);
-    for (int i = 0; i < NUM_PRIOS; i++){
+static void handle_kickoff_rev_event(svr_state* ns, svr_msg* m, tw_lp* lp) {
+    assert(ns->server_idx < NUM_SERVERS - 1);
+    for (int i = 0; i < NUM_PRIOS; i++) {
         model_net_event_rc2(lp, &m->ret[i]);
     }
 }
 
-static void handle_recv_event(
-		svr_state * ns,
-		svr_msg * m)
-{
-    assert(ns->server_idx == NUM_SERVERS-1);
+static void handle_recv_event(svr_state* ns, svr_msg* m) {
+    assert(ns->server_idx == NUM_SERVERS - 1);
     //printf("%lu received msg prio %d from %d (lp %lu)\n",
-            //lp->gid, m->msg_prio, m->src_svr_idx, m->h.src);
+    //lp->gid, m->msg_prio, m->src_svr_idx, m->h.src);
     int s = m->src_svr_idx;
     ns->recv_order[s][ns->num_recv[s]] = m->msg_prio;
     ns->num_recv[s]++;
 }
 
-static void handle_recv_rev_event(
-	       svr_state * ns,
-	       svr_msg * m)
-{
+static void handle_recv_rev_event(svr_state* ns, svr_msg* m) {
     ns->num_recv[m->src_svr_idx]--;
 }
 

@@ -5,15 +5,13 @@
 #include "codes/codes_mapping.h"
 
 
-
 #define NUM_DIR_TO_NW_EVENT 20
 #define DIR_RC_MAX_PREDICTION 5
 #define DIR_RC_MAX_TRAINING_RECORDS 10
 
 
-enum SIMULATION_MODE
-{
-    SIM_MODE_PDES=1,
+enum SIMULATION_MODE {
+    SIM_MODE_PDES = 1,
     SIM_MODE_ITERATION_SURROGATE,
 };
 
@@ -21,9 +19,8 @@ enum SIMULATION_MODE
 typedef struct director_message director_message;
 typedef struct director_annotation director_annotation;
 
-enum DIR_EVENTS
-{
-	DIR_AN_ITER_MARK=1,
+enum DIR_EVENTS {
+    DIR_AN_ITER_MARK = 1,
     DIR_OP_NW,
     DIR_REGISTERED_EVENT__SWITCH_TO_SURR,
     DIR_REGISTERED_EVENT__SWITCH_TO_PDES,
@@ -32,7 +29,7 @@ enum DIR_EVENTS
 
 enum DIR_OPERATIONS //currently unused
 {
-    DIR_AN_WK_START=1,
+    DIR_AN_WK_START = 1,
     DIR_AN_WK_ITERATION_END,
     DIR_AN_WK_END,
     DIR_OP_SEND,
@@ -41,37 +38,36 @@ enum DIR_OPERATIONS //currently unused
 
 
 // director event message struct
-struct director_message
-{
-   int msg_type;
-   int op_type;
-   int num_rngs;
-   int value;
-   //model_net_event_return event_rc;
-   //struct codes_workload_op * mpi_op;
+struct director_message {
+    int msg_type;
+    int op_type;
+    int num_rngs;
+    int value;
+    //model_net_event_return event_rc;
+    //struct codes_workload_op * mpi_op;
 
-   /*
+    /*
     * Reverse-computation snapshot for the Director LP.
     *
     * Filled at the start of director_event_handler() and consumed by
     * director_event_handler_rc().  These fields must stay before buffer
     * because buffer is intentionally the final field.
     */
-   int rc_valid;
+    int rc_valid;
 
-   int rc_simulation_mode;
-   int rc_training_cycle_id;
-   int rc_training_record_id;
-   tw_stime rc_training_data[DIR_RC_MAX_TRAINING_RECORDS];
+    int rc_simulation_mode;
+    int rc_training_cycle_id;
+    int rc_training_record_id;
+    tw_stime rc_training_data[DIR_RC_MAX_TRAINING_RECORDS];
 
-   int rc_next_prediction_index;
-   tw_stime rc_predictions[DIR_RC_MAX_PREDICTION];
+    int rc_next_prediction_index;
+    tw_stime rc_predictions[DIR_RC_MAX_PREDICTION];
 
-   int rc_registered_event_type;
-   int rc_old_nw_event_size;
-   void *rc_old_nw_event_buffer;
+    int rc_registered_event_type;
+    int rc_old_nw_event_size;
+    void* rc_old_nw_event_buffer;
 
-   /*
+    /*
     * Commit-safe side-effect staging.
     *
     * In optimistic mode, ZeroMQ send-records must not happen in forward
@@ -79,36 +75,34 @@ struct director_message
     * these fields, and director_event_handler_commit() performs the external
     * send only after the event is committed.
     */
-   int commit_send_records;
-   int commit_client_id;
-   int commit_training_cycle_id;
-   int commit_num_records;
-   tw_stime commit_records[DIR_RC_MAX_TRAINING_RECORDS];
+    int commit_send_records;
+    int commit_client_id;
+    int commit_training_cycle_id;
+    int commit_num_records;
+    tw_stime commit_records[DIR_RC_MAX_TRAINING_RECORDS];
 
-   /*
+    /*
     * Commit-safe retrain staging.
     *
     * In optimistic mode, retraining mutates external ZeroMQ server state and
     * therefore must happen only from the commit callback after rollback is no
     * longer possible.
     */
-   int commit_retrain_model;
-   int commit_retrain_iter;
+    int commit_retrain_model;
+    int commit_retrain_iter;
 
-   void *buffer; // this pointer MUST be at the end of the structure
+    void* buffer; // this pointer MUST be at the end of the structure
 };
 
 // director annotation struct
-struct director_annotation
-{
-   int an_type;
-   int an_value;
+struct director_annotation {
+    int an_type;
+    int an_value;
 };
 
 
 #ifdef __cplusplus
-extern "C"
-{
+extern "C" {
 #endif
 
 
@@ -125,12 +119,12 @@ extern "C"
  * 
  */
 
-//extern char* dir_client_request(const char* cmd, 
-//                                const char* args, 
+//extern char* dir_client_request(const char* cmd,
+//                                const char* args,
 //                                const char* data);
 
 
-extern void director_lp_register_model(const char *);
+extern void director_lp_register_model(const char*);
 
 
 /*

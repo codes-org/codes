@@ -27,7 +27,7 @@ extern "C" {
  * NOTE that even if an error occurred, a partial ConfigVTable tree
  * can be returned.
  */
-struct ConfigVTable * txtfile_openConfig (const char * filename, char ** err);
+struct ConfigVTable* txtfile_openConfig(const char* filename, char** err);
 
 /**
  * returns ConfigVTable, if all is OK *err is set to 0, 
@@ -36,7 +36,7 @@ struct ConfigVTable * txtfile_openConfig (const char * filename, char ** err);
  * NOTE that even if an error occurred, a partial ConfigVTable tree
  * can be returned.
  */
-struct ConfigVTable * txtfile_openStream (FILE * f, char ** err);
+struct ConfigVTable* txtfile_openStream(FILE* f, char** err);
 
 
 /**
@@ -45,7 +45,7 @@ struct ConfigVTable * txtfile_openStream (FILE * f, char ** err);
  * case *err is set to a pointer to an error string, which needs to be
  * freed by the user.
  */
-int txtfile_writeConfig (struct ConfigVTable * h, SectionHandle h2, FILE * out, char ** err);
+int txtfile_writeConfig(struct ConfigVTable* h, SectionHandle h2, FILE* out, char** err);
 
 #ifdef __cplusplus
 } /* extern "C"  */

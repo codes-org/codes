@@ -25,9 +25,7 @@ static int debug = 0;
 /**
  * See zmqmlrequester.h
  */
-vector<string> zmqml_request(const string& cmd,
-                             const vector<string>& args,
-                             const string& bindata) {
+vector<string> zmqml_request(const string& cmd, const vector<string>& args, const string& bindata) {
     zmq::context_t context(1);
     zmq::socket_t socket(context, ZMQ_REQ);
     socket.connect(endpoint);
@@ -46,7 +44,7 @@ vector<string> zmqml_request(const string& cmd,
         msg.AddMember("args", argsArray, allocator);
     } else {
         Value argsArray(kArrayType);
-        for(const auto& arg: args) {
+        for (const auto& arg : args) {
             argsArray.PushBack(Value(arg.c_str(), allocator), allocator);
         }
         msg.AddMember("args", argsArray, allocator);
@@ -56,7 +54,8 @@ vector<string> zmqml_request(const string& cmd,
     Writer<StringBuffer> writer(buffer);
     msg.Accept(writer);
 
-	if (debug) cout << buffer.GetString() << endl;
+    if (debug)
+        cout << buffer.GetString() << endl;
 
     string bufferstr = buffer.GetString();
     const char delimiter = '\0';
@@ -96,14 +95,9 @@ vector<string> zmqml_request(const string& cmd,
 }
 
 
-
-vector<string> zmqml_director_request(
-    const string& surrogate_family,
-    const string& surrogate_backend,
-    const string& operation,
-    const vector<string>& args,
-    const string& bindata)
-{
+vector<string> zmqml_director_request(const string& surrogate_family,
+                                      const string& surrogate_backend, const string& operation,
+                                      const vector<string>& args, const string& bindata) {
     zmq::context_t context(1);
     zmq::socket_t socket(context, ZMQ_REQ);
     socket.connect(endpoint);
@@ -132,7 +126,7 @@ vector<string> zmqml_director_request(
     if (args == std::vector<std::string>()) {
         argsArray.PushBack(Value("dummy", allocator), allocator);
     } else {
-        for(const auto& arg: args) {
+        for (const auto& arg : args) {
             argsArray.PushBack(Value(arg.c_str(), allocator), allocator);
         }
     }
@@ -142,7 +136,8 @@ vector<string> zmqml_director_request(
     Writer<StringBuffer> writer(buffer);
     msg.Accept(writer);
 
-    if (debug) cout << buffer.GetString() << endl;
+    if (debug)
+        cout << buffer.GetString() << endl;
 
     string bufferstr = buffer.GetString();
     const char delimiter = '\0';
@@ -180,7 +175,6 @@ vector<string> zmqml_director_request(
 
     return ret;
 }
-
 
 
 #if 0

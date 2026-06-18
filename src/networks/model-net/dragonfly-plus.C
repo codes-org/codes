@@ -100,14 +100,15 @@ static long packet_gen = 0, packet_fin = 0;
 /* bw monitoring time in nanosecs */
 static int bw_reset_window = 5000000;
 
-static FILE * dragonfly_rtr_bw_log = NULL;
-#define indexer3d(_ptr, _x, _y, _z, _maxx, _maxy, _maxz) \
-        ((_ptr) + _z * (_maxx * _maxy) + _y * (_maxx) + _x)
+static FILE* dragonfly_rtr_bw_log = NULL;
+#define indexer3d(_ptr, _x, _y, _z, _maxx, _maxy, _maxz)                                           \
+    ((_ptr) + _z * (_maxx * _maxy) + _y * (_maxx) + _x)
 
-#define indexer2d(_ptr, _x, _y, _maxx, _maxy) \
-        ((_ptr) + _y * (_maxx) + _x)
+#define indexer2d(_ptr, _x, _y, _maxx, _maxy) ((_ptr) + _y * (_maxx) + _x)
 
-static double maxd(double a, double b) { return a < b ? b : a; }
+static double maxd(double a, double b) {
+    return a < b ? b : a;
+}
 
 /* minimal and non-minimal packet counts for adaptive routing*/
 static int minimal_count = 0, nonmin_count = 0;
@@ -117,8 +118,8 @@ typedef struct dragonfly_plus_param dragonfly_plus_param;
 /* annotation-specific parameters (unannotated entry occurs at the
  * last index) */
 static uint64_t num_params = 0;
-static dragonfly_plus_param *all_params = NULL;
-static const config_anno_map_t *anno_map = NULL;
+static dragonfly_plus_param* all_params = NULL;
+static const config_anno_map_t* anno_map = NULL;
 
 /* global variables for codes mapping */
 static char lp_group_name[MAX_NAME_LENGTH];
@@ -143,7 +144,7 @@ static int num_intra_nonmin_hops = 4;
 static int num_intra_min_hops = 2;
 
 
-static FILE *dragonfly_log = NULL;
+static FILE* dragonfly_log = NULL;
 
 static int sample_bytes_written = 0;
 static int sample_rtr_bytes_written = 0;
@@ -155,50 +156,50 @@ static char router_sample_file[MAX_NAME_LENGTH];
 static tw_stime mpi_soft_overhead = 0;
 
 typedef struct terminal_plus_message_list terminal_plus_message_list;
-struct terminal_plus_message_list
-{
+struct terminal_plus_message_list {
     terminal_plus_message msg;
-    char *event_data;
-    terminal_plus_message_list *next;
-    terminal_plus_message_list *prev;
+    char* event_data;
+    terminal_plus_message_list* next;
+    terminal_plus_message_list* prev;
 };
 
-static void init_terminal_plus_message_list(terminal_plus_message_list *thisO, terminal_plus_message *inmsg)
-{
+static void init_terminal_plus_message_list(terminal_plus_message_list* thisO,
+                                            terminal_plus_message* inmsg) {
     thisO->msg = *inmsg;
     thisO->event_data = NULL;
     thisO->next = NULL;
     thisO->prev = NULL;
 }
 
-static void delete_terminal_plus_message_list(void *thisO)
-{
-    terminal_plus_message_list *toDel = (terminal_plus_message_list *) thisO;
+static void delete_terminal_plus_message_list(void* thisO) {
+    terminal_plus_message_list* toDel = (terminal_plus_message_list*)thisO;
     if (toDel->event_data != NULL)
         free(toDel->event_data);
     free(toDel);
 }
 
 template <class InputIterator1, class InputIterator2, class OutputIterator>
-OutputIterator _set_difference (InputIterator1 first1, InputIterator1 last1,
-                                 InputIterator2 first2, InputIterator2 last2,
-                                 OutputIterator result)
-{
-  while (first1!=last1 && first2!=last2)
-  {
-    if (*first1<*first2) { *result = *first1; ++result; ++first1; }
-    else if (*first2<*first1) ++first2;
-    else { ++first1; ++first2; }
-  }
-  return std::copy(first1,last1,result);
+OutputIterator _set_difference(InputIterator1 first1, InputIterator1 last1, InputIterator2 first2,
+                               InputIterator2 last2, OutputIterator result) {
+    while (first1 != last1 && first2 != last2) {
+        if (*first1 < *first2) {
+            *result = *first1;
+            ++result;
+            ++first1;
+        } else if (*first2 < *first1)
+            ++first2;
+        else {
+            ++first1;
+            ++first2;
+        }
+    }
+    return std::copy(first1, last1, result);
 }
 
-template <class T>
-vector< T > set_difference_vectors(vector<T> vec1, vector<T> vec2)
-{
+template <class T> vector<T> set_difference_vectors(vector<T> vec1, vector<T> vec2) {
     int max_len = std::max(vec1.size(), vec2.size());
-    vector< T > retVec(max_len);
-    typename vector< T >::iterator retIt;
+    vector<T> retVec(max_len);
+    typename vector<T>::iterator retIt;
 
     retIt = _set_difference(vec1.begin(), vec1.end(), vec2.begin(), vec2.end(), retVec.begin());
 
@@ -208,26 +209,28 @@ vector< T > set_difference_vectors(vector<T> vec1, vector<T> vec2)
 }
 
 template <class InputIterator1, class InputIterator2, class OutputIterator>
-OutputIterator _set_common (InputIterator1 first1, InputIterator1 last1,
-                                 InputIterator2 first2, InputIterator2 last2,
-                                 OutputIterator result)
-{
-  while (first1!=last1 && first2!=last2)
-  {
-    // if(*first1==*first2){ *result = *first1; ++result; ++first1; ++first2;} // yao compile error???
-    if (*first1<*first2) ++first1;
-    else if (*first2<*first1) ++first2;
-    else { *result = *first1; ++result; ++first1; ++first2;}
-  }
-  return result;
+OutputIterator _set_common(InputIterator1 first1, InputIterator1 last1, InputIterator2 first2,
+                           InputIterator2 last2, OutputIterator result) {
+    while (first1 != last1 && first2 != last2) {
+        // if(*first1==*first2){ *result = *first1; ++result; ++first1; ++first2;} // yao compile error???
+        if (*first1 < *first2)
+            ++first1;
+        else if (*first2 < *first1)
+            ++first2;
+        else {
+            *result = *first1;
+            ++result;
+            ++first1;
+            ++first2;
+        }
+    }
+    return result;
 }
 
-template <class T>
-vector< T > set_common_vectors(vector<T> vec1, vector<T> vec2)
-{
+template <class T> vector<T> set_common_vectors(vector<T> vec1, vector<T> vec2) {
     int max_len = std::max(vec1.size(), vec2.size());
-    vector< T > retVec(max_len);
-    typename vector< T >::iterator retIt;
+    vector<T> retVec(max_len);
+    typename vector<T>::iterator retIt;
 
     retIt = _set_common(vec1.begin(), vec1.end(), vec2.begin(), vec2.end(), retVec.begin());
 
@@ -236,10 +239,9 @@ vector< T > set_common_vectors(vector<T> vec1, vector<T> vec2)
     return retVec;
 }
 
-struct dragonfly_plus_param
-{
+struct dragonfly_plus_param {
     // configuration parameters
-    int num_routers;         /*Number of routers in a group*/
+    int num_routers; /*Number of routers in a group*/
     int num_injection_queues;
     int num_rails;
     int num_planes;
@@ -259,12 +261,12 @@ struct dragonfly_plus_param
 
     // qos params
     int num_qos_levels;
-    int * qos_bandwidths;
+    int* qos_bandwidths;
 
     // dfp params start
-    int num_router_spine;  // number of spine routers (top level)
-    int num_router_leaf;   // number of leaf routers (bottom level)
-    int adaptive_threshold;   // predefined queue length threshold T before a packet is routed through a lower priority queue
+    int num_router_spine; // number of spine routers (top level)
+    int num_router_leaf;  // number of leaf routers (bottom level)
+    int adaptive_threshold; // predefined queue length threshold T before a packet is routed through a lower priority queue
 
     int rail_select;
     int num_rails_per_plane;
@@ -277,7 +279,7 @@ struct dragonfly_plus_param
 
     int max_hops_notify; //maximum number of hops allowed before notifying via printout
 
-    long max_port_score;   // maximum score that can be given to any port during route scoring
+    long max_port_score; // maximum score that can be given to any port during route scoring
     // dfp params end
 
     int num_groups;
@@ -305,24 +307,21 @@ struct dragonfly_plus_param
 
 static const dragonfly_plus_param* stored_params;
 
-struct dfly_hash_key
-{
+struct dfly_hash_key {
     uint64_t message_id;
     tw_lpid sender_id;
 };
 
-struct dfly_router_sample
-{
+struct dfly_router_sample {
     tw_lpid router_id;
-    tw_stime *busy_time;
-    int64_t *link_traffic_sample;
+    tw_stime* busy_time;
+    int64_t* link_traffic_sample;
     tw_stime end_time;
     long fwd_events;
     long rev_events;
 };
 
-struct dfly_cn_sample
-{
+struct dfly_cn_sample {
     tw_lpid terminal_id;
     long fin_chunks_sample;
     long data_size_sample;
@@ -334,10 +333,9 @@ struct dfly_cn_sample
     long rev_events;
 };
 
-struct dfly_qhash_entry
-{
+struct dfly_qhash_entry {
     struct dfly_hash_key key;
-    char *remote_event_data;
+    char* remote_event_data;
     int num_chunks;
     int remote_event_size;
     struct qhash_head hash_link;
@@ -357,37 +355,29 @@ typedef enum event_t {
 } event_t;
 
 /* whether the last hop of a packet was global, local or a terminal */
-enum last_hop
-{
+enum last_hop {
     GLOBAL = 1,
     LOCAL,
     TERMINAL,
 };
 
-typedef enum qos_priority
-{
-    Q_HIGH =0,
+typedef enum qos_priority {
+    Q_HIGH = 0,
     Q_MEDIUM,
     Q_LOW,
     Q_UNKNOWN,
 } qos_priority;
 
-typedef enum qos_status
-{
+typedef enum qos_status {
     Q_ACTIVE = 1,
     Q_OVERBW,
 } qos_status;
 
 // Used to denote whether a Connection is one that would allow a packet to continue along a minimal path or not
 // Specifically used to clearly pass whether a Connection is a minimal one through to the Connection scoring function
-typedef enum conn_minimality_t
-{
-    C_MIN = 1,
-    C_NONMIN
-} conn_minimality_t;
+typedef enum conn_minimality_t { C_MIN = 1, C_NONMIN } conn_minimality_t;
 
-typedef enum routing_alg_t
-{
+typedef enum routing_alg_t {
     MINIMAL = 1, //will always follow the minimal route from host to host
     NON_MINIMAL_SPINE, //will always route through an intermediate spine in an intermediate group for inter group traffic
     NON_MINIMAL_LEAF, //will always route through an intermediate leaf in an intermediate group for inter group traffic
@@ -399,106 +389,90 @@ typedef enum routing_alg_t
     SMART_PROG_ADAPTIVE
 } routing_alg_t;
 
-typedef enum rail_selection_alg_t
-{
-    RAIL_CONGESTION=1,  // Selects rail with minimal injection congestion
-    RAIL_PATH,          // Selects the rail that provides minimal path congestion is tie breaker
+typedef enum rail_selection_alg_t {
+    RAIL_CONGESTION = 1, // Selects rail with minimal injection congestion
+    RAIL_PATH,           // Selects the rail that provides minimal path congestion is tie breaker
     RAIL_DEDICATED,      // Selects a specific rail
     RAIL_RAND
 } rail_selection_alg_t;
 
 
-typedef enum route_scoring_metric_t
-{
+typedef enum route_scoring_metric_t {
     ALPHA = 1, //Count queue lengths and pending messages for a port
     BETA, //Expected Hops to Destination * (Count queue lengths and pending messages) for a port
     GAMMA,
     DELTA
 } route_scoring_metric_t;
 
-typedef enum route_scoring_preference_t
-{
-    LOWER = 1,
-    HIGHER
-} route_scoring_preference_t;
+typedef enum route_scoring_preference_t { LOWER = 1, HIGHER } route_scoring_preference_t;
 
-enum router_type
-{
-    SPINE = 1,
-    LEAF
-};
+enum router_type { SPINE = 1, LEAF };
 
-typedef enum intermediate_router_t
-{
+typedef enum intermediate_router_t {
     INT_CHOICE_LEAF = 1,
     INT_CHOICE_SPINE,
     INT_CHOICE_BOTH
 } intermediate_router_t;
 
-static map< int, router_type> router_type_map;
+static map<int, router_type> router_type_map;
 
-static char* get_routing_alg_chararray(int routing_alg_int)
-{
-    char* rt_alg = (char*) calloc(MAX_ROUTING_CHARS, sizeof(char));
-    switch (routing_alg_int)
-    {
-        case MINIMAL:
-            strcpy(rt_alg, "MINIMAL");
+static char* get_routing_alg_chararray(int routing_alg_int) {
+    char* rt_alg = (char*)calloc(MAX_ROUTING_CHARS, sizeof(char));
+    switch (routing_alg_int) {
+    case MINIMAL:
+        strcpy(rt_alg, "MINIMAL");
         break;
-        case NON_MINIMAL_SPINE:
-            strcpy(rt_alg, "NON_MINIMAL_SPINE");
+    case NON_MINIMAL_SPINE:
+        strcpy(rt_alg, "NON_MINIMAL_SPINE");
         break;
-        case NON_MINIMAL_LEAF:
-            strcpy(rt_alg, "NON_MINIMAL_LEAF");
+    case NON_MINIMAL_LEAF:
+        strcpy(rt_alg, "NON_MINIMAL_LEAF");
         break;
-        case PROG_ADAPTIVE:
-            strcpy(rt_alg, "PROG_ADAPTIVE");
+    case PROG_ADAPTIVE:
+        strcpy(rt_alg, "PROG_ADAPTIVE");
         break;
-        case FULLY_PROG_ADAPTIVE:
-            strcpy(rt_alg, "FULL_PROG_ADAPTIVE");
+    case FULLY_PROG_ADAPTIVE:
+        strcpy(rt_alg, "FULL_PROG_ADAPTIVE");
         break;
-        case SMART_PROG_ADAPTIVE:
-            strcpy(rt_alg, "SMART_PROG_ADAPTIVE");
+    case SMART_PROG_ADAPTIVE:
+        strcpy(rt_alg, "SMART_PROG_ADAPTIVE");
         break;
-        case SMART_MINIMAL:
-            strcpy(rt_alg, "SMART_MINIMAL");
+    case SMART_MINIMAL:
+        strcpy(rt_alg, "SMART_MINIMAL");
         break;
-        case SMART_NON_MINIMAL:
-            strcpy(rt_alg, "SMART_NON_MINIMAL");
+    case SMART_NON_MINIMAL:
+        strcpy(rt_alg, "SMART_NON_MINIMAL");
         break;
-        default:
-            tw_error(TW_LOC, "Routing Algorithm is UNDEFINED - did you call get_routing_alg_string() before setting the static global variable: 'routing'?");
+    default:
+        tw_error(TW_LOC, "Routing Algorithm is UNDEFINED - did you call get_routing_alg_string() "
+                         "before setting the static global variable: 'routing'?");
         break;
     }
     return rt_alg;
 }
 
-static bool isRoutingAdaptive(int alg)
-{
+static bool isRoutingAdaptive(int alg) {
     if (alg == PROG_ADAPTIVE || alg == FULLY_PROG_ADAPTIVE || alg == SMART_PROG_ADAPTIVE)
         return true;
     else
         return false;
 }
 
-static bool isRoutingMinimal(int alg)
-{
+static bool isRoutingMinimal(int alg) {
     if (alg == MINIMAL || alg == SMART_MINIMAL)
         return true;
     else
         return false;
 }
 
-static bool isRoutingNonminimalExplicit(int alg)
-{
+static bool isRoutingNonminimalExplicit(int alg) {
     if (alg == NON_MINIMAL_LEAF || alg == NON_MINIMAL_SPINE || alg == SMART_NON_MINIMAL)
         return true;
     else
         return false;
 }
 
-static bool isRoutingSmart(int alg)
-{
+static bool isRoutingSmart(int alg) {
     if (alg == SMART_MINIMAL || alg == SMART_PROG_ADAPTIVE || alg == SMART_NON_MINIMAL)
         return true;
     else
@@ -511,8 +485,7 @@ typedef struct terminal_state terminal_state;
 typedef struct router_state router_state;
 
 /* dragonfly compute node data structure */
-struct terminal_state
-{
+struct terminal_state {
     uint64_t packet_counter;
 
     int packet_gen;
@@ -521,35 +494,35 @@ struct terminal_state
     int total_gen_size;
 
     // Dragonfly specific parameters
-    tw_lpid* router_lp; //one per rail
+    tw_lpid* router_lp;      //one per rail
     unsigned int* router_id; //one per rail
     unsigned int terminal_id;
 
     DragonflyConnectionManager connMan;
 
     // Each terminal will have an input and output channel with the router
-    int** vc_occupancy;  // [rail_id][qos_level]
+    int** vc_occupancy; // [rail_id][qos_level]
     int num_vcs;
-    tw_stime* terminal_available_time; // [rail_id]
-    terminal_plus_message_list ***terminal_msgs; //[rail_id][qos_level]
-    terminal_plus_message_list ***terminal_msgs_tail; //[rail_id][qos_level]
-    int* in_send_loop; //[rail_id]
+    tw_stime* terminal_available_time;                // [rail_id]
+    terminal_plus_message_list*** terminal_msgs;      //[rail_id][qos_level]
+    terminal_plus_message_list*** terminal_msgs_tail; //[rail_id][qos_level]
+    int* in_send_loop;                                //[rail_id]
     struct mn_stats dragonfly_stats_array[CATEGORY_MAX];
 
-    int ** qos_status; //[rail_id][qos_level]
-    int** qos_data; //[rail_id][qos_level]
+    int** qos_status; //[rail_id][qos_level]
+    int** qos_data;   //[rail_id][qos_level]
 
     int* last_qos_lvl; //[rail_id]
     int is_monitoring_bw;
 
-    struct rc_stack *st;
-    int *issueIdle; //[rail_id]
+    struct rc_stack* st;
+    int* issueIdle;        //[rail_id]
     int** terminal_length; //[rail_id][qos_level]
 
-    const char *anno;
-    const dragonfly_plus_param *params;
+    const char* anno;
+    const dragonfly_plus_param* params;
 
-    struct qhash_table *rank_tbl;
+    struct qhash_table* rank_tbl;
     uint64_t rank_tbl_pop;
 
     tw_stime total_time;
@@ -560,10 +533,11 @@ struct terminal_state
     long finished_packets;
 
     tw_stime* last_buf_full; //[rail_id]
-    tw_stime* busy_time; //[rail_id]
-    uint64_t* link_traffic; //[rail_id]
+    tw_stime* busy_time;     //[rail_id]
+    uint64_t* link_traffic;  //[rail_id]
 
-    unsigned long* stalled_chunks; //Counter for when a packet cannot be immediately routed due to full VC - [rail_id]
+    unsigned long*
+        stalled_chunks; //Counter for when a packet cannot be immediately routed due to full VC - [rail_id]
 
     tw_stime max_latency;
     tw_stime min_latency;
@@ -581,7 +555,7 @@ struct terminal_state
     tw_stime* busy_time_sample;
 
     char sample_buf[4096];
-    struct dfly_cn_sample *sample_stat;
+    struct dfly_cn_sample* sample_stat;
     int op_arr_size;
     int max_arr_size;
 
@@ -598,23 +572,22 @@ struct terminal_state
     struct dfly_cn_sample ross_sample;
 };
 
-struct router_state
-{
+struct router_state {
     int router_id;
     int group_id;
     int plane_id;
     int op_arr_size;
     int max_arr_size;
 
-    router_type dfp_router_type;  // Enum to specify whether this router is a spine or a leaf
+    router_type dfp_router_type; // Enum to specify whether this router is a spine or a leaf
 
     DragonflyConnectionManager connMan;
-    int *gc_usage;
+    int* gc_usage;
 
-    int *global_channel;
+    int* global_channel;
 
-    tw_stime *next_output_available_time;
-    tw_stime *last_buf_full;
+    tw_stime* next_output_available_time;
+    tw_stime* last_buf_full;
 
     /* qos related state variables */
     int num_rtr_rc_windows;
@@ -623,90 +596,87 @@ struct router_state
     int** qos_status;
     unsigned long long** qos_data;
 
-    tw_stime *busy_time;
-    tw_stime *busy_time_sample;
+    tw_stime* busy_time;
+    tw_stime* busy_time_sample;
 
-    unsigned long* stalled_chunks; //Coutner for when a packet is put into queued messages instead of routing due to full VC
+    unsigned long*
+        stalled_chunks; //Coutner for when a packet is put into queued messages instead of routing due to full VC
 
-    terminal_plus_message_list ***pending_msgs;
-    terminal_plus_message_list ***pending_msgs_tail;
-    terminal_plus_message_list ***queued_msgs;
-    terminal_plus_message_list ***queued_msgs_tail;
-    int *in_send_loop;
-    int *queued_count;
-    struct rc_stack *st;
+    terminal_plus_message_list*** pending_msgs;
+    terminal_plus_message_list*** pending_msgs_tail;
+    terminal_plus_message_list*** queued_msgs;
+    terminal_plus_message_list*** queued_msgs_tail;
+    int* in_send_loop;
+    int* queued_count;
+    struct rc_stack* st;
 
-    int **vc_occupancy;
-    int64_t *link_traffic;
-    int64_t *link_traffic_sample;
+    int** vc_occupancy;
+    int64_t* link_traffic;
+    int64_t* link_traffic_sample;
 
-    const char *anno;
-    const dragonfly_plus_param *params;
+    const char* anno;
+    const dragonfly_plus_param* params;
 
     char output_buf[4096];
     char output_buf2[4096];
 
-    struct dfly_router_sample *rsamples;
+    struct dfly_router_sample* rsamples;
 
     long fwd_events;
     long rev_events;
 
     // for ROSS instrumentation
     tw_stime* busy_time_ross_sample;
-    int64_t * link_traffic_ross_sample;
+    int64_t* link_traffic_ross_sample;
     struct dfly_router_sample ross_rsample;
 
     //GC occupancy report usage
     //for msg app id counting rec
     char output_buf4[4096];
-    int **msg_counting;
-    int **msg_counting_out;
+    int** msg_counting;
+    int** msg_counting_out;
     //counting total number of packets received during all counting windows, used to verify correct reverse computation
     int total_packets_received;
     int total_packets_sent;
-
 };
 
 /* ROSS model instrumentation */
-void dfly_plus_event_collect(terminal_plus_message *m, tw_lp *lp, char *buffer, int *collect_flag);
-void dfly_plus_model_stat_collect(terminal_state *s, tw_lp *lp, char *buffer);
-void dfly_plus_router_model_stat_collect(router_state *s, tw_lp *lp, char *buffer);
-static void ross_dfly_plus_rsample_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct dfly_router_sample *sample);
-static void ross_dfly_plus_rsample_rc_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct dfly_router_sample *sample);
-static void ross_dfly_plus_sample_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct dfly_cn_sample *sample);
-static void ross_dfly_plus_sample_rc_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct dfly_cn_sample *sample);
+void dfly_plus_event_collect(terminal_plus_message* m, tw_lp* lp, char* buffer, int* collect_flag);
+void dfly_plus_model_stat_collect(terminal_state* s, tw_lp* lp, char* buffer);
+void dfly_plus_router_model_stat_collect(router_state* s, tw_lp* lp, char* buffer);
+static void ross_dfly_plus_rsample_fn(router_state* s, tw_bf* bf, tw_lp* lp,
+                                      struct dfly_router_sample* sample);
+static void ross_dfly_plus_rsample_rc_fn(router_state* s, tw_bf* bf, tw_lp* lp,
+                                         struct dfly_router_sample* sample);
+static void ross_dfly_plus_sample_fn(terminal_state* s, tw_bf* bf, tw_lp* lp,
+                                     struct dfly_cn_sample* sample);
+static void ross_dfly_plus_sample_rc_fn(terminal_state* s, tw_bf* bf, tw_lp* lp,
+                                        struct dfly_cn_sample* sample);
 
 st_model_types dfly_plus_model_types[] = {
-    {(ev_trace_f)dfly_plus_event_collect,
-     sizeof(int),
-     (model_stat_f)dfly_plus_model_stat_collect,
+    {(ev_trace_f)dfly_plus_event_collect, sizeof(int), (model_stat_f)dfly_plus_model_stat_collect,
      sizeof(tw_lpid) + sizeof(long) * 2 + sizeof(double) + sizeof(tw_stime) * 2,
-     (sample_event_f)ross_dfly_plus_sample_fn,
-     (sample_revent_f)ross_dfly_plus_sample_rc_fn,
+     (sample_event_f)ross_dfly_plus_sample_fn, (sample_revent_f)ross_dfly_plus_sample_rc_fn,
      sizeof(struct dfly_cn_sample)},
-    {(ev_trace_f)dfly_plus_event_collect,
-     sizeof(int),
+    {(ev_trace_f)dfly_plus_event_collect, sizeof(int),
      (model_stat_f)dfly_plus_router_model_stat_collect,
      0, // updated in router_plus_init() since it's based on the radix
-     (sample_event_f)ross_dfly_plus_rsample_fn,
-     (sample_revent_f)ross_dfly_plus_rsample_rc_fn,
+     (sample_event_f)ross_dfly_plus_rsample_fn, (sample_revent_f)ross_dfly_plus_rsample_rc_fn,
      0}, // updated in router_plus_init() since it's based on the radix
     {NULL, 0, NULL, 0, NULL, NULL, 0}};
 /* End of ROSS model instrumentation */
 
 // event tracing callback - used router and terminal LPs
-void dfly_plus_event_collect(terminal_plus_message *m, tw_lp *lp, char *buffer, int *collect_flag)
-{
+void dfly_plus_event_collect(terminal_plus_message* m, tw_lp* lp, char* buffer, int* collect_flag) {
     (void)lp;
     (void)collect_flag;
 
-    int type = (int) m->type;
+    int type = (int)m->type;
     memcpy(buffer, &type, sizeof(type));
 }
 
 // GVT-based and real time sampling callback for terminals
-void dfly_plus_model_stat_collect(terminal_state *s, tw_lp *lp, char *buffer)
-{
+void dfly_plus_model_stat_collect(terminal_state* s, tw_lp* lp, char* buffer) {
     (void)lp;
 
     int index = 0;
@@ -738,8 +708,7 @@ void dfly_plus_model_stat_collect(terminal_state *s, tw_lp *lp, char *buffer)
     index += sizeof(tmp2);
     s->fin_chunks_time_ross_sample = 0;
 
-    for(int i = 0; i < s->params->num_rails; i++)
-    {
+    for (int i = 0; i < s->params->num_rails; i++) {
         tmp2 = s->busy_time_ross_sample[i];
         memcpy(&buffer[index], &tmp2, sizeof(tmp2));
         index += sizeof(tmp2);
@@ -750,11 +719,10 @@ void dfly_plus_model_stat_collect(terminal_state *s, tw_lp *lp, char *buffer)
 }
 
 // GVT-based and real time sampling callback for routers
-void dfly_plus_router_model_stat_collect(router_state *s, tw_lp *lp, char *buffer)
-{
+void dfly_plus_router_model_stat_collect(router_state* s, tw_lp* lp, char* buffer) {
     (void)lp;
 
-    const dragonfly_plus_param *p = s->params;
+    const dragonfly_plus_param* p = s->params;
     int i, index = 0;
 
     tw_lpid id = 0;
@@ -765,8 +733,7 @@ void dfly_plus_router_model_stat_collect(router_state *s, tw_lp *lp, char *buffe
     memcpy(&buffer[index], &id, sizeof(id));
     index += sizeof(id);
 
-    for(i = 0; i < p->radix; i++)
-    {
+    for (i = 0; i < p->radix; i++) {
         tmp = s->busy_time_ross_sample[i];
         memcpy(&buffer[index], &tmp, sizeof(tmp));
         index += sizeof(tmp);
@@ -780,35 +747,31 @@ void dfly_plus_router_model_stat_collect(router_state *s, tw_lp *lp, char *buffe
     return;
 }
 
-static const st_model_types  *dfly_plus_get_model_types(void)
-{
-    return(&dfly_plus_model_types[0]);
+static const st_model_types* dfly_plus_get_model_types(void) {
+    return (&dfly_plus_model_types[0]);
 }
 
-static const st_model_types  *dfly_plus_router_get_model_types(void)
-{
-    return(&dfly_plus_model_types[1]);
+static const st_model_types* dfly_plus_router_get_model_types(void) {
+    return (&dfly_plus_model_types[1]);
 }
 
-static void dfly_plus_register_model_types(st_model_types *base_type)
-{
+static void dfly_plus_register_model_types(st_model_types* base_type) {
     st_model_type_register(LP_CONFIG_NM_TERM, base_type);
 }
 
-static void dfly_plus_router_register_model_types(st_model_types *base_type)
-{
+static void dfly_plus_router_register_model_types(st_model_types* base_type) {
     st_model_type_register(LP_CONFIG_NM_ROUT, base_type);
 }
 /*** END of ROSS Instrumentation support */
 
 /* ROSS Instrumentation layer */
 // virtual time sampling callback - router forward
-static void ross_dfly_plus_rsample_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct dfly_router_sample *sample)
-{
+static void ross_dfly_plus_rsample_fn(router_state* s, tw_bf* bf, tw_lp* lp,
+                                      struct dfly_router_sample* sample) {
     (void)lp;
     (void)bf;
 
-    const dragonfly_plus_param *p = s->params;
+    const dragonfly_plus_param* p = s->params;
     int i = 0;
 
     sample->router_id = s->router_id;
@@ -818,8 +781,7 @@ static void ross_dfly_plus_rsample_fn(router_state * s, tw_bf * bf, tw_lp * lp, 
     sample->busy_time = (tw_stime*)((&sample->rev_events) + 1);
     sample->link_traffic_sample = (int64_t*)((&sample->busy_time[0]) + p->radix);
 
-    for(; i < p->radix; i++)
-    {
+    for (; i < p->radix; i++) {
         sample->busy_time[i] = s->ross_rsample.busy_time[i];
         sample->link_traffic_sample[i] = s->ross_rsample.link_traffic_sample[i];
     }
@@ -828,24 +790,22 @@ static void ross_dfly_plus_rsample_fn(router_state * s, tw_bf * bf, tw_lp * lp, 
     s->fwd_events = 0;
     s->rev_events = 0;
 
-    for( i = 0; i < p->radix; i++)
-    {
+    for (i = 0; i < p->radix; i++) {
         s->ross_rsample.busy_time[i] = 0;
         s->ross_rsample.link_traffic_sample[i] = 0;
     }
 }
 
 // virtual time sampling callback - router reverse
-static void ross_dfly_plus_rsample_rc_fn(router_state * s, tw_bf * bf, tw_lp * lp, struct dfly_router_sample *sample)
-{
+static void ross_dfly_plus_rsample_rc_fn(router_state* s, tw_bf* bf, tw_lp* lp,
+                                         struct dfly_router_sample* sample) {
     (void)lp;
     (void)bf;
 
-    const dragonfly_plus_param * p = s->params;
-    int i =0;
+    const dragonfly_plus_param* p = s->params;
+    int i = 0;
 
-    for(; i < p->radix; i++)
-    {
+    for (; i < p->radix; i++) {
         s->ross_rsample.busy_time[i] = sample->busy_time[i];
         s->ross_rsample.link_traffic_sample[i] = sample->link_traffic_sample[i];
     }
@@ -855,8 +815,8 @@ static void ross_dfly_plus_rsample_rc_fn(router_state * s, tw_bf * bf, tw_lp * l
 }
 
 // virtual time sampling callback - terminal forward
-static void ross_dfly_plus_sample_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct dfly_cn_sample *sample)
-{
+static void ross_dfly_plus_sample_fn(terminal_state* s, tw_bf* bf, tw_lp* lp,
+                                     struct dfly_cn_sample* sample) {
     (void)lp;
     (void)bf;
 
@@ -866,7 +826,7 @@ static void ross_dfly_plus_sample_fn(terminal_state * s, tw_bf * bf, tw_lp * lp,
     sample->fin_hops_sample = s->ross_sample.fin_hops_sample;
     sample->fin_chunks_time = s->ross_sample.fin_chunks_time;
     sample->busy_time_sample = (tw_stime*)((&sample->busy_time_sample[0] + s->params->num_rails));
-    for(int i = 0; i < s->params->num_rails; i++)
+    for (int i = 0; i < s->params->num_rails; i++)
         sample->busy_time_sample[i] = s->ross_sample.busy_time_sample[i];
     sample->end_time = tw_now(lp);
     sample->fwd_events = s->fwd_events;
@@ -878,17 +838,17 @@ static void ross_dfly_plus_sample_fn(terminal_state * s, tw_bf * bf, tw_lp * lp,
     s->fwd_events = 0;
     s->rev_events = 0;
     s->ross_sample.fin_chunks_time = 0;
-    for(int i = 0; i < s->params->num_rails; i++)
+    for (int i = 0; i < s->params->num_rails; i++)
         s->ross_sample.busy_time_sample[i] = 0;
 }
 
 // virtual time sampling callback - terminal reverse
-static void ross_dfly_plus_sample_rc_fn(terminal_state * s, tw_bf * bf, tw_lp * lp, struct dfly_cn_sample *sample)
-{
+static void ross_dfly_plus_sample_rc_fn(terminal_state* s, tw_bf* bf, tw_lp* lp,
+                                        struct dfly_cn_sample* sample) {
     (void)lp;
     (void)bf;
 
-    for(int i = 0; i < s->params->num_rails; i++)
+    for (int i = 0; i < s->params->num_rails; i++)
         s->ross_sample.busy_time_sample[i] = sample->busy_time_sample[i];
     s->ross_sample.fin_chunks_time = sample->fin_chunks_time;
     s->ross_sample.fin_hops_sample = sample->fin_hops_sample;
@@ -898,32 +858,31 @@ static void ross_dfly_plus_sample_rc_fn(terminal_state * s, tw_bf * bf, tw_lp * 
     s->rev_events = sample->rev_events;
 }
 
-void dragonfly_plus_rsample_init(router_state *s, tw_lp *lp)
-{
-    (void) lp;
+void dragonfly_plus_rsample_init(router_state* s, tw_lp* lp) {
+    (void)lp;
     int i = 0;
-    const dragonfly_plus_param *p = s->params;
+    const dragonfly_plus_param* p = s->params;
 
     assert(p->radix);
 
     s->max_arr_size = MAX_STATS;
-    s->rsamples = (struct dfly_router_sample *) calloc(MAX_STATS, sizeof(struct dfly_router_sample));
+    s->rsamples = (struct dfly_router_sample*)calloc(MAX_STATS, sizeof(struct dfly_router_sample));
     for (; i < s->max_arr_size; i++) {
-        s->rsamples[i].busy_time = (tw_stime *) calloc(p->radix, sizeof(tw_stime));
-        s->rsamples[i].link_traffic_sample = (int64_t *) calloc(p->radix, sizeof(int64_t));
+        s->rsamples[i].busy_time = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
+        s->rsamples[i].link_traffic_sample = (int64_t*)calloc(p->radix, sizeof(int64_t));
     }
 }
-void dragonfly_plus_rsample_rc_fn(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
-    (void) bf;
-    (void) lp;
-    (void) msg;
+void dragonfly_plus_rsample_rc_fn(router_state* s, tw_bf* bf, terminal_plus_message* msg,
+                                  tw_lp* lp) {
+    (void)bf;
+    (void)lp;
+    (void)msg;
 
     s->op_arr_size--;
     int cur_indx = s->op_arr_size;
     struct dfly_router_sample stat = s->rsamples[cur_indx];
 
-    const dragonfly_plus_param *p = s->params;
+    const dragonfly_plus_param* p = s->params;
     int i = 0;
 
     for (; i < p->radix; i++) {
@@ -939,17 +898,17 @@ void dragonfly_plus_rsample_rc_fn(router_state *s, tw_bf *bf, terminal_plus_mess
     s->rev_events = stat.rev_events;
 }
 
-void dragonfly_plus_rsample_fn(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
-    (void) bf;
-    (void) lp;
-    (void) msg;
+void dragonfly_plus_rsample_fn(router_state* s, tw_bf* bf, terminal_plus_message* msg, tw_lp* lp) {
+    (void)bf;
+    (void)lp;
+    (void)msg;
 
-    const dragonfly_plus_param *p = s->params;
+    const dragonfly_plus_param* p = s->params;
 
     if (s->op_arr_size >= s->max_arr_size) {
-        struct dfly_router_sample *tmp =
-            (dfly_router_sample *) calloc((MAX_STATS + s->max_arr_size), sizeof(struct dfly_router_sample));
+        struct dfly_router_sample* tmp =
+            (dfly_router_sample*)calloc((MAX_STATS + s->max_arr_size),
+                                        sizeof(struct dfly_router_sample));
         memcpy(tmp, s->rsamples, s->op_arr_size * sizeof(struct dfly_router_sample));
         free(s->rsamples);
         s->rsamples = tmp;
@@ -981,21 +940,22 @@ void dragonfly_plus_rsample_fn(router_state *s, tw_bf *bf, terminal_plus_message
     }
 }
 
-void dragonfly_plus_rsample_fin(router_state *s, tw_lp *lp)
-{
-    (void) lp;
-    const dragonfly_plus_param *p = s->params;
+void dragonfly_plus_rsample_fin(router_state* s, tw_lp* lp) {
+    (void)lp;
+    const dragonfly_plus_param* p = s->params;
 
     if (s->router_id == 0) {
         /* write metadata file */
         char meta_fname[64];
         sprintf(meta_fname, "dragonfly-router-sampling.meta");
 
-        FILE *fp = fopen(meta_fname, "w");
+        FILE* fp = fopen(meta_fname, "w");
         fprintf(fp,
-                "Router sample struct format: \nrouter_id (tw_lpid) \nbusy time for each of the %d links "
+                "Router sample struct format: \nrouter_id (tw_lpid) \nbusy time for each of the %d "
+                "links "
                 "(double) \n"
-                "link traffic for each of the %d links (int64_t) \nsample end time (double) forward events "
+                "link traffic for each of the %d links (int64_t) \nsample end time (double) "
+                "forward events "
                 "per sample \nreverse events per sample ",
                 p->radix, p->radix);
         fclose(fp);
@@ -1010,49 +970,48 @@ void dragonfly_plus_rsample_fin(router_state *s, tw_lp *lp)
 
     int size_sample = sizeof(tw_lpid) + p->radix * (sizeof(int64_t) + sizeof(tw_stime)) +
                       sizeof(tw_stime) + 2 * sizeof(long);
-    FILE *fp = fopen(rt_fn, "a");
+    FILE* fp = fopen(rt_fn, "a");
     fseek(fp, sample_rtr_bytes_written, SEEK_SET);
 
     for (; i < s->op_arr_size; i++) {
-        fwrite((void *) &(s->rsamples[i].router_id), sizeof(tw_lpid), 1, fp);
+        fwrite((void*)&(s->rsamples[i].router_id), sizeof(tw_lpid), 1, fp);
         fwrite(s->rsamples[i].busy_time, sizeof(tw_stime), p->radix, fp);
         fwrite(s->rsamples[i].link_traffic_sample, sizeof(int64_t), p->radix, fp);
-        fwrite((void *) &(s->rsamples[i].end_time), sizeof(tw_stime), 1, fp);
-        fwrite((void *) &(s->rsamples[i].fwd_events), sizeof(long), 1, fp);
-        fwrite((void *) &(s->rsamples[i].rev_events), sizeof(long), 1, fp);
+        fwrite((void*)&(s->rsamples[i].end_time), sizeof(tw_stime), 1, fp);
+        fwrite((void*)&(s->rsamples[i].fwd_events), sizeof(long), 1, fp);
+        fwrite((void*)&(s->rsamples[i].rev_events), sizeof(long), 1, fp);
     }
     sample_rtr_bytes_written += (s->op_arr_size * size_sample);
     fclose(fp);
 }
-void dragonfly_plus_sample_init(terminal_state *s, tw_lp *lp)
-{
-    (void) lp;
+void dragonfly_plus_sample_init(terminal_state* s, tw_lp* lp) {
+    (void)lp;
     s->fin_chunks_sample = 0;
     s->data_size_sample = 0;
     s->fin_hops_sample = 0;
     s->fin_chunks_time = 0;
-    for(int i = 0; i < s->params->num_rails; i++)
+    for (int i = 0; i < s->params->num_rails; i++)
         s->busy_time_sample[i] = 0;
 
     s->op_arr_size = 0;
     s->max_arr_size = MAX_STATS;
 
-    s->sample_stat = (dfly_cn_sample *) calloc(MAX_STATS, sizeof(struct dfly_cn_sample));
-    for(int i = 0; i < s->max_arr_size; i++)
-    {
-        s->sample_stat[i].busy_time_sample = (tw_stime *)calloc(s->params->num_rails, sizeof(tw_stime));
+    s->sample_stat = (dfly_cn_sample*)calloc(MAX_STATS, sizeof(struct dfly_cn_sample));
+    for (int i = 0; i < s->max_arr_size; i++) {
+        s->sample_stat[i].busy_time_sample =
+            (tw_stime*)calloc(s->params->num_rails, sizeof(tw_stime));
     }
 }
-void dragonfly_plus_sample_rc_fn(terminal_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
-    (void) lp;
-    (void) bf;
-    (void) msg;
+void dragonfly_plus_sample_rc_fn(terminal_state* s, tw_bf* bf, terminal_plus_message* msg,
+                                 tw_lp* lp) {
+    (void)lp;
+    (void)bf;
+    (void)msg;
 
     s->op_arr_size--;
     int cur_indx = s->op_arr_size;
     struct dfly_cn_sample stat = s->sample_stat[cur_indx];
-    for(int i = 0; i < s->params->num_rails; i++)
+    for (int i = 0; i < s->params->num_rails; i++)
         s->busy_time_sample[i] = stat.busy_time_sample[i];
     s->fin_chunks_time = stat.fin_chunks_time;
     s->fin_hops_sample = stat.fin_hops_sample;
@@ -1072,17 +1031,16 @@ void dragonfly_plus_sample_rc_fn(terminal_state *s, tw_bf *bf, terminal_plus_mes
     stat.rev_events = 0;
 }
 
-void dragonfly_plus_sample_fn(terminal_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
-    (void) lp;
-    (void) msg;
-    (void) bf;
+void dragonfly_plus_sample_fn(terminal_state* s, tw_bf* bf, terminal_plus_message* msg, tw_lp* lp) {
+    (void)lp;
+    (void)msg;
+    (void)bf;
 
     if (s->op_arr_size >= s->max_arr_size) {
         /* In the worst case, copy array to a new memory location, its very
          * expensive operation though */
-        struct dfly_cn_sample *tmp =
-            (dfly_cn_sample *) calloc((MAX_STATS + s->max_arr_size), sizeof(struct dfly_cn_sample));
+        struct dfly_cn_sample* tmp =
+            (dfly_cn_sample*)calloc((MAX_STATS + s->max_arr_size), sizeof(struct dfly_cn_sample));
         memcpy(tmp, s->sample_stat, s->op_arr_size * sizeof(struct dfly_cn_sample));
         free(s->sample_stat);
         s->sample_stat = tmp;
@@ -1096,7 +1054,7 @@ void dragonfly_plus_sample_fn(terminal_state *s, tw_bf *bf, terminal_plus_messag
     s->sample_stat[cur_indx].data_size_sample = s->data_size_sample;
     s->sample_stat[cur_indx].fin_hops_sample = s->fin_hops_sample;
     s->sample_stat[cur_indx].fin_chunks_time = s->fin_chunks_time;
-    for(int i = 0; i < s->params->num_rails; i++)
+    for (int i = 0; i < s->params->num_rails; i++)
         s->sample_stat[cur_indx].busy_time_sample[i] = s->busy_time_sample[i];
     s->sample_stat[cur_indx].end_time = tw_now(lp);
     s->sample_stat[cur_indx].fwd_events = s->fwd_events;
@@ -1109,13 +1067,12 @@ void dragonfly_plus_sample_fn(terminal_state *s, tw_bf *bf, terminal_plus_messag
     s->fwd_events = 0;
     s->rev_events = 0;
     s->fin_chunks_time = 0;
-    for(int i = 0; i < s->params->num_rails; i++)
+    for (int i = 0; i < s->params->num_rails; i++)
         s->busy_time_sample[i] = 0;
 }
 
-void dragonfly_plus_sample_fin(terminal_state *s, tw_lp *lp)
-{
-    (void) lp;
+void dragonfly_plus_sample_fin(terminal_state* s, tw_lp* lp) {
+    (void)lp;
 
 
     if (!g_tw_mynode) {
@@ -1123,12 +1080,12 @@ void dragonfly_plus_sample_fin(terminal_state *s, tw_lp *lp)
         char meta_fname[64];
         sprintf(meta_fname, "dragonfly-cn-sampling.meta");
 
-        FILE *fp = fopen(meta_fname, "w");
-        fprintf(
-            fp,
-            "Compute node sample format\nterminal_id (tw_lpid) \nfinished chunks (long)"
-            "\ndata size per sample (long) \nfinished hops (double) \ntime to finish chunks (double)"
-            "\nbusy time (double)\nsample end time(double) \nforward events (long) \nreverse events (long)");
+        FILE* fp = fopen(meta_fname, "w");
+        fprintf(fp, "Compute node sample format\nterminal_id (tw_lpid) \nfinished chunks (long)"
+                    "\ndata size per sample (long) \nfinished hops (double) \ntime to finish "
+                    "chunks (double)"
+                    "\nbusy time (double)\nsample end time(double) \nforward events (long) "
+                    "\nreverse events (long)");
         fclose(fp);
     }
 
@@ -1138,7 +1095,7 @@ void dragonfly_plus_sample_fin(terminal_state *s, tw_lp *lp)
     else
         sprintf(rt_fn, "%s-%ld.bin", cn_sample_file, g_tw_mynode);
 
-    FILE *fp = fopen(rt_fn, "a");
+    FILE* fp = fopen(rt_fn, "a");
     fseek(fp, sample_bytes_written, SEEK_SET);
     fwrite(s->sample_stat, sizeof(struct dfly_cn_sample), s->op_arr_size, fp);
     fclose(fp);
@@ -1146,30 +1103,51 @@ void dragonfly_plus_sample_fin(terminal_state *s, tw_lp *lp)
     sample_bytes_written += (s->op_arr_size * sizeof(struct dfly_cn_sample));
 }
 
-int dragonfly_plus_get_assigned_router_id(const dragonfly_plus_param *p, int terminal_id, int rail_id);
+int dragonfly_plus_get_assigned_router_id(const dragonfly_plus_param* p, int terminal_id,
+                                          int rail_id);
 
 static short routing = MINIMAL;
 static short scoring = ALPHA;
 static short scoring_preference = LOWER;
 
 /*Routing Implementation Declarations*/
-static Connection dfp_minimal_routing(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id);
-static Connection dfp_nonminimal_leaf_routing(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id);
-static Connection dfp_prog_adaptive_routing(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id);
-static Connection dfp_fully_prog_adaptive_routing(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id);
-static Connection dfp_smart_minimal_routing(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id);
-static Connection dfp_smart_nonminimal_routing(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id);
-static Connection dfp_smart_prog_adaptive_routing(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id);
+static Connection dfp_minimal_routing(router_state* s, tw_bf* bf, terminal_plus_message* msg,
+                                      tw_lp* lp, int fdest_router_id);
+static Connection dfp_nonminimal_leaf_routing(router_state* s, tw_bf* bf,
+                                              terminal_plus_message* msg, tw_lp* lp,
+                                              int fdest_router_id);
+static Connection dfp_prog_adaptive_routing(router_state* s, tw_bf* bf, terminal_plus_message* msg,
+                                            tw_lp* lp, int fdest_router_id);
+static Connection dfp_fully_prog_adaptive_routing(router_state* s, tw_bf* bf,
+                                                  terminal_plus_message* msg, tw_lp* lp,
+                                                  int fdest_router_id);
+static Connection dfp_smart_minimal_routing(router_state* s, tw_bf* bf, terminal_plus_message* msg,
+                                            tw_lp* lp, int fdest_router_id);
+static Connection dfp_smart_nonminimal_routing(router_state* s, tw_bf* bf,
+                                               terminal_plus_message* msg, tw_lp* lp,
+                                               int fdest_router_id);
+static Connection dfp_smart_prog_adaptive_routing(router_state* s, tw_bf* bf,
+                                                  terminal_plus_message* msg, tw_lp* lp,
+                                                  int fdest_router_id);
 
 
 /*Routing Helper Declarations*/
-static int get_min_hops_to_dest_from_conn(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, Connection conn);
-static vector< Connection > get_legal_minimal_stops(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id);
-static vector< Connection > get_legal_nonminimal_stops(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id);
-static void dfp_select_intermediate_group(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id);
-static set< Connection> get_smart_legal_minimal_stops(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id, int max_global_hops_in_path);
+static int get_min_hops_to_dest_from_conn(router_state* s, tw_bf* bf, terminal_plus_message* msg,
+                                          tw_lp* lp, Connection conn);
+static vector<Connection> get_legal_minimal_stops(router_state* s, tw_bf* bf,
+                                                  terminal_plus_message* msg, tw_lp* lp,
+                                                  int fdest_router_id);
+static vector<Connection> get_legal_nonminimal_stops(router_state* s, tw_bf* bf,
+                                                     terminal_plus_message* msg, tw_lp* lp,
+                                                     int fdest_router_id);
+static void dfp_select_intermediate_group(router_state* s, tw_bf* bf, terminal_plus_message* msg,
+                                          tw_lp* lp, int fdest_router_id);
+static set<Connection> get_smart_legal_minimal_stops(router_state* s, tw_bf* bf,
+                                                     terminal_plus_message* msg, tw_lp* lp,
+                                                     int fdest_router_id,
+                                                     int max_global_hops_in_path);
 
-map<tuple<int,int,int>,bool> _accessibility_map;
+map<tuple<int, int, int>, bool> _accessibility_map;
 
 
 static tw_stime dragonfly_total_time = 0;
@@ -1183,12 +1161,11 @@ static long long N_finished_msgs = 0;
 static long long N_finished_chunks = 0;
 
 /* convert GiB/s and bytes to ns */
-static tw_stime bytes_to_ns(uint64_t bytes, double GB_p_s)
-{
+static tw_stime bytes_to_ns(uint64_t bytes, double GB_p_s) {
     tw_stime time;
 
     /* bytes to GB */
-    time = ((double) bytes) / (1024.0 * 1024.0 * 1024.0);
+    time = ((double)bytes) / (1024.0 * 1024.0 * 1024.0);
     /* GiB to s */
     time = time / GB_p_s;
     /* s to ns */
@@ -1197,24 +1174,23 @@ static tw_stime bytes_to_ns(uint64_t bytes, double GB_p_s)
     return (time);
 }
 
-static int dragonfly_rank_hash_compare(void *key, struct qhash_head *link)
-{
-    struct dfly_hash_key *message_key = (struct dfly_hash_key *) key;
-    struct dfly_qhash_entry *tmp = NULL;
+static int dragonfly_rank_hash_compare(void* key, struct qhash_head* link) {
+    struct dfly_hash_key* message_key = (struct dfly_hash_key*)key;
+    struct dfly_qhash_entry* tmp = NULL;
 
     tmp = qhash_entry(link, struct dfly_qhash_entry, hash_link);
 
-    if (tmp->key.message_id == message_key->message_id && tmp->key.sender_id == message_key->sender_id)
+    if (tmp->key.message_id == message_key->message_id &&
+        tmp->key.sender_id == message_key->sender_id)
         return 1;
 
     return 0;
 }
-static int dragonfly_hash_func(void *k, int table_size)
-{
-    struct dfly_hash_key *tmp = (struct dfly_hash_key *) k;
+static int dragonfly_hash_func(void* k, int table_size) {
+    struct dfly_hash_key* tmp = (struct dfly_hash_key*)k;
     uint32_t pc = 0, pb = 0;
     bj_hashlittle2(tmp, sizeof(*tmp), &pc, &pb);
-    return (int) (pc % (table_size - 1));
+    return (int)(pc % (table_size - 1));
     /*uint64_t key = (~tmp->message_id) + (tmp->message_id << 18);
     key = key * 21;
     key = ~key ^ (tmp->sender_id >> 4);
@@ -1223,14 +1199,12 @@ static int dragonfly_hash_func(void *k, int table_size)
 }
 
 /* returns the dragonfly message size */
-int dragonfly_plus_get_msg_sz(void)
-{
+int dragonfly_plus_get_msg_sz(void) {
     return sizeof(terminal_plus_message);
 }
 
-static void free_tmp(void *ptr)
-{
-    struct dfly_qhash_entry *dfly = (dfly_qhash_entry *) ptr;
+static void free_tmp(void* ptr) {
+    struct dfly_qhash_entry* dfly = (dfly_qhash_entry*)ptr;
     if (dfly->remote_event_data)
         free(dfly->remote_event_data);
 
@@ -1242,8 +1216,8 @@ static void free_tmp(void *ptr)
  * Scores a Connection based on the metric provided in the function
  * @param isMinimalPort a boolean variable used in the Gamma metric to pass whether a given port would lead to the destination in a minimal way
  */
-static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, Connection conn, conn_minimality_t c_minimality)
-{
+static int dfp_score_connection(router_state* s, tw_bf* bf, terminal_plus_message* msg, tw_lp* lp,
+                                Connection conn, conn_minimality_t c_minimality) {
     int score = 0; //can't forget to initialize this to zero.
     int port = conn.port;
 
@@ -1257,82 +1231,79 @@ static int dfp_score_connection(router_state *s, tw_bf *bf, terminal_plus_messag
             return 0;
     }
 
-    switch(conn.conn_type) {
-        case CONN_LOCAL:
-            vc_size = s->params->local_vc_size;
-            break;
-        case CONN_GLOBAL:
-            vc_size = s->params->global_vc_size;
-            break;
-        case CONN_TERMINAL:
-            vc_size = s->params->cn_vc_size;
-            break;
-        default:
-            tw_error(TW_LOC, "Error Connection type");
+    switch (conn.conn_type) {
+    case CONN_LOCAL:
+        vc_size = s->params->local_vc_size;
+        break;
+    case CONN_GLOBAL:
+        vc_size = s->params->global_vc_size;
+        break;
+    case CONN_TERMINAL:
+        vc_size = s->params->cn_vc_size;
+        break;
+    default:
+        tw_error(TW_LOC, "Error Connection type");
     }
 
-    switch(scoring) {
-        case ALPHA: //considers vc occupancy and queued count only LOWER SCORE IS BETTER
-        {
-            for(int k=0; k < s->params->num_vcs; k++)
-            {
-                score += s->vc_occupancy[port][k];
-            }
-            score += s->queued_count[port];
-
-            //score normalized to port size if FPAR is used
-            if (routing == FULLY_PROG_ADAPTIVE) {
-                score = (int)((double)score / port_size * 100);
-            }
-            break;
+    switch (scoring) {
+    case ALPHA: //considers vc occupancy and queued count only LOWER SCORE IS BETTER
+    {
+        for (int k = 0; k < s->params->num_vcs; k++) {
+            score += s->vc_occupancy[port][k];
         }
-        case BETA: //consideres vc occupancy and queued count multiplied by the number of minimum hops to the destination LOWER SCORE IS BETTER
-        {
-            int base_score = 0;
-            for(int k=0; k < s->params->num_vcs; k++)
-            {
-                base_score += s->vc_occupancy[port][k];
-            }
-            base_score += s->queued_count[port];
-            score = base_score * get_min_hops_to_dest_from_conn(s, bf, msg, lp, conn);
-            break;
-        }
-        case GAMMA: //consideres vc occupancy and queue count but ports that follow a minimal path to fdest are biased 2:1 bonus by multiplying minimal by 2 HIGHER SCORE IS BETTER
-        {
-            score = s->params->max_port_score; //initialize this to max score.
-            int to_subtract = 0;
-            for(int k=0; k < s->params->num_vcs; k++)
-            {
-                to_subtract += s->vc_occupancy[port][k];
-            }
-            to_subtract += s->queued_count[port];
-            score -= to_subtract;
+        score += s->queued_count[port];
 
-            if (c_minimality == C_MIN) //the Connection maintains the paths minimality - gets a bonus of 2x
-                score = score * 2;
-            break;
+        //score normalized to port size if FPAR is used
+        if (routing == FULLY_PROG_ADAPTIVE) {
+            score = (int)((double)score / port_size * 100);
         }
-        case DELTA: //consideres vc occupancy and queue count but ports that follow a minimal path to fdest are biased 2:1 through dividing minimal by 2 Lower SCORE IS BETTER
-        {
-            for(int k=0; k < s->params->num_vcs; k++)
-            {
-                score += s->vc_occupancy[port][k];
-            }
-            score += s->queued_count[port];
-
-            if (c_minimality != C_MIN)
-                score = score * 2;
-            break;
+        break;
+    }
+    case BETA: //consideres vc occupancy and queued count multiplied by the number of minimum hops to the destination LOWER SCORE IS BETTER
+    {
+        int base_score = 0;
+        for (int k = 0; k < s->params->num_vcs; k++) {
+            base_score += s->vc_occupancy[port][k];
         }
-        default:
-            tw_error(TW_LOC, "Unsupported Scoring Protocol Error\n");
+        base_score += s->queued_count[port];
+        score = base_score * get_min_hops_to_dest_from_conn(s, bf, msg, lp, conn);
+        break;
+    }
+    case GAMMA: //consideres vc occupancy and queue count but ports that follow a minimal path to fdest are biased 2:1 bonus by multiplying minimal by 2 HIGHER SCORE IS BETTER
+    {
+        score = s->params->max_port_score; //initialize this to max score.
+        int to_subtract = 0;
+        for (int k = 0; k < s->params->num_vcs; k++) {
+            to_subtract += s->vc_occupancy[port][k];
+        }
+        to_subtract += s->queued_count[port];
+        score -= to_subtract;
 
+        if (c_minimality ==
+            C_MIN) //the Connection maintains the paths minimality - gets a bonus of 2x
+            score = score * 2;
+        break;
+    }
+    case DELTA: //consideres vc occupancy and queue count but ports that follow a minimal path to fdest are biased 2:1 through dividing minimal by 2 Lower SCORE IS BETTER
+    {
+        for (int k = 0; k < s->params->num_vcs; k++) {
+            score += s->vc_occupancy[port][k];
+        }
+        score += s->queued_count[port];
+
+        if (c_minimality != C_MIN)
+            score = score * 2;
+        break;
+    }
+    default:
+        tw_error(TW_LOC, "Unsupported Scoring Protocol Error\n");
     }
     return score;
 }
 
-static Connection get_absolute_best_connection_from_conns(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, vector<Connection> conns)
-{
+static Connection get_absolute_best_connection_from_conns(router_state* s, tw_bf* bf,
+                                                          terminal_plus_message* msg, tw_lp* lp,
+                                                          vector<Connection> conns) {
     if (conns.size() == 0) {
         Connection bad_conn;
         bad_conn.src_gid = -1;
@@ -1349,10 +1320,8 @@ static Connection get_absolute_best_connection_from_conns(router_state *s, tw_bf
     int best_score_index = 0;
     vector<int> best_indexes; //in case multiple ports are equally best, choose a random one
     if (scoring_preference == LOWER) {
-
         int best_score = INT_MAX;
-        for(int i = 0; i < num_to_compare; i++)
-        {
+        for (int i = 0; i < num_to_compare; i++) {
             scores[i] = dfp_score_connection(s, bf, msg, lp, conns[i], C_MIN);
 
             if (scores[i] <= best_score) {
@@ -1364,12 +1333,9 @@ static Connection get_absolute_best_connection_from_conns(router_state *s, tw_bf
                 best_indexes.push_back(i);
             }
         }
-    }
-    else {
-
+    } else {
         int best_score = 0;
-        for(int i = 0; i < num_to_compare; i++)
-        {
+        for (int i = 0; i < num_to_compare; i++) {
             scores[i] = dfp_score_connection(s, bf, msg, lp, conns[i], C_MIN);
 
             if (scores[i] >= best_score) {
@@ -1385,16 +1351,18 @@ static Connection get_absolute_best_connection_from_conns(router_state *s, tw_bf
 
     if (best_indexes.size() > 1) {
         msg->num_rngs++;
-        best_score_index = best_indexes[tw_rand_ulong(lp->rng, 0, best_indexes.size()-1)];
+        best_score_index = best_indexes[tw_rand_ulong(lp->rng, 0, best_indexes.size() - 1)];
     }
 
     return conns[best_score_index];
 }
 
 //Now returns random selection from tied best connections.
-static Connection get_absolute_best_connection_from_conn_set(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, set< Connection > conns)
-{
-    if (conns.size() == 0) { //passed no connections to this but we got to return something - return negative filled conn to force a break if not caught
+static Connection get_absolute_best_connection_from_conn_set(router_state* s, tw_bf* bf,
+                                                             terminal_plus_message* msg, tw_lp* lp,
+                                                             set<Connection> conns) {
+    if (conns.size() ==
+        0) { //passed no connections to this but we got to return something - return negative filled conn to force a break if not caught
         Connection bad_conn;
         bad_conn.src_gid = -1;
         bad_conn.port = -1;
@@ -1406,55 +1374,49 @@ static Connection get_absolute_best_connection_from_conn_set(router_state *s, tw
 
     int num_to_compare = conns.size();
     int scores[num_to_compare];
-    vector < Connection > best_conns;
+    vector<Connection> best_conns;
     int best_score = INT_MAX;
 
     set<Connection>::iterator it;
     int count = 0;
-    for(it = conns.begin(); it != conns.end(); it++)
-    {
+    for (it = conns.begin(); it != conns.end(); it++) {
         scores[count] = dfp_score_connection(s, bf, msg, lp, *it, C_MIN);
         if (scores[count] < best_score) {
             best_score = scores[count];
             best_conns.clear();
             best_conns.push_back(*it);
-        }
-        else if (scores[count] == best_score)
-        {
+        } else if (scores[count] == best_score) {
             best_conns.push_back(*it);
         }
         count++;
-
     }
 
     assert(best_conns.size() > 0);
 
     msg->num_rngs++;
-    return best_conns[tw_rand_integer(lp->rng, 0, best_conns.size()-1)];
+    return best_conns[tw_rand_integer(lp->rng, 0, best_conns.size() - 1)];
 }
 
 // note that this is somewhat expensive the larger k is in comparison to the total possible
 // consider an optimization to implement an efficient shuffle to poll k random sampling instead
 // consider an optimization for the default of 2
-static Connection dfp_get_best_from_k_connection_set(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, set< Connection > conns, int k)
-{
-    if (conns.size() == 0)
-    {
+static Connection dfp_get_best_from_k_connection_set(router_state* s, tw_bf* bf,
+                                                     terminal_plus_message* msg, tw_lp* lp,
+                                                     set<Connection> conns, int k) {
+    if (conns.size() == 0) {
         Connection bad_conn;
         bad_conn.src_gid = -1;
         bad_conn.port = -1;
         return bad_conn;
     }
-    if (conns.size() == 1)
-    {
+    if (conns.size() == 1) {
         return *(conns.begin());
     }
 
     vector<Connection> k_conns;
     set<Connection>::iterator it = conns.begin();
-    for(int i = 0; i < k; i++)
-    {
-        int offset = tw_rand_integer(lp->rng, 0, conns.size()-1);
+    for (int i = 0; i < k; i++) {
+        int offset = tw_rand_integer(lp->rng, 0, conns.size() - 1);
         msg->num_rngs++;
         advance(it, offset);
         k_conns.push_back(*it);
@@ -1464,25 +1426,29 @@ static Connection dfp_get_best_from_k_connection_set(router_state *s, tw_bf *bf,
     return get_absolute_best_connection_from_conns(s, bf, msg, lp, k_conns);
 }
 
-static vector< Connection > dfp_select_two_connections(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, vector< Connection > conns)
-{
-    if(conns.size() < 2) {
-        if(conns.size() == 1)
+static vector<Connection> dfp_select_two_connections(router_state* s, tw_bf* bf,
+                                                     terminal_plus_message* msg, tw_lp* lp,
+                                                     vector<Connection> conns) {
+    if (conns.size() < 2) {
+        if (conns.size() == 1)
             return conns;
-        if(conns.size() == 0)
-            return vector< Connection>();
+        if (conns.size() == 0)
+            return vector<Connection>();
     }
 
     int rand_sel_1, rand_sel_2_offset;
 
     int num_conns = conns.size();
 
-    msg->num_rngs +=2;
-    rand_sel_1 = tw_rand_integer(lp->rng, 0, num_conns-1);
-    rand_sel_2_offset = tw_rand_integer(lp->rng, 0, num_conns-1); //number of indices to count up from the previous selected one. Avoids selecting same one twice
+    msg->num_rngs += 2;
+    rand_sel_1 = tw_rand_integer(lp->rng, 0, num_conns - 1);
+    rand_sel_2_offset = tw_rand_integer(
+        lp->rng, 0,
+        num_conns -
+            1); //number of indices to count up from the previous selected one. Avoids selecting same one twice
     int rand_sel_2 = (rand_sel_1 + rand_sel_2_offset) % num_conns;
 
-    vector< Connection > retVec;
+    vector<Connection> retVec;
     retVec.push_back(conns[rand_sel_1]);
     retVec.push_back(conns[rand_sel_2]);
 
@@ -1491,8 +1457,9 @@ static vector< Connection > dfp_select_two_connections(router_state *s, tw_bf *b
 
 //two rngs per call
 //TODO this defaults to minimality of min, at time of implementation all connections in conns are of same minimality so their scores compared to each other don't matter on minimality
-static Connection get_best_connection_from_conns(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, vector<Connection> conns)
-{
+static Connection get_best_connection_from_conns(router_state* s, tw_bf* bf,
+                                                 terminal_plus_message* msg, tw_lp* lp,
+                                                 vector<Connection> conns) {
     if (conns.size() == 0) {
         Connection bad_conn;
         bad_conn.src_gid = -1;
@@ -1503,16 +1470,14 @@ static Connection get_best_connection_from_conns(router_state *s, tw_bf *bf, ter
         return conns[0];
     }
     int num_to_compare = 2; //TODO make this a configurable
-    vector< Connection > selected_conns = dfp_select_two_connections(s, bf, msg, lp, conns);
+    vector<Connection> selected_conns = dfp_select_two_connections(s, bf, msg, lp, conns);
 
     int scores[num_to_compare];
     int best_score_index = 0;
     vector<int> best_indexes; //in case multiple ports are equally best, choose a random one
     if (scoring_preference == LOWER) {
-
         int best_score = INT_MAX;
-        for(int i = 0; i < num_to_compare; i++)
-        {
+        for (int i = 0; i < num_to_compare; i++) {
             scores[i] = dfp_score_connection(s, bf, msg, lp, selected_conns[i], C_MIN);
 
             if (scores[i] <= best_score) {
@@ -1524,12 +1489,9 @@ static Connection get_best_connection_from_conns(router_state *s, tw_bf *bf, ter
                 best_indexes.push_back(i);
             }
         }
-    }
-    else {
-
+    } else {
         int best_score = 0;
-        for(int i = 0; i < num_to_compare; i++)
-        {
+        for (int i = 0; i < num_to_compare; i++) {
             scores[i] = dfp_score_connection(s, bf, msg, lp, selected_conns[i], C_MIN);
 
             if (scores[i] >= best_score) {
@@ -1545,14 +1507,13 @@ static Connection get_best_connection_from_conns(router_state *s, tw_bf *bf, ter
 
     if (best_indexes.size() > 1) {
         msg->num_rngs++;
-        best_score_index = best_indexes[tw_rand_ulong(lp->rng, 0, best_indexes.size()-1)];
+        best_score_index = best_indexes[tw_rand_ulong(lp->rng, 0, best_indexes.size() - 1)];
     }
 
     return selected_conns[best_score_index];
 }
 
-int dragonfly_plus_get_router_type(int router_id, const dragonfly_plus_param *p)
-{
+int dragonfly_plus_get_router_type(int router_id, const dragonfly_plus_param* p) {
     int num_groups = p->num_groups;
     int num_routers = p->num_routers;
     int num_router_leaf = p->num_router_leaf;
@@ -1567,15 +1528,15 @@ int dragonfly_plus_get_router_type(int router_id, const dragonfly_plus_param *p)
 
 //TODO: Fix this for multi planar
 /* get the router id associated with a given terminal id */
-int dragonfly_plus_get_assigned_router_id(const dragonfly_plus_param *p, int terminal_id, int rail_id)
-{
+int dragonfly_plus_get_assigned_router_id(const dragonfly_plus_param* p, int terminal_id,
+                                          int rail_id) {
     // currently supports symmetrical bipartite spine/leaf router configurations
     // first half of routers in a given group are leafs which have terminals
     // second half of routers in a given group are spines which have no terminals
-    int num_groups = p->num_groups;            // number of groups of routers in a plane
-    int num_routers = p->num_routers;          // num routers per group
-    int num_router_leaf = p->num_router_leaf;  // num leaf routers per group
-    int num_cn = p->num_cn;                    // num compute nodes per leaf router
+    int num_groups = p->num_groups;           // number of groups of routers in a plane
+    int num_routers = p->num_routers;         // num routers per group
+    int num_router_leaf = p->num_router_leaf; // num leaf routers per group
+    int num_cn = p->num_cn;                   // num compute nodes per leaf router
     int num_cn_per_group = (num_router_leaf * num_cn);
     int num_planes = p->num_planes;
     int num_rails = p->num_rails;
@@ -1587,176 +1548,156 @@ int dragonfly_plus_get_assigned_router_id(const dragonfly_plus_param *p, int ter
     int local_router_id = (terminal_id / num_cn) % num_router_leaf;
     int router_id_on_plane_0 = (planar_group_id * num_routers) + local_router_id;
 
-    if (num_planes == 1)
-    {
+    if (num_planes == 1) {
         if (num_rails == 1) //default behavior
         {
             return router_id_on_plane_0;
-        }
-        else //all rails go to same router, perhaps change this
+        } else //all rails go to same router, perhaps change this
         {
             return router_id_on_plane_0;
         }
-    }
-    else
-    {
+    } else {
         int routers_per_plane = total_routers / num_planes;
-        if(num_planes == num_rails)
-        {
+        if (num_planes == num_rails) {
             return router_id_on_plane_0 + (rail_id * routers_per_plane);
         }
     }
 }
 
-static void append_to_terminal_plus_message_list(terminal_plus_message_list **thisq,
-                                                 terminal_plus_message_list **thistail,
-                                                 int index,
-                                                 terminal_plus_message_list *msg)
-{
+static void append_to_terminal_plus_message_list(terminal_plus_message_list** thisq,
+                                                 terminal_plus_message_list** thistail, int index,
+                                                 terminal_plus_message_list* msg) {
     if (thisq[index] == NULL) {
         thisq[index] = msg;
-    }
-    else {
+    } else {
         thistail[index]->next = msg;
         msg->prev = thistail[index];
     }
     thistail[index] = msg;
 }
 
-static void prepend_to_terminal_plus_message_list(terminal_plus_message_list **thisq,
-                                                  terminal_plus_message_list **thistail,
-                                                  int index,
-                                                  terminal_plus_message_list *msg)
-{
+static void prepend_to_terminal_plus_message_list(terminal_plus_message_list** thisq,
+                                                  terminal_plus_message_list** thistail, int index,
+                                                  terminal_plus_message_list* msg) {
     if (thisq[index] == NULL) {
         thistail[index] = msg;
-    }
-    else {
+    } else {
         thisq[index]->prev = msg;
         msg->next = thisq[index];
     }
     thisq[index] = msg;
 }
 
-static terminal_plus_message_list *return_head(terminal_plus_message_list **thisq,
-                                               terminal_plus_message_list **thistail,
-                                               int index)
-{
-    terminal_plus_message_list *head = thisq[index];
+static terminal_plus_message_list* return_head(terminal_plus_message_list** thisq,
+                                               terminal_plus_message_list** thistail, int index) {
+    terminal_plus_message_list* head = thisq[index];
     if (head != NULL) {
         thisq[index] = head->next;
         if (head->next != NULL) {
             head->next->prev = NULL;
             head->next = NULL;
-        }
-        else {
+        } else {
             thistail[index] = NULL;
         }
     }
     return head;
 }
 
-static terminal_plus_message_list *return_tail(terminal_plus_message_list **thisq,
-                                               terminal_plus_message_list **thistail,
-                                               int index)
-{
-    terminal_plus_message_list *tail = thistail[index];
+static terminal_plus_message_list* return_tail(terminal_plus_message_list** thisq,
+                                               terminal_plus_message_list** thistail, int index) {
+    terminal_plus_message_list* tail = thistail[index];
     assert(tail);
     if (tail->prev != NULL) {
         tail->prev->next = NULL;
         thistail[index] = tail->prev;
         tail->prev = NULL;
-    }
-    else {
+    } else {
         thistail[index] = NULL;
         thisq[index] = NULL;
     }
     return tail;
 }
 
-static tw_stime* buff_time_storage_create(terminal_state *s)
-{
+static tw_stime* buff_time_storage_create(terminal_state* s) {
     tw_stime* storage = (tw_stime*)malloc(s->params->num_rails * sizeof(tw_stime));
     return storage;
 }
 
-static void buff_time_storage_delete(void * ptr)
-{
+static void buff_time_storage_delete(void* ptr) {
     if (ptr)
         free(ptr);
 }
 
-static int* int_storage_create(terminal_state *s)
-{
+static int* int_storage_create(terminal_state* s) {
     int* storage = (int*)malloc(s->params->num_rails * sizeof(int));
     return storage;
 }
 
-static void int_storage_delete(void * ptr)
-{
+static void int_storage_delete(void* ptr) {
     if (ptr)
         free(ptr);
 }
 
-void dragonfly_plus_print_params(const dragonfly_plus_param *p, FILE * st)
-{
+void dragonfly_plus_print_params(const dragonfly_plus_param* p, FILE* st) {
     if (!st)
         st = stdout;
 
-    fprintf(st,"\n------------------ Dragonfly Plus Parameters ---------\n");
-    fprintf(st,"\tnum_routers =                 %d\n",p->num_routers);
-    fprintf(st,"\tlocal_bandwidth =             %.2f\n",p->local_bandwidth);
-    fprintf(st,"\tglobal_bandwidth =            %.2f\n",p->global_bandwidth);
-    fprintf(st,"\tcn_bandwidth =                %.2f\n",p->cn_bandwidth);
-    fprintf(st,"\tnum_vcs =                     %d\n",p->num_vcs);
-    fprintf(st,"\tlocal_vc_size =               %d\n",p->local_vc_size);
-    fprintf(st,"\tglobal_vc_size =              %d\n",p->global_vc_size);
-    fprintf(st,"\tcn_vc_size =                  %d\n",p->cn_vc_size);
-    fprintf(st,"\tchunk_size =                  %d\n",p->chunk_size);
-    fprintf(st,"\tnum_cn =                      %d\n",p->num_cn);
-    fprintf(st,"\tcn_radix =                    %d\n",p->cn_radix);
-    fprintf(st,"\tintra_grp_radix =             %d\n",p->intra_grp_radix);
-    fprintf(st,"\tnum_qos_levels =              %d\n",p->num_qos_levels);
-    fprintf(st,"\tnum_router_spine =            %d\n",p->num_router_spine);
-    fprintf(st,"\tnum_router_leaf =             %d\n",p->num_router_leaf);
-    fprintf(st,"\tmax_port_score =              %ld\n",p->max_port_score);
-    fprintf(st,"\tnum_groups =                  %d\n",p->num_groups);
-    fprintf(st,"\ttotal_groups =                %d\n",p->total_groups);
-    fprintf(st,"\tvirtual radix =               %d\n",p->radix);
-    fprintf(st,"\ttotal_routers =               %d\n",p->total_routers);
-    fprintf(st,"\ttotal_terminals =             %d\n",p->total_terminals);
-    fprintf(st,"\tnum_global_connections =      %d\n",p->num_global_connections);
-    fprintf(st,"\tnum_injection_queues =        %d\n",p->num_injection_queues);
-    fprintf(st,"\tnum_rails =                   %d\n",p->num_rails);
-    fprintf(st,"\tnum_planes =                  %d\n",p->num_planes);
-    fprintf(st,"\tcn_delay =                    %.2f\n",p->cn_delay);
-    fprintf(st,"\tlocal_delay =                 %.2f\n",p->local_delay);
-    fprintf(st,"\tglobal_delay =                %.2f\n",p->global_delay);
-    fprintf(st,"\tlocal credit_delay =          %.2f\n",p->local_credit_delay);
-    fprintf(st,"\tglobal credit_delay =         %.2f\n",p->global_credit_delay);
-    fprintf(st,"\tcn credit_delay =             %.2f\n",p->cn_credit_delay);
-    fprintf(st,"\trouter_delay =                %.2f\n",p->router_delay);
-    fprintf(st,"\tscoring =                     %d\n",scoring);
-    fprintf(st,"\tadaptive_threshold =          %d\n",p->adaptive_threshold);
-    fprintf(st,"\trouting =                     %s\n",get_routing_alg_chararray(routing));
-    fprintf(st,"\tsource_leaf_consider_nonmin = %s\n", (p->source_leaf_consider_nonmin ? "true" : "false"));
-    fprintf(st,"\tint_spine_consider_min =      %s\n", (p->int_spine_consider_min ? "true" : "false"));
-    fprintf(st,"\tdest_spine_consider_nonmin =  %s\n", (p->dest_spine_consider_nonmin ? "true" : "false"));
-    fprintf(st,"\tdest_spine_consider_gnonmin = %s\n", (p->dest_spine_consider_global_nonmin ? "true" : "false"));
-    fprintf(st,"\tmax hops notification =       %d\n",p->max_hops_notify);
-    if (p->counting_bool > 0)
-    {
-        fprintf(st,"\tcounting msg app id =         Yes\n");
-        fprintf(st,"\tcounting_start(ns) =          %.2f\n",p->counting_start);
-        fprintf(st,"\tcounting_end(ns) =            %.2f\n",p->counting_end);
-        fprintf(st,"\tcounting_interval(ns) =       %.2f\n",p->counting_interval);
-        fprintf(st,"\t# counting_windows =          %d\n",p->counting_windows);
+    fprintf(st, "\n------------------ Dragonfly Plus Parameters ---------\n");
+    fprintf(st, "\tnum_routers =                 %d\n", p->num_routers);
+    fprintf(st, "\tlocal_bandwidth =             %.2f\n", p->local_bandwidth);
+    fprintf(st, "\tglobal_bandwidth =            %.2f\n", p->global_bandwidth);
+    fprintf(st, "\tcn_bandwidth =                %.2f\n", p->cn_bandwidth);
+    fprintf(st, "\tnum_vcs =                     %d\n", p->num_vcs);
+    fprintf(st, "\tlocal_vc_size =               %d\n", p->local_vc_size);
+    fprintf(st, "\tglobal_vc_size =              %d\n", p->global_vc_size);
+    fprintf(st, "\tcn_vc_size =                  %d\n", p->cn_vc_size);
+    fprintf(st, "\tchunk_size =                  %d\n", p->chunk_size);
+    fprintf(st, "\tnum_cn =                      %d\n", p->num_cn);
+    fprintf(st, "\tcn_radix =                    %d\n", p->cn_radix);
+    fprintf(st, "\tintra_grp_radix =             %d\n", p->intra_grp_radix);
+    fprintf(st, "\tnum_qos_levels =              %d\n", p->num_qos_levels);
+    fprintf(st, "\tnum_router_spine =            %d\n", p->num_router_spine);
+    fprintf(st, "\tnum_router_leaf =             %d\n", p->num_router_leaf);
+    fprintf(st, "\tmax_port_score =              %ld\n", p->max_port_score);
+    fprintf(st, "\tnum_groups =                  %d\n", p->num_groups);
+    fprintf(st, "\ttotal_groups =                %d\n", p->total_groups);
+    fprintf(st, "\tvirtual radix =               %d\n", p->radix);
+    fprintf(st, "\ttotal_routers =               %d\n", p->total_routers);
+    fprintf(st, "\ttotal_terminals =             %d\n", p->total_terminals);
+    fprintf(st, "\tnum_global_connections =      %d\n", p->num_global_connections);
+    fprintf(st, "\tnum_injection_queues =        %d\n", p->num_injection_queues);
+    fprintf(st, "\tnum_rails =                   %d\n", p->num_rails);
+    fprintf(st, "\tnum_planes =                  %d\n", p->num_planes);
+    fprintf(st, "\tcn_delay =                    %.2f\n", p->cn_delay);
+    fprintf(st, "\tlocal_delay =                 %.2f\n", p->local_delay);
+    fprintf(st, "\tglobal_delay =                %.2f\n", p->global_delay);
+    fprintf(st, "\tlocal credit_delay =          %.2f\n", p->local_credit_delay);
+    fprintf(st, "\tglobal credit_delay =         %.2f\n", p->global_credit_delay);
+    fprintf(st, "\tcn credit_delay =             %.2f\n", p->cn_credit_delay);
+    fprintf(st, "\trouter_delay =                %.2f\n", p->router_delay);
+    fprintf(st, "\tscoring =                     %d\n", scoring);
+    fprintf(st, "\tadaptive_threshold =          %d\n", p->adaptive_threshold);
+    fprintf(st, "\trouting =                     %s\n", get_routing_alg_chararray(routing));
+    fprintf(st, "\tsource_leaf_consider_nonmin = %s\n",
+            (p->source_leaf_consider_nonmin ? "true" : "false"));
+    fprintf(st, "\tint_spine_consider_min =      %s\n",
+            (p->int_spine_consider_min ? "true" : "false"));
+    fprintf(st, "\tdest_spine_consider_nonmin =  %s\n",
+            (p->dest_spine_consider_nonmin ? "true" : "false"));
+    fprintf(st, "\tdest_spine_consider_gnonmin = %s\n",
+            (p->dest_spine_consider_global_nonmin ? "true" : "false"));
+    fprintf(st, "\tmax hops notification =       %d\n", p->max_hops_notify);
+    if (p->counting_bool > 0) {
+        fprintf(st, "\tcounting msg app id =         Yes\n");
+        fprintf(st, "\tcounting_start(ns) =          %.2f\n", p->counting_start);
+        fprintf(st, "\tcounting_end(ns) =            %.2f\n", p->counting_end);
+        fprintf(st, "\tcounting_interval(ns) =       %.2f\n", p->counting_interval);
+        fprintf(st, "\t# counting_windows =          %d\n", p->counting_windows);
     }
-    fprintf(st,"------------------------------------------------------\n\n");
+    fprintf(st, "------------------------------------------------------\n\n");
 }
 
-static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params)
-{
+static void dragonfly_read_config(const char* anno, dragonfly_plus_param* params) {
     /*Adding init for router magic number*/
     uint32_t h1 = 0, h2 = 0;
     bj_hashlittle2(LP_METHOD_NM_ROUT, strlen(LP_METHOD_NM_ROUT), &h1, &h2);
@@ -1766,40 +1707,48 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
     terminal_magic_num = h1 + h2;
 
     // shorthand
-    dragonfly_plus_param *p = params;
+    dragonfly_plus_param* p = params;
     int myRank;
     MPI_Comm_rank(MPI_COMM_CODES, &myRank);
 
-    int rc = configuration_get_value_int(&config, "PARAMS", "local_vc_size", anno, &p->local_vc_size);
+    int rc =
+        configuration_get_value_int(&config, "PARAMS", "local_vc_size", anno, &p->local_vc_size);
     if (rc) {
         p->local_vc_size = 1024;
-        if(!myRank)
-            fprintf(stderr, "Buffer size of local channels not specified, setting to %d\n", p->local_vc_size);
+        if (!myRank)
+            fprintf(stderr, "Buffer size of local channels not specified, setting to %d\n",
+                    p->local_vc_size);
     }
 
     rc = configuration_get_value_int(&config, "PARAMS", "global_vc_size", anno, &p->global_vc_size);
     if (rc) {
         p->global_vc_size = 2048;
-        if(!myRank)
-            fprintf(stderr, "Buffer size of global channels not specified, setting to %d\n", p->global_vc_size);
+        if (!myRank)
+            fprintf(stderr, "Buffer size of global channels not specified, setting to %d\n",
+                    p->global_vc_size);
     }
 
     //For App msgs percentage counting on router
     rc = configuration_get_value_int(&config, "PARAMS", "counting_bool", anno, &p->counting_bool);
-    if(p->counting_bool) {
-        int rc1 = configuration_get_value_double(&config, "PARAMS", "counting_start", anno, &p->counting_start);
-        if(rc1)
+    if (p->counting_bool) {
+        int rc1 = configuration_get_value_double(&config, "PARAMS", "counting_start", anno,
+                                                 &p->counting_start);
+        if (rc1)
             printf("missing counting_start\n");
-        int rc2 = configuration_get_value_double(&config, "PARAMS", "counting_end", anno, &p->counting_end);
-        if(rc2)
+        int rc2 = configuration_get_value_double(&config, "PARAMS", "counting_end", anno,
+                                                 &p->counting_end);
+        if (rc2)
             printf("missing counting_end\n");
-        int rc3 = configuration_get_value_double(&config, "PARAMS", "counting_interval", anno, &p->counting_interval);
-        if(rc3)
+        int rc3 = configuration_get_value_double(&config, "PARAMS", "counting_interval", anno,
+                                                 &p->counting_interval);
+        if (rc3)
             printf("missing counting_interval\n");
-        if(rc1 || rc2 || rc3)
-            tw_error(TW_LOC, "\n Missing couting values, (counting_start/end/interval) check for config files\n");
+        if (rc1 || rc2 || rc3)
+            tw_error(TW_LOC, "\n Missing couting values, (counting_start/end/interval) check for "
+                             "config files\n");
 
-        p->counting_windows = (int)round((p->counting_end - p->counting_start) / p->counting_interval);
+        p->counting_windows =
+            (int)round((p->counting_end - p->counting_start) / p->counting_interval);
 
         //convert us to ns
         p->counting_start = p->counting_start * 1000;
@@ -1808,77 +1757,82 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
     }
 
     rc = configuration_get_value_int(&config, "PARAMS", "num_qos_levels", anno, &p->num_qos_levels);
-    if(rc) {
+    if (rc) {
         p->num_qos_levels = 1;
-        if(!myRank)
-            fprintf(stderr, "Number of QOS levels not specified, setting to %d\n", p->num_qos_levels);
+        if (!myRank)
+            fprintf(stderr, "Number of QOS levels not specified, setting to %d\n",
+                    p->num_qos_levels);
     }
 
     char qos_levels_str[MAX_NAME_LENGTH];
-    rc = configuration_get_value(&config, "PARAMS", "qos_bandwidth", anno, qos_levels_str, MAX_NAME_LENGTH);
+    rc = configuration_get_value(&config, "PARAMS", "qos_bandwidth", anno, qos_levels_str,
+                                 MAX_NAME_LENGTH);
     p->qos_bandwidths = (int*)calloc(p->num_qos_levels, sizeof(int));
 
-    if(p->num_qos_levels > 1)
-    {
+    if (p->num_qos_levels > 1) {
         int total_bw = 0;
-        char * token;
+        char* token;
         token = strtok(qos_levels_str, ",");
         int i = 0;
-        while(token != NULL)
-        {
+        while (token != NULL) {
             sscanf(token, "%d", &p->qos_bandwidths[i]);
             total_bw += p->qos_bandwidths[i];
-            if(p->qos_bandwidths[i] <= 0)
-            {
+            if (p->qos_bandwidths[i] <= 0) {
                 tw_error(TW_LOC, "\nInvalid bandwidth levels\n");
             }
             i++;
-            token = strtok(NULL,",");
+            token = strtok(NULL, ",");
         }
         assert(total_bw <= 100);
-    }
-    else
+    } else
         p->qos_bandwidths[0] = 100;
 
-    rc = configuration_get_value_double(&config, "PARAMS", "max_qos_monitor", anno, &max_qos_monitor);
-    if(rc) {
-        if(!myRank)
+    rc = configuration_get_value_double(&config, "PARAMS", "max_qos_monitor", anno,
+                                        &max_qos_monitor);
+    if (rc) {
+        if (!myRank)
             fprintf(stderr, "Setting max_qos_monitor to %lf\n", max_qos_monitor);
-	}
+    }
 
     rc = configuration_get_value_int(&config, "PARAMS", "cn_vc_size", anno, &p->cn_vc_size);
     if (rc) {
         p->cn_vc_size = 1024;
-        if(!myRank)
-            fprintf(stderr, "Buffer size of compute node channels not specified, setting to %d\n", p->cn_vc_size);
+        if (!myRank)
+            fprintf(stderr, "Buffer size of compute node channels not specified, setting to %d\n",
+                    p->cn_vc_size);
     }
 
     rc = configuration_get_value_int(&config, "PARAMS", "chunk_size", anno, &p->chunk_size);
     if (rc) {
         p->chunk_size = 512;
-        if(!myRank)
+        if (!myRank)
             fprintf(stderr, "Chunk size for packets is specified, setting to %d\n", p->chunk_size);
     }
 
-    rc = configuration_get_value_double(&config, "PARAMS", "local_bandwidth", anno, &p->local_bandwidth);
+    rc = configuration_get_value_double(&config, "PARAMS", "local_bandwidth", anno,
+                                        &p->local_bandwidth);
     if (rc) {
         p->local_bandwidth = 5.25;
-        if(!myRank)
-            fprintf(stderr, "Bandwidth of local channels not specified, setting to %lf\n", p->local_bandwidth);
+        if (!myRank)
+            fprintf(stderr, "Bandwidth of local channels not specified, setting to %lf\n",
+                    p->local_bandwidth);
     }
 
-    rc = configuration_get_value_double(&config, "PARAMS", "global_bandwidth", anno, &p->global_bandwidth);
+    rc = configuration_get_value_double(&config, "PARAMS", "global_bandwidth", anno,
+                                        &p->global_bandwidth);
     if (rc) {
         p->global_bandwidth = 4.7;
-        if(!myRank)
-            fprintf(stderr, "Bandwidth of global channels not specified, setting to %lf\n", p->global_bandwidth);
+        if (!myRank)
+            fprintf(stderr, "Bandwidth of global channels not specified, setting to %lf\n",
+                    p->global_bandwidth);
     }
 
     rc = configuration_get_value_double(&config, "PARAMS", "cn_bandwidth", anno, &p->cn_bandwidth);
     if (rc) {
         p->cn_bandwidth = 5.25;
-        if(!myRank)
-            fprintf(stderr, "Bandwidth of compute node channels not specified, setting to %lf\n", p->cn_bandwidth);
+        if (!myRank)
+            fprintf(stderr, "Bandwidth of compute node channels not specified, setting to %lf\n",
+                    p->cn_bandwidth);
     }
 
     rc = configuration_get_value_double(&config, "PARAMS", "router_delay", anno, &p->router_delay);
@@ -1886,8 +1840,10 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
         p->router_delay = 100;
     }
 
-    configuration_get_value(&config, "PARAMS", "cn_sample_file", anno, cn_sample_file, MAX_NAME_LENGTH);
-    configuration_get_value(&config, "PARAMS", "rt_sample_file", anno, router_sample_file, MAX_NAME_LENGTH);
+    configuration_get_value(&config, "PARAMS", "cn_sample_file", anno, cn_sample_file,
+                            MAX_NAME_LENGTH);
+    configuration_get_value(&config, "PARAMS", "rt_sample_file", anno, router_sample_file,
+                            MAX_NAME_LENGTH);
 
     char routing_str[MAX_NAME_LENGTH];
     configuration_get_value(&config, "PARAMS", "routing", anno, routing_str, MAX_NAME_LENGTH);
@@ -1908,85 +1864,83 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
     else if (strcmp(routing_str, "smart-nonminimal") == 0)
         routing = SMART_NON_MINIMAL;
     else {
-        if(!myRank)
+        if (!myRank)
             fprintf(stderr, "No routing protocol specified, setting to minimal routing\n");
         routing = MINIMAL;
     }
 
-    rc = configuration_get_value_int(&config, "PARAMS", "notification_on_hops_greater_than", anno, &p->max_hops_notify);
+    rc = configuration_get_value_int(&config, "PARAMS", "notification_on_hops_greater_than", anno,
+                                     &p->max_hops_notify);
     if (rc) {
-        if(!myRank)
+        if (!myRank)
             fprintf(stderr, "Maximum hops for notifying not specified, setting to INT MAX\n");
         p->max_hops_notify = INT_MAX;
     }
 
     int src_leaf_cons_choice;
-    rc = configuration_get_value_int(&config, "PARAMS", "source_leaf_consider_nonmin", anno, &src_leaf_cons_choice);
+    rc = configuration_get_value_int(&config, "PARAMS", "source_leaf_consider_nonmin", anno,
+                                     &src_leaf_cons_choice);
     if (rc) {
         // fprintf(stderr, "Source leaf consideration of nonmin ports not specified. Defaulting to True\n");
         p->source_leaf_consider_nonmin = true;
-    }
-    else if (src_leaf_cons_choice == 1) {
+    } else if (src_leaf_cons_choice == 1) {
         p->source_leaf_consider_nonmin = true;
-    }
-    else
+    } else
         p->source_leaf_consider_nonmin = false;
 
 
     int int_spn_cons_choice;
-    rc = configuration_get_value_int(&config, "PARAMS", "int_spine_consider_min", anno, &int_spn_cons_choice);
+    rc = configuration_get_value_int(&config, "PARAMS", "int_spine_consider_min", anno,
+                                     &int_spn_cons_choice);
     if (rc) {
         // fprintf(stderr, "Int spine consideration of min ports not specified. Defaulting to False\n");
         p->int_spine_consider_min = false;
-    }
-    else if (int_spn_cons_choice == 1) {
+    } else if (int_spn_cons_choice == 1) {
         p->int_spine_consider_min = true;
-    }
-    else
+    } else
         p->int_spine_consider_min = false;
 
     int dst_spn_cons_choice;
-    rc = configuration_get_value_int(&config, "PARAMS", "dest_spine_consider_nonmin", anno, &dst_spn_cons_choice);
+    rc = configuration_get_value_int(&config, "PARAMS", "dest_spine_consider_nonmin", anno,
+                                     &dst_spn_cons_choice);
     if (rc) {
         // fprintf(stderr, "Dest spine consideration of nonmin ports not specified. Defaulting to False\n");
         p->dest_spine_consider_nonmin = false;
-    }
-    else if (dst_spn_cons_choice == 1) {
+    } else if (dst_spn_cons_choice == 1) {
         p->dest_spine_consider_nonmin = true;
-    }
-    else
+    } else
         p->dest_spine_consider_nonmin = false;
 
 
     int dst_spn_gcons_choice;
-    rc = configuration_get_value_int(&config, "PARAMS", "dest_spine_consider_global_nonmin", anno, &dst_spn_gcons_choice);
+    rc = configuration_get_value_int(&config, "PARAMS", "dest_spine_consider_global_nonmin", anno,
+                                     &dst_spn_gcons_choice);
     if (rc) {
         // fprintf(stderr, "Dest spine consideration of global nonmin ports not specified. Defaulting to True\n");
         p->dest_spine_consider_global_nonmin = true;
-    }
-    else if (dst_spn_gcons_choice == 1) {
+    } else if (dst_spn_gcons_choice == 1) {
         p->dest_spine_consider_global_nonmin = true;
-    }
-    else
+    } else
         p->dest_spine_consider_global_nonmin = false;
 
 
-    rc = configuration_get_value_int(&config, "PARAMS", "num_injection_queues", anno, &p->num_injection_queues);
-    if(rc)
+    rc = configuration_get_value_int(&config, "PARAMS", "num_injection_queues", anno,
+                                     &p->num_injection_queues);
+    if (rc)
         p->num_injection_queues = 1;
 
     p->num_rails = 1;
     rc = configuration_get_value_int(&config, "PARAMS", "num_rails", anno, &p->num_rails);
     if (!rc) {
         if (!myRank)
-            printf("num_rails set to %d\n",p->num_rails);
+            printf("num_rails set to %d\n", p->num_rails);
     }
 
     p->num_planes = 1;
     rc = configuration_get_value_int(&config, "PARAMS", "num_planes", anno, &p->num_planes);
     if (!rc) {
         if (!myRank)
-            printf("num_planes set to %d\n",p->num_planes);
+            printf("num_planes set to %d\n", p->num_planes);
         // tw_error(TW_LOC, "Multi Planar Dragonfly not implemented yet\n");
     }
 
@@ -1996,64 +1950,74 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
 
     char rail_select_str[MAX_NAME_LENGTH];
     rc = configuration_get_value(&config, "PARAMS", "rail_select", anno, rail_select_str,
-            MAX_NAME_LENGTH);
-    if(strcmp(rail_select_str, "dedicated") == 0)
+                                 MAX_NAME_LENGTH);
+    if (strcmp(rail_select_str, "dedicated") == 0)
         p->rail_select = RAIL_DEDICATED;
-    else if(strcmp(rail_select_str, "congestion")==0)
+    else if (strcmp(rail_select_str, "congestion") == 0)
         p->rail_select = RAIL_CONGESTION;
-    else if(strcmp(rail_select_str, "path")==0)
+    else if (strcmp(rail_select_str, "path") == 0)
         p->rail_select = RAIL_PATH;
-    else if(strcmp(rail_select_str, "rand")==0)
+    else if (strcmp(rail_select_str, "rand") == 0)
         p->rail_select = RAIL_RAND;
     else {
         p->rail_select = RAIL_DEDICATED;
     }
     if (p->num_rails == 1)
         p->rail_select = RAIL_DEDICATED;
-    if(!myRank) printf("Dragonfly rail selection is %d\n", p->rail_select);
+    if (!myRank)
+        printf("Dragonfly rail selection is %d\n", p->rail_select);
 
     rc = configuration_get_value_int(&config, "PARAMS", "global_k_picks", anno, &p->global_k_picks);
-    if(rc) {
+    if (rc) {
         p->global_k_picks = 2;
-        if(!myRank)
-            fprintf(stderr, "global_k_picks for global adaptive routing not specified, setting to %d\n",p->global_k_picks);
+        if (!myRank)
+            fprintf(stderr,
+                    "global_k_picks for global adaptive routing not specified, setting to %d\n",
+                    p->global_k_picks);
     }
 
     /* MM: This should be 2 for dragonfly plus*/
     p->num_vcs = 2;
 
-    if(p->num_qos_levels > 1)
+    if (p->num_qos_levels > 1)
         p->num_vcs = p->num_qos_levels * p->num_vcs;
 
     rc = configuration_get_value_int(&config, "PARAMS", "num_groups", anno, &p->num_groups);
     if (rc) {
         tw_error(TW_LOC, "\nnum_groups not specified, Aborting\n");
     }
-    rc = configuration_get_value_int(&config, "PARAMS", "num_router_spine", anno, &p->num_router_spine);
+    rc = configuration_get_value_int(&config, "PARAMS", "num_router_spine", anno,
+                                     &p->num_router_spine);
     if (rc) {
         tw_error(TW_LOC, "\nnum_router_spine not specified, Aborting\n");
     }
-    rc = configuration_get_value_int(&config, "PARAMS", "num_router_leaf", anno, &p->num_router_leaf);
+    rc = configuration_get_value_int(&config, "PARAMS", "num_router_leaf", anno,
+                                     &p->num_router_leaf);
     if (rc) {
         tw_error(TW_LOC, "\nnum_router_leaf not specified, Aborting\n");
     }
 
-    p->num_routers = p->num_router_spine + p->num_router_leaf;  // num routers per group
-    p->intra_grp_radix = max(p->num_router_spine, p->num_router_leaf); //TODO: Is this sufficient? If there are parallel intra connecitons, this will break.
+    p->num_routers = p->num_router_spine + p->num_router_leaf; // num routers per group
+    p->intra_grp_radix = max(
+        p->num_router_spine,
+        p->num_router_leaf); //TODO: Is this sufficient? If there are parallel intra connecitons, this will break.
 
     rc = configuration_get_value_int(&config, "PARAMS", "num_cns_per_router", anno, &p->num_cn);
     if (rc) {
-        if(!myRank)
-            fprintf(stderr,"Number of cns per router not specified, setting to %d\n", 4);
+        if (!myRank)
+            fprintf(stderr, "Number of cns per router not specified, setting to %d\n", 4);
         p->num_cn = 4;
     }
 
-    rc = configuration_get_value_int(&config, "PARAMS", "num_global_connections", anno, &p->num_global_connections);
+    rc = configuration_get_value_int(&config, "PARAMS", "num_global_connections", anno,
+                                     &p->num_global_connections);
     if (rc) {
         tw_error(TW_LOC, "\nnum_global_connections per router not specified, abortin...");
     }
 
-    p->cn_radix = (p->num_cn * p->num_rails) / p->num_planes; //number of CNs per router times number of rails taht each CN has, divided by how many planes those CNs are shared across
+    p->cn_radix =
+        (p->num_cn * p->num_rails) /
+        p->num_planes; //number of CNs per router times number of rails taht each CN has, divided by how many planes those CNs are shared across
     p->radix = p->intra_grp_radix + p->num_global_connections + p->cn_radix;
     p->total_groups = p->num_groups * p->num_planes;
     p->total_routers = p->num_groups * p->num_routers * p->num_planes;
@@ -2061,35 +2025,38 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
     p->num_routers_per_plane = p->total_routers / p->num_planes;
 
     char scoring_str[MAX_NAME_LENGTH];
-    configuration_get_value(&config, "PARAMS", "route_scoring_metric", anno, scoring_str, MAX_NAME_LENGTH);
+    configuration_get_value(&config, "PARAMS", "route_scoring_metric", anno, scoring_str,
+                            MAX_NAME_LENGTH);
     if (strcmp(scoring_str, "alpha") == 0) {
         scoring = ALPHA;
         scoring_preference = LOWER;
-    }
-    else if (strcmp(scoring_str, "beta") == 0) {
+    } else if (strcmp(scoring_str, "beta") == 0) {
         scoring = BETA;
         scoring_preference = LOWER;
-    }
-    else if (strcmp(scoring_str, "gamma") == 0) {
-        tw_error(TW_LOC, "Gamma scoring protocol currently non-functional"); //TODO: Fix gamma scoring protocol
+    } else if (strcmp(scoring_str, "gamma") == 0) {
+        tw_error(
+            TW_LOC,
+            "Gamma scoring protocol currently non-functional"); //TODO: Fix gamma scoring protocol
         scoring = GAMMA;
         scoring_preference = HIGHER;
-    }
-    else if (strcmp(scoring_str, "delta") == 0) {
+    } else if (strcmp(scoring_str, "delta") == 0) {
         scoring = DELTA;
         scoring_preference = LOWER;
-    }
-    else {
-        if(!myRank)
+    } else {
+        if (!myRank)
             fprintf(stderr, "No route scoring protocol specified, setting to alpha scoring\n");
         scoring = ALPHA;
         scoring_preference = LOWER;
     }
 
-    rc = configuration_get_value_int(&config, "PARAMS", "adaptive_threshold", anno, &p->adaptive_threshold);
+    rc = configuration_get_value_int(&config, "PARAMS", "adaptive_threshold", anno,
+                                     &p->adaptive_threshold);
     if (rc) {
-        if(!myRank)
-            fprintf(stderr, "Adaptive Minimal Routing Threshold not specified: setting to default = 0. (Will consider minimal and nonminimal routes based on scoring metric alone)\n");
+        if (!myRank)
+            fprintf(
+                stderr,
+                "Adaptive Minimal Routing Threshold not specified: setting to default = 0. (Will "
+                "consider minimal and nonminimal routes based on scoring metric alone)\n");
         p->adaptive_threshold = 0;
     }
 
@@ -2102,15 +2069,21 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
     if (p->cn_vc_size > largest_vc_size)
         largest_vc_size = p->cn_vc_size;
 
-    p->max_port_score = (p->num_vcs * largest_vc_size) + largest_vc_size; //The maximum score that a port can get during the scoring metrics.
+    p->max_port_score =
+        (p->num_vcs * largest_vc_size) +
+        largest_vc_size; //The maximum score that a port can get during the scoring metrics.
 
     //Setup DragonflyNetworkManager
-    netMan = DragonflyNetworkManager(p->total_routers, p->total_terminals, p->num_routers, p->intra_grp_radix, p->num_global_connections, p->cn_radix, p->num_rails, p->num_planes, max_hops_per_group, max_global_hops_nonminimal);
+    netMan = DragonflyNetworkManager(p->total_routers, p->total_terminals, p->num_routers,
+                                     p->intra_grp_radix, p->num_global_connections, p->cn_radix,
+                                     p->num_rails, p->num_planes, max_hops_per_group,
+                                     max_global_hops_nonminimal);
 
     // read intra group connections, store from a router's perspective
     // all links to the same router form a vector
     char intraFile[MAX_NAME_LENGTH];
-    configuration_get_value(&config, "PARAMS", "intra-group-connections", anno, intraFile, MAX_NAME_LENGTH);
+    configuration_get_value(&config, "PARAMS", "intra-group-connections", anno, intraFile,
+                            MAX_NAME_LENGTH);
     if (strlen(intraFile) <= 0) {
         tw_error(TW_LOC, "\nIntra group connections file not specified. Aborting\n");
     }
@@ -2126,7 +2099,7 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
     //     connManagerList.push_back(conman);
     // }
 
-    FILE *groupFile = fopen(intraFile, "rb");
+    FILE* groupFile = fopen(intraFile, "rb");
     if (!groupFile)
         tw_error(TW_LOC, "\nintra-group file not found\n");
 
@@ -2134,11 +2107,11 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
     while (fread(&newLink, sizeof(IntraGroupLink), 1, groupFile) != 0) {
         int src_id_local = newLink.src;
         int dest_id_local = newLink.dest;
-        for(int i = 0; i < p->total_routers; i++) //handles all routers in network, including multi planar
+        for (int i = 0; i < p->total_routers;
+             i++) //handles all routers in network, including multi planar
         {
-            int group_id = i/p->num_routers;
-            if (i % p->num_routers == src_id_local)
-            {
+            int group_id = i / p->num_routers;
+            if (i % p->num_routers == src_id_local) {
                 int planar_id = i / p->num_routers_per_plane;
                 int dest_gid_global = (group_id * p->num_routers + dest_id_local);
 
@@ -2156,10 +2129,8 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
     fclose(groupFile);
 
     //terminal assignment!
-    for(int i = 0; i < p->total_terminals; i++)
-    {
-        for(int j = 0; j < p->num_rails; j++)
-        {
+    for (int i = 0; i < p->total_terminals; i++) {
+        for (int j = 0; j < p->num_rails; j++) {
             int assigned_router_id = dragonfly_plus_get_assigned_router_id(p, i, j);
             // int assigned_router_id = (int) i / p->num_cn;
             // int assigned_group_id = assigned_router_id / p->num_routers;
@@ -2180,11 +2151,12 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
     // read inter group connections, store from a router's perspective
     // also create a group level table that tells all the connecting routers
     char interFile[MAX_NAME_LENGTH];
-    configuration_get_value(&config, "PARAMS", "inter-group-connections", anno, interFile, MAX_NAME_LENGTH);
+    configuration_get_value(&config, "PARAMS", "inter-group-connections", anno, interFile,
+                            MAX_NAME_LENGTH);
     if (strlen(interFile) <= 0) {
         tw_error(TW_LOC, "\nInter group connections file not specified. Aborting\n");
     }
-    FILE *systemFile = fopen(interFile, "rb");
+    FILE* systemFile = fopen(interFile, "rb");
     if (!myRank) {
         printf("Reading inter-group connectivity file: %s\n", interFile);
         printf("\nTotal routers: %d; total groups: %d \n", p->total_routers, p->num_groups);
@@ -2192,16 +2164,14 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
 
     InterGroupLink newInterLink;
     while (fread(&newInterLink, sizeof(InterGroupLink), 1, systemFile) != 0) {
-
-        for(int i = 0; i < p->num_planes; i++)
-        {
+        for (int i = 0; i < p->num_planes; i++) {
             int read_src_id_global = newInterLink.src;
             int read_src_group_id = read_src_id_global / p->num_routers;
             int read_dest_id_global = newInterLink.dest;
             int read_dest_group_id = read_dest_id_global / p->num_routers;
 
-            int mapped_src_gid = read_src_id_global + (i*p->num_routers_per_plane);
-            int mapped_dest_gid = read_dest_id_global + (i*p->num_routers_per_plane);
+            int mapped_src_gid = read_src_id_global + (i * p->num_routers_per_plane);
+            int mapped_dest_gid = read_dest_id_global + (i * p->num_routers_per_plane);
 
             Link_Info new_link;
             new_link.src_gid = mapped_src_gid;
@@ -2217,27 +2187,24 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
     char failureFileName[MAX_NAME_LENGTH];
     failureFileName[0] = '\0';
 
-    if (strlen(g_nm_link_failure_filepath) == 0) //was this defined already via a command line argument?
+    if (strlen(g_nm_link_failure_filepath) ==
+        0) //was this defined already via a command line argument?
     {
-        configuration_get_value(&config, "PARAMS", "link-failure-file",
-                                anno, failureFileName, MAX_NAME_LENGTH);
-        if (strlen(failureFileName) > 0)
-        {
+        configuration_get_value(&config, "PARAMS", "link-failure-file", anno, failureFileName,
+                                MAX_NAME_LENGTH);
+        if (strlen(failureFileName) > 0) {
             netMan.enable_link_failures();
         }
-    }
-    else
-    {
+    } else {
         strcpy(failureFileName, g_nm_link_failure_filepath);
         netMan.enable_link_failures();
     }
 
-    if (netMan.is_link_failures_enabled())
-    {
+    if (netMan.is_link_failures_enabled()) {
         if (!myRank)
             printf("\nDragonfly Plus: Link Failures Feature Enabled\n");
 
-        FILE *failureFile = fopen(failureFileName, "rb");
+        FILE* failureFile = fopen(failureFileName, "rb");
         if (!failureFile)
             tw_error(TW_LOC, "link failure file not found: %s\n", failureFileName);
 
@@ -2245,29 +2212,26 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
             fprintf(stderr, "Reading link failure file: %s\n", failureFileName);
 
         Link_Info link;
-        while (fread(&link, sizeof(Link_Info), 1, failureFile) != 0)
-        {
+        while (fread(&link, sizeof(Link_Info), 1, failureFile) != 0) {
             netMan.add_link_failure_info(link);
         }
     }
 
-    netMan.solidify_network(); // finalize link failures and burn the network links into the Connection managers
+    netMan
+        .solidify_network(); // finalize link failures and burn the network links into the Connection managers
 
-    if (DUMP_CONNECTIONS)
-    {
-        if(!myRank) {
-            for (int i = 0; i < p->total_routers; i++)
-            {
+    if (DUMP_CONNECTIONS) {
+        if (!myRank) {
+            for (int i = 0; i < p->total_routers; i++) {
                 netMan.get_connection_manager_for_router(i).print_connections();
             }
-            for (int i = 0; i < p->total_terminals; i++)
-            {
+            for (int i = 0; i < p->total_terminals; i++) {
                 netMan.get_connection_manager_for_terminal(i).print_connections();
             }
         }
     }
 
-    for(int i = 0; i < p->total_routers; i++){
+    for (int i = 0; i < p->total_routers; i++) {
         int loc_id = i % p->num_routers;
         if (loc_id < p->num_router_leaf)
             router_type_map[i] = LEAF;
@@ -2276,28 +2240,33 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
     }
 
     if (!myRank) {
-        printf("\nTotal nodes: %d,  Total routers: %d, Num groups: %d, Routers per group: %d, Virtual radix: %d\n",
-               p->num_cn * p->num_router_leaf * p->num_groups, p->total_routers, p->num_groups, p->num_routers, p->radix);
+        printf("\nTotal nodes: %d,  Total routers: %d, Num groups: %d, Routers per group: %d, "
+               "Virtual radix: %d\n",
+               p->num_cn * p->num_router_leaf * p->num_groups, p->total_routers, p->num_groups,
+               p->num_routers, p->radix);
     }
 
     rc = configuration_get_value_double(&config, "PARAMS", "cn_delay", anno, &p->cn_delay);
     if (rc) {
-        p->cn_delay = bytes_to_ns(p->chunk_size, p->cn_bandwidth*p->num_rails);
-        if(!myRank)
-            fprintf(stderr, "cn_delay not specified, using default calculation: %.2f\n", p->cn_delay);
+        p->cn_delay = bytes_to_ns(p->chunk_size, p->cn_bandwidth * p->num_rails);
+        if (!myRank)
+            fprintf(stderr, "cn_delay not specified, using default calculation: %.2f\n",
+                    p->cn_delay);
     }
 
     rc = configuration_get_value_double(&config, "PARAMS", "local_delay", anno, &p->local_delay);
     if (rc) {
         p->local_delay = bytes_to_ns(p->chunk_size, p->local_bandwidth);
-        if(!myRank)
-            fprintf(stderr, "local_delay not specified, using default calculation: %.2f\n", p->local_delay);
+        if (!myRank)
+            fprintf(stderr, "local_delay not specified, using default calculation: %.2f\n",
+                    p->local_delay);
     }
     rc = configuration_get_value_double(&config, "PARAMS", "global_delay", anno, &p->global_delay);
     if (rc) {
         p->global_delay = bytes_to_ns(p->chunk_size, p->global_bandwidth);
-        if(!myRank)
-            fprintf(stderr, "global_delay not specified, using default calculation: %.2f\n", p->global_delay);
+        if (!myRank)
+            fprintf(stderr, "global_delay not specified, using default calculation: %.2f\n",
+                    p->global_delay);
     }
 
 
@@ -2305,61 +2274,87 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
     rc = configuration_get_value_int(&config, "PARAMS", "credit_size", anno, &p->credit_size);
     if (rc) {
         p->credit_size = 8;
-        if(!myRank)
+        if (!myRank)
             fprintf(stderr, "credit_size not specified, using default: %d\n", p->credit_size);
     }
 
     double general_credit_delay;
-    int credit_delay_unset = configuration_get_value_double(&config, "PARAMS", "credit_delay", anno, &general_credit_delay);
-    int local_credit_delay_unset = configuration_get_value_double(&config, "PARAMS", "local_credit_delay", anno, &p->local_credit_delay);
-    int global_credit_delay_unset = configuration_get_value_double(&config, "PARAMS", "global_credit_delay", anno, &p->global_credit_delay);
-    int cn_credit_delay_unset = configuration_get_value_double(&config, "PARAMS", "cn_credit_delay", anno, &p->cn_credit_delay);
+    int credit_delay_unset = configuration_get_value_double(&config, "PARAMS", "credit_delay", anno,
+                                                            &general_credit_delay);
+    int local_credit_delay_unset =
+        configuration_get_value_double(&config, "PARAMS", "local_credit_delay", anno,
+                                       &p->local_credit_delay);
+    int global_credit_delay_unset =
+        configuration_get_value_double(&config, "PARAMS", "global_credit_delay", anno,
+                                       &p->global_credit_delay);
+    int cn_credit_delay_unset = configuration_get_value_double(&config, "PARAMS", "cn_credit_delay",
+                                                               anno, &p->cn_credit_delay);
 
     int auto_credit_delay_flag;
-    rc = configuration_get_value_int(&config, "PARAMS", "auto_credit_delay", anno, &auto_credit_delay_flag);
+    rc = configuration_get_value_int(&config, "PARAMS", "auto_credit_delay", anno,
+                                     &auto_credit_delay_flag);
     if (rc) {
         auto_credit_delay_flag = 0;
-    }
-    else {
-        if(!myRank && auto_credit_delay_flag)
-            fprintf(stderr, "auto_credit_delay flag enabled. All credit delays will be calculated based on their respective bandwidths\n");
+    } else {
+        if (!myRank && auto_credit_delay_flag)
+            fprintf(stderr, "auto_credit_delay flag enabled. All credit delays will be calculated "
+                            "based on their respective bandwidths\n");
     }
 
     //If the user specifies a general "credit_delay" AND any of the more specific credit delays, throw an error to make sure they correct their configuration
-    if (!credit_delay_unset && !(local_credit_delay_unset || global_credit_delay_unset || cn_credit_delay_unset))
-        tw_error(TW_LOC, "\nCannot set both a general credit delay and specific (local/global/cn) credit delays. Check configuration file.");
+    if (!credit_delay_unset &&
+        !(local_credit_delay_unset || global_credit_delay_unset || cn_credit_delay_unset))
+        tw_error(TW_LOC, "\nCannot set both a general credit delay and specific (local/global/cn) "
+                         "credit delays. Check configuration file.");
 
     //If the user specifies ANY credit delays general or otherwise AND has the auto credit delay flag enabled, throw an error to make sure they correct the conflicting configuration
-    if ((!credit_delay_unset || !local_credit_delay_unset || !global_credit_delay_unset || !cn_credit_delay_unset) && auto_credit_delay_flag)
-        tw_error(TW_LOC, "\nCannot set both a credit delay (general or specific) and also enable auto credit delay calculation. Check Configuration file.");
+    if ((!credit_delay_unset || !local_credit_delay_unset || !global_credit_delay_unset ||
+         !cn_credit_delay_unset) &&
+        auto_credit_delay_flag)
+        tw_error(TW_LOC, "\nCannot set both a credit delay (general or specific) and also enable "
+                         "auto credit delay calculation. Check Configuration file.");
 
     //If the user doesn't specify either general or specific credit delays - calculate credit delay based on local bandwidth.
     //This is old legacy behavior that is left in to make sure that the credit delay configurations of old aren't semantically different
     //Other possible way to program this would be to make each credit delay be set based on their respective bandwidths but this semantically
     //changes the behavior of old configuration files. (although it would be more accurate)
-    if (credit_delay_unset && local_credit_delay_unset && global_credit_delay_unset && cn_credit_delay_unset && !auto_credit_delay_flag) {
+    if (credit_delay_unset && local_credit_delay_unset && global_credit_delay_unset &&
+        cn_credit_delay_unset && !auto_credit_delay_flag) {
         p->local_credit_delay = bytes_to_ns(p->credit_size, p->local_bandwidth);
         p->global_credit_delay = p->local_credit_delay;
         p->cn_credit_delay = p->local_credit_delay;
-        if(!myRank)
-            fprintf(stderr, "no credit_delay specified - all credit delays set to %.2f\n",p->local_credit_delay);
+        if (!myRank)
+            fprintf(stderr, "no credit_delay specified - all credit delays set to %.2f\n",
+                    p->local_credit_delay);
     }
     //If the user doesn't specify a general credit delay but leaves any of the specific credit delay values unset, then we need to set those (the above conditional handles if none of them had been set)
     else if (credit_delay_unset) {
         if (local_credit_delay_unset) {
             p->local_credit_delay = bytes_to_ns(p->credit_size, p->local_bandwidth);
-            if(!myRank && !auto_credit_delay_flag) //if the auto credit delay flag is true then we've already printed what we're going to do
-                fprintf(stderr, "local_credit_delay not specified, using calculation based on local bandwidth: %.2f\n", p->local_credit_delay);
+            if (!myRank &&
+                !auto_credit_delay_flag) //if the auto credit delay flag is true then we've already printed what we're going to do
+                fprintf(stderr,
+                        "local_credit_delay not specified, using calculation based on local "
+                        "bandwidth: %.2f\n",
+                        p->local_credit_delay);
         }
         if (global_credit_delay_unset) {
             p->global_credit_delay = bytes_to_ns(p->credit_size, p->global_bandwidth);
-            if(!myRank && !auto_credit_delay_flag) //if the auto credit delay flag is true then we've already printed what we're going to do
-                fprintf(stderr, "global_credit_delay not specified, using calculation based on global bandwidth: %.2f\n", p->global_credit_delay);
+            if (!myRank &&
+                !auto_credit_delay_flag) //if the auto credit delay flag is true then we've already printed what we're going to do
+                fprintf(stderr,
+                        "global_credit_delay not specified, using calculation based on global "
+                        "bandwidth: %.2f\n",
+                        p->global_credit_delay);
         }
         if (cn_credit_delay_unset) {
             p->cn_credit_delay = bytes_to_ns(p->credit_size, p->cn_bandwidth);
-            if(!myRank && !auto_credit_delay_flag) //if the auto credit delay flag is true then we've already printed what we're going to do
-                fprintf(stderr, "cn_credit_delay not specified, using calculation based on cn bandwidth: %.2f\n", p->cn_credit_delay);
+            if (!myRank &&
+                !auto_credit_delay_flag) //if the auto credit delay flag is true then we've already printed what we're going to do
+                fprintf(stderr,
+                        "cn_credit_delay not specified, using calculation based on cn bandwidth: "
+                        "%.2f\n",
+                        p->cn_credit_delay);
         }
     }
     //If the user specifies a general credit delay (but didn't specify any specific credit delays) then we set all specific credit delays to the general
@@ -2368,8 +2363,9 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
         p->global_credit_delay = general_credit_delay;
         p->cn_credit_delay = general_credit_delay;
 
-        if(!myRank)
-            fprintf(stderr, "general credit_delay specified - all credit delays set to %.2f\n",general_credit_delay);
+        if (!myRank)
+            fprintf(stderr, "general credit_delay specified - all credit delays set to %.2f\n",
+                    general_credit_delay);
     }
     //END CREDIT DELAY CONFIGURATION LOGIC ----------------
 
@@ -2379,15 +2375,14 @@ static void dragonfly_read_config(const char *anno, dragonfly_plus_param *params
     stored_params = p;
 }
 
-void dragonfly_plus_configure()
-{
+void dragonfly_plus_configure() {
     anno_map = codes_mapping_get_lp_anno_map(LP_CONFIG_NM_TERM);
     assert(anno_map);
     num_params = anno_map->num_annos + (anno_map->has_unanno_lp > 0);
-    all_params = (dragonfly_plus_param *) calloc(num_params, sizeof(*all_params));
+    all_params = (dragonfly_plus_param*)calloc(num_params, sizeof(*all_params));
 
     for (int i = 0; i < anno_map->num_annos; i++) {
-        const char *anno = anno_map->annotations[i].ptr;
+        const char* anno = anno_map->annotations[i].ptr;
         dragonfly_read_config(anno, &all_params[i]);
     }
     if (anno_map->has_unanno_lp > 0) {
@@ -2399,8 +2394,7 @@ void dragonfly_plus_configure()
 }
 
 /* report dragonfly statistics like average and maximum packet latency, average number of hops traversed */
-void dragonfly_plus_report_stats()
-{
+void dragonfly_plus_report_stats() {
     long long avg_hops, total_finished_packets, total_finished_chunks;
     long long total_finished_msgs, final_msg_sz;
     tw_stime avg_time, max_time;
@@ -2409,19 +2403,24 @@ void dragonfly_plus_report_stats()
     long total_local_packets_sr, total_local_packets_sg, total_remote_packets;
 
     MPI_Reduce(&total_hops, &avg_hops, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
-    MPI_Reduce(&N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
-    MPI_Reduce(&N_finished_msgs, &total_finished_msgs, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
-    MPI_Reduce(&N_finished_chunks, &total_finished_chunks, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+    MPI_Reduce(&N_finished_packets, &total_finished_packets, 1, MPI_LONG_LONG, MPI_SUM, 0,
+               MPI_COMM_CODES);
+    MPI_Reduce(&N_finished_msgs, &total_finished_msgs, 1, MPI_LONG_LONG, MPI_SUM, 0,
+               MPI_COMM_CODES);
+    MPI_Reduce(&N_finished_chunks, &total_finished_chunks, 1, MPI_LONG_LONG, MPI_SUM, 0,
+               MPI_COMM_CODES);
     MPI_Reduce(&total_msg_sz, &final_msg_sz, 1, MPI_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
     MPI_Reduce(&dragonfly_total_time, &avg_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_CODES);
     MPI_Reduce(&dragonfly_max_latency, &max_time, 1, MPI_DOUBLE, MPI_MAX, 0, MPI_COMM_CODES);
 
     MPI_Reduce(&packet_gen, &total_gen, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
     MPI_Reduce(&packet_fin, &total_fin, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
-    MPI_Reduce( &num_local_packets_sr, &total_local_packets_sr, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
-    MPI_Reduce( &num_local_packets_sg, &total_local_packets_sg, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
-    MPI_Reduce( &num_remote_packets, &total_remote_packets, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
-    if(isRoutingAdaptive(routing) || SHOW_ADAPTIVE_STATS) {
+    MPI_Reduce(&num_local_packets_sr, &total_local_packets_sr, 1, MPI_LONG, MPI_SUM, 0,
+               MPI_COMM_CODES);
+    MPI_Reduce(&num_local_packets_sg, &total_local_packets_sg, 1, MPI_LONG, MPI_SUM, 0,
+               MPI_COMM_CODES);
+    MPI_Reduce(&num_remote_packets, &total_remote_packets, 1, MPI_LONG, MPI_SUM, 0, MPI_COMM_CODES);
+    if (isRoutingAdaptive(routing) || SHOW_ADAPTIVE_STATS) {
         MPI_Reduce(&minimal_count, &total_minimal_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_CODES);
         MPI_Reduce(&nonmin_count, &total_nonmin_packets, 1, MPI_INT, MPI_SUM, 0, MPI_COMM_CODES);
     }
@@ -2432,33 +2431,35 @@ void dragonfly_plus_report_stats()
             dragonfly_plus_print_params(stored_params, NULL);
 
 
-        printf(
-            "Average number of router hops traversed: %f; average chunk latency: %lf us; maximum chunk latency: %lf us; "
-            "avg message size: %lf bytes; finished messages: %lld; finished chunks: %lld \n",
-            (float) avg_hops / total_finished_chunks, avg_time / (total_finished_chunks * 1000),
-            max_time / 1000, (float) final_msg_sz / total_finished_msgs, total_finished_msgs,
-            total_finished_chunks);
-        if(isRoutingAdaptive(routing) || SHOW_ADAPTIVE_STATS) {
-            printf("\nADAPTIVE ROUTING STATS: %d chunks routed minimally %d chunks routed non-minimally - completed packets: %lld \n",
-                total_minimal_packets, total_nonmin_packets, total_finished_chunks);
+        printf("Average number of router hops traversed: %f; average chunk latency: %lf us; "
+               "maximum chunk latency: %lf us; "
+               "avg message size: %lf bytes; finished messages: %lld; finished chunks: %lld \n",
+               (float)avg_hops / total_finished_chunks, avg_time / (total_finished_chunks * 1000),
+               max_time / 1000, (float)final_msg_sz / total_finished_msgs, total_finished_msgs,
+               total_finished_chunks);
+        if (isRoutingAdaptive(routing) || SHOW_ADAPTIVE_STATS) {
+            printf("\nADAPTIVE ROUTING STATS: %d chunks routed minimally %d chunks routed "
+                   "non-minimally - completed packets: %lld \n",
+                   total_minimal_packets, total_nonmin_packets, total_finished_chunks);
         }
-      printf("\nTotal packets generated: %ld; finished: %ld; Locally routed: same router: %ld, different-router: %ld; Remote (inter-group): %ld \n", total_gen, total_fin, total_local_packets_sr, total_local_packets_sg, total_remote_packets);
+        printf("\nTotal packets generated: %ld; finished: %ld; Locally routed: same router: %ld, "
+               "different-router: %ld; Remote (inter-group): %ld \n",
+               total_gen, total_fin, total_local_packets_sr, total_local_packets_sg,
+               total_remote_packets);
     }
     return;
 }
 
-int get_vcg_from_category(terminal_plus_message * msg)
-{
-   if(strcmp(msg->category, "high") == 0)
-       return Q_HIGH;
-   else if(strcmp(msg->category, "medium") == 0)
-       return Q_MEDIUM;
-   else
-       tw_error(TW_LOC, "\n priority needs to be specified with qos_levels > 1 %s", msg->category);
+int get_vcg_from_category(terminal_plus_message* msg) {
+    if (strcmp(msg->category, "high") == 0)
+        return Q_HIGH;
+    else if (strcmp(msg->category, "medium") == 0)
+        return Q_MEDIUM;
+    else
+        tw_error(TW_LOC, "\n priority needs to be specified with qos_levels > 1 %s", msg->category);
 }
 
-static int get_term_bandwidth_consumption(terminal_state * s, int rail_id, int qos_lvl)
-{
+static int get_term_bandwidth_consumption(terminal_state* s, int rail_id, int qos_lvl) {
     assert(qos_lvl >= Q_HIGH && qos_lvl <= Q_LOW);
 
     /* conversion into bytes/sec from GiB/sec */
@@ -2468,19 +2469,19 @@ static int get_term_bandwidth_consumption(terminal_state * s, int rail_id, int q
     /* derive maximum bytes that can be transferred during the window */
     double max_bytes_per_win = max_bw_per_ns * bw_reset_window;
     int percent_bw = (((double)s->qos_data[rail_id][qos_lvl]) / max_bytes_per_win) * 100;
-//    printf("\n At terminal %lf max bytes %d percent %d ", max_bytes_per_win, s->qos_data[qos_lvl], percent_bw);
+    //    printf("\n At terminal %lf max bytes %d percent %d ", max_bytes_per_win, s->qos_data[qos_lvl], percent_bw);
     return percent_bw;
 }
 
-static int get_rtr_bandwidth_consumption(router_state * s, int qos_lvl, int output_port)
-{
+static int get_rtr_bandwidth_consumption(router_state* s, int qos_lvl, int output_port) {
     assert(qos_lvl >= Q_HIGH && qos_lvl <= Q_LOW);
-    assert(output_port < s->params->intra_grp_radix + s->params->num_global_connections + s->params->cn_radix);
+    assert(output_port <
+           s->params->intra_grp_radix + s->params->num_global_connections + s->params->cn_radix);
 
     int bandwidth = s->params->cn_bandwidth;
-    if(output_port < s->params->intra_grp_radix)
+    if (output_port < s->params->intra_grp_radix)
         bandwidth = s->params->local_bandwidth;
-    else if(output_port < s->params->intra_grp_radix + s->params->num_global_connections)
+    else if (output_port < s->params->intra_grp_radix + s->params->num_global_connections)
         bandwidth = s->params->global_bandwidth;
 
     /* conversion into bytes/sec from GiB/sec */
@@ -2491,22 +2492,22 @@ static int get_rtr_bandwidth_consumption(router_state * s, int qos_lvl, int outp
     double max_bytes_per_win = max_bw_per_ns * bw_reset_window;
 
     int percent_bw = (((double)s->qos_data[output_port][qos_lvl]) / max_bytes_per_win) * 100;
-//    printf("\n percent bw consumed by qos_lvl %d is %d bytes transferred %d max_bw %lf ", qos_lvl, percent_bw, s->qos_data[output_port][qos_lvl], max_bw_per_ns);
+    //    printf("\n percent bw consumed by qos_lvl %d is %d bytes transferred %d max_bw %lf ", qos_lvl, percent_bw, s->qos_data[output_port][qos_lvl], max_bw_per_ns);
     return percent_bw;
 }
 
-void issue_bw_monitor_event_rc(terminal_state * s, tw_bf * bf, terminal_plus_message * msg, tw_lp * lp)
-{
-    for(int i = 0 ; i < msg->num_cll; i++)
+void issue_bw_monitor_event_rc(terminal_state* s, tw_bf* bf, terminal_plus_message* msg,
+                               tw_lp* lp) {
+    for (int i = 0; i < msg->num_cll; i++)
         codes_local_latency_reverse(lp);
 
     int num_qos_levels = s->params->num_qos_levels;
 
-    if(msg->rc_is_qos_set == 1)
-    {
-        for(int i = 0; i < num_qos_levels; i++)
-        {
-            s->qos_data[msg->rail_id][i] = msg->rc_qos_data[i]; //rail id of data put into the rc data is the same as the one it's being extracted to.
+    if (msg->rc_is_qos_set == 1) {
+        for (int i = 0; i < num_qos_levels; i++) {
+            s->qos_data[msg->rail_id][i] =
+                msg->rc_qos_data
+                    [i]; //rail id of data put into the rc data is the same as the one it's being extracted to.
             s->qos_status[msg->rail_id][i] = msg->rc_qos_status[i];
         }
 
@@ -2516,9 +2517,7 @@ void issue_bw_monitor_event_rc(terminal_state * s, tw_bf * bf, terminal_plus_mes
     }
 }
 /* resets the bandwidth numbers recorded so far */
-void issue_bw_monitor_event(terminal_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
-
+void issue_bw_monitor_event(terminal_state* s, tw_bf* bf, terminal_plus_message* msg, tw_lp* lp) {
     msg->num_cll = 0;
     msg->num_rngs = 0;
     int num_qos_levels = s->params->num_qos_levels;
@@ -2526,14 +2525,13 @@ void issue_bw_monitor_event(terminal_state *s, tw_bf *bf, terminal_plus_message 
 
     // RC data storage start.
     // Allocate memory here for these pointers that are stored in the events. FREE THESE IN RC OR IN COMMIT_F
-    msg->rc_qos_data = (unsigned long long *)calloc(num_rails * num_qos_levels, sizeof(unsigned long long));
-    msg->rc_qos_status = (int *)calloc(num_rails * num_qos_levels, sizeof(int));
+    msg->rc_qos_data =
+        (unsigned long long*)calloc(num_rails * num_qos_levels, sizeof(unsigned long long));
+    msg->rc_qos_status = (int*)calloc(num_rails * num_qos_levels, sizeof(int));
 
     // store qos data and status into the arrays. Pointers to the arrays are stored in events.
-    for (int i = 0; i < num_rails; i++)
-    {
-        for (int j = 0; j < num_qos_levels; j++)
-        {
+    for (int i = 0; i < num_rails; i++) {
+        for (int j = 0; j < num_qos_levels; j++) {
             *(indexer2d(msg->rc_qos_data, i, j, num_rails, num_qos_levels)) = s->qos_data[i][j];
             *(indexer2d(msg->rc_qos_status, i, j, num_rails, num_qos_levels)) = s->qos_status[i][j];
         }
@@ -2542,10 +2540,8 @@ void issue_bw_monitor_event(terminal_state *s, tw_bf *bf, terminal_plus_message 
     // RC data storage end.
 
     /* Reset the qos status and bandwidth consumption. */
-    for (int i = 0; i < num_rails; i++)
-    {
-        for (int j = 0; j < num_qos_levels; j++)
-        {
+    for (int i = 0; i < num_rails; i++) {
+        for (int j = 0; j < num_qos_levels; j++) {
             s->qos_status[j][i] = Q_ACTIVE;
             s->qos_data[j][i] = 0;
         }
@@ -2557,29 +2553,25 @@ void issue_bw_monitor_event(terminal_state *s, tw_bf *bf, terminal_plus_message 
         return;
 
     msg->num_cll++;
-    terminal_plus_message *m;
+    terminal_plus_message* m;
     tw_stime bw_ts = bw_reset_window + codes_local_latency(lp);
-    tw_event *e = model_net_method_event_new(lp->gid, bw_ts, lp, DRAGONFLY_PLUS,
-                                             (void **)&m, NULL);
+    tw_event* e = model_net_method_event_new(lp->gid, bw_ts, lp, DRAGONFLY_PLUS, (void**)&m, NULL);
     m->type = T_BANDWIDTH;
     m->magic = terminal_magic_num;
     tw_event_send(e);
 }
 
-void issue_rtr_bw_monitor_event_rc(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
+void issue_rtr_bw_monitor_event_rc(router_state* s, tw_bf* bf, terminal_plus_message* msg,
+                                   tw_lp* lp) {
     int radix = s->params->radix;
     int num_qos_levels = s->params->num_qos_levels;
 
-    for(int i = 0 ; i < msg->num_cll; i++)
+    for (int i = 0; i < msg->num_cll; i++)
         codes_local_latency_reverse(lp);
 
-    if(msg->rc_is_qos_set == 1)
-    {
-        for(int i = 0; i < radix; i++)
-        {
-            for(int j = 0; j < num_qos_levels; j++)
-            {
+    if (msg->rc_is_qos_set == 1) {
+        for (int i = 0; i < radix; i++) {
+            for (int j = 0; j < num_qos_levels; j++) {
                 s->qos_data[i][j] = *(indexer2d(msg->rc_qos_data, i, j, radix, num_qos_levels));
                 s->qos_status[i][j] = *(indexer2d(msg->rc_qos_status, i, j, radix, num_qos_levels));
             }
@@ -2590,8 +2582,7 @@ void issue_rtr_bw_monitor_event_rc(router_state *s, tw_bf *bf, terminal_plus_mes
         msg->rc_is_qos_set = 0;
     }
 }
-void issue_rtr_bw_monitor_event(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
+void issue_rtr_bw_monitor_event(router_state* s, tw_bf* bf, terminal_plus_message* msg, tw_lp* lp) {
     msg->num_cll = 0;
     msg->num_rngs = 0;
 
@@ -2600,14 +2591,13 @@ void issue_rtr_bw_monitor_event(router_state *s, tw_bf *bf, terminal_plus_messag
 
     // RC data storage start.
     // Allocate memory here for these pointers that are stored in the events. FREE THESE IN RC OR IN COMMIT_F
-    msg->rc_qos_data = (unsigned long long *)calloc(radix * num_qos_levels, sizeof(unsigned long long));
-    msg->rc_qos_status = (int *)calloc(radix * num_qos_levels, sizeof(int));
+    msg->rc_qos_data =
+        (unsigned long long*)calloc(radix * num_qos_levels, sizeof(unsigned long long));
+    msg->rc_qos_status = (int*)calloc(radix * num_qos_levels, sizeof(int));
 
     // store qos data and status into the arrays. Pointers to the arrays are stored in events.
-    for (int i = 0; i < radix; i++)
-    {
-        for (int j = 0; j < num_qos_levels; j++)
-        {
+    for (int i = 0; i < radix; i++) {
+        for (int j = 0; j < num_qos_levels; j++) {
             *(indexer2d(msg->rc_qos_data, i, j, radix, num_qos_levels)) = s->qos_data[i][j];
             *(indexer2d(msg->rc_qos_status, i, j, radix, num_qos_levels)) = s->qos_status[i][j];
         }
@@ -2615,18 +2605,16 @@ void issue_rtr_bw_monitor_event(router_state *s, tw_bf *bf, terminal_plus_messag
     msg->rc_is_qos_set = 1;
     // RC data storage end.
 
-    for (int i = 0; i < radix; i++)
-    {
-        for (int j = 0; j < num_qos_levels; j++)
-        {
+    for (int i = 0; i < radix; i++) {
+        for (int j = 0; j < num_qos_levels; j++) {
             int bw_consumed = get_rtr_bandwidth_consumption(s, j, i);
 
 #if DEBUG_QOS == 1
-            if(dragonfly_rtr_bw_log != NULL && ROUTER_BW_LOG)
-            {
-                if(s->qos_data[j][k] > 0)
-                {
-                    fprintf(dragonfly_rtr_bw_log, "\n %d %f %d %d %d %d %d %f", s->router_id, tw_now(lp), i, j, bw_consumed, s->qos_status[i][j], s->qos_data[i][j], s->busy_time_sample[i]);
+            if (dragonfly_rtr_bw_log != NULL && ROUTER_BW_LOG) {
+                if (s->qos_data[j][k] > 0) {
+                    fprintf(dragonfly_rtr_bw_log, "\n %d %f %d %d %d %d %d %f", s->router_id,
+                            tw_now(lp), i, j, bw_consumed, s->qos_status[i][j], s->qos_data[i][j],
+                            s->busy_time_sample[i]);
                 }
             }
 #endif
@@ -2634,10 +2622,8 @@ void issue_rtr_bw_monitor_event(router_state *s, tw_bf *bf, terminal_plus_messag
     }
 
     /* Reset the qos status and bandwidth consumption. */
-    for(int i = 0; i < s->params->radix; i++)
-    {
-        for(int j = 0; j < num_qos_levels; j++)
-        {
+    for (int i = 0; i < s->params->radix; i++) {
+        for (int j = 0; j < num_qos_levels; j++) {
             s->qos_status[i][j] = Q_ACTIVE;
             s->qos_data[i][j] = 0;
         }
@@ -2645,57 +2631,52 @@ void issue_rtr_bw_monitor_event(router_state *s, tw_bf *bf, terminal_plus_messag
         s->ross_rsample.busy_time[i] = 0;
     }
 
-    if(tw_now(lp) > max_qos_monitor)
+    if (tw_now(lp) > max_qos_monitor)
         return;
 
     msg->num_cll++;
     tw_stime bw_ts = bw_reset_window + codes_local_latency(lp);
-    terminal_plus_message *m;
-    tw_event * e = model_net_method_event_new(lp->gid, bw_ts, lp,
-            DRAGONFLY_PLUS_ROUTER, (void**)&m, NULL);
+    terminal_plus_message* m;
+    tw_event* e =
+        model_net_method_event_new(lp->gid, bw_ts, lp, DRAGONFLY_PLUS_ROUTER, (void**)&m, NULL);
     m->type = R_BANDWIDTH;
     m->magic = router_magic_num;
     tw_event_send(e);
 }
 
-static int get_next_vcg(terminal_state * s, tw_bf * bf, terminal_plus_message * msg, tw_lp * lp)
-{
+static int get_next_vcg(terminal_state* s, tw_bf* bf, terminal_plus_message* msg, tw_lp* lp) {
     int num_qos_levels = s->params->num_qos_levels;
 
-    if(num_qos_levels == 1)
-    {
-        if(s->terminal_msgs[msg->rail_id][0] == NULL || s->vc_occupancy[msg->rail_id][0] + s->params->chunk_size > s->params->cn_vc_size)
+    if (num_qos_levels == 1) {
+        if (s->terminal_msgs[msg->rail_id][0] == NULL ||
+            s->vc_occupancy[msg->rail_id][0] + s->params->chunk_size > s->params->cn_vc_size)
             return -1;
         else
             return 0;
     }
 
-  int bw_consumption[num_qos_levels];
+    int bw_consumption[num_qos_levels];
 
     /* First make sure the bandwidth consumptions are up to date. */
-    for(int k = 0; k < num_qos_levels; k++)
-    {
-        if(s->qos_status[msg->rail_id][k] != Q_OVERBW)
-        {
+    for (int k = 0; k < num_qos_levels; k++) {
+        if (s->qos_status[msg->rail_id][k] != Q_OVERBW) {
             bw_consumption[k] = get_term_bandwidth_consumption(s, msg->rail_id, k);
-            if (bw_consumption[k] > s->params->qos_bandwidths[k])
-            {
-                if(k == 0)
+            if (bw_consumption[k] > s->params->qos_bandwidths[k]) {
+                if (k == 0)
                     msg->qos_reset1 = 1;
-                else if(k == 1)
+                else if (k == 1)
                     msg->qos_reset2 = 1;
 
                 s->qos_status[msg->rail_id][k] = Q_OVERBW;
             }
         }
     }
-    if(BW_MONITOR == 1)
-    {
-        for(int i = 0; i < num_qos_levels; i++)
-        {
-            if(s->qos_status[msg->rail_id][i] == Q_ACTIVE)
-            {
-                if(s->terminal_msgs[msg->rail_id][i] != NULL && s->vc_occupancy[msg->rail_id][i] + s->params->chunk_size <= s->params->cn_vc_size)
+    if (BW_MONITOR == 1) {
+        for (int i = 0; i < num_qos_levels; i++) {
+            if (s->qos_status[msg->rail_id][i] == Q_ACTIVE) {
+                if (s->terminal_msgs[msg->rail_id][i] != NULL &&
+                    s->vc_occupancy[msg->rail_id][i] + s->params->chunk_size <=
+                        s->params->cn_vc_size)
                     return i;
             }
         }
@@ -2703,13 +2684,12 @@ static int get_next_vcg(terminal_state * s, tw_bf * bf, terminal_plus_message * 
 
     int next_rr_vcg = (s->last_qos_lvl[msg->rail_id] + 1) % num_qos_levels;
     /* All vcgs are exceeding their bandwidth limits*/
-    for(int i = 0; i < num_qos_levels; i++)
-    {
-        if(s->terminal_msgs[msg->rail_id][i] != NULL && s->vc_occupancy[msg->rail_id][i] + s->params->chunk_size <= s->params->cn_vc_size)
-        {
+    for (int i = 0; i < num_qos_levels; i++) {
+        if (s->terminal_msgs[msg->rail_id][i] != NULL &&
+            s->vc_occupancy[msg->rail_id][i] + s->params->chunk_size <= s->params->cn_vc_size) {
             bf->c2 = 1;
 
-            if(msg->last_saved_qos < 0)
+            if (msg->last_saved_qos < 0)
                 msg->last_saved_qos = s->last_qos_lvl[msg->rail_id];
 
             s->last_qos_lvl[msg->rail_id] = next_rr_vcg;
@@ -2720,89 +2700,73 @@ static int get_next_vcg(terminal_state * s, tw_bf * bf, terminal_plus_message * 
     return -1;
 }
 
-static int get_next_router_vcg(router_state * s, tw_bf * bf, terminal_plus_message * msg, tw_lp * lp)
-{
-  int num_qos_levels = s->params->num_qos_levels;
+static int get_next_router_vcg(router_state* s, tw_bf* bf, terminal_plus_message* msg, tw_lp* lp) {
+    int num_qos_levels = s->params->num_qos_levels;
 
-  int vcs_per_qos = s->params->num_vcs / num_qos_levels;
-  int output_port = msg->vc_index;
-  int vcg = 0;
-  int base_limit = 0;
+    int vcs_per_qos = s->params->num_vcs / num_qos_levels;
+    int output_port = msg->vc_index;
+    int vcg = 0;
+    int base_limit = 0;
 
-  int chunk_size = s->params->chunk_size;
-  int bw_consumption[num_qos_levels];
-  /* First make sure the bandwidth consumptions are up to date. */
-  if(BW_MONITOR == 1)
-  {
-    for(int k = 0; k < num_qos_levels; k++)
-    {
-        if(s->qos_status[output_port][k] != Q_OVERBW)
-        {
-            bw_consumption[k] = get_rtr_bandwidth_consumption(s, k, output_port);
-            if (bw_consumption[k] > s->params->qos_bandwidths[k])
-            {
-                //            printf("\n Router %d QoS %d exceeded allowed bandwidth %d ", s->router_id, k, bw_consumption[k]);
-                if (k == 0)
-                    msg->qos_reset1 = 1;
-                else if (k == 1)
-                    msg->qos_reset2 = 1;
+    int chunk_size = s->params->chunk_size;
+    int bw_consumption[num_qos_levels];
+    /* First make sure the bandwidth consumptions are up to date. */
+    if (BW_MONITOR == 1) {
+        for (int k = 0; k < num_qos_levels; k++) {
+            if (s->qos_status[output_port][k] != Q_OVERBW) {
+                bw_consumption[k] = get_rtr_bandwidth_consumption(s, k, output_port);
+                if (bw_consumption[k] > s->params->qos_bandwidths[k]) {
+                    //            printf("\n Router %d QoS %d exceeded allowed bandwidth %d ", s->router_id, k, bw_consumption[k]);
+                    if (k == 0)
+                        msg->qos_reset1 = 1;
+                    else if (k == 1)
+                        msg->qos_reset2 = 1;
 
-                s->qos_status[output_port][k] = Q_OVERBW;
-            }
-      }
-  }
-  int vc_size = s->params->global_vc_size;
-  if(output_port < s->params->intra_grp_radix)
-      vc_size = s->params->local_vc_size;
-
-  /* TODO: If none of the vcg is exceeding bandwidth limit then select high
-   * priority traffic first. */
-   for(int i = 0; i < num_qos_levels; i++)
-   {
-        if(s->qos_status[output_port][i] == Q_ACTIVE)
-        {
-            int base_limit = i * vcs_per_qos;
-            for(int k = base_limit; k < base_limit + vcs_per_qos; k ++)
-            {
-                if(s->pending_msgs[output_port][k] != NULL)
-                    return k;
+                    s->qos_status[output_port][k] = Q_OVERBW;
+                }
             }
         }
-   }
-  }
+        int vc_size = s->params->global_vc_size;
+        if (output_port < s->params->intra_grp_radix)
+            vc_size = s->params->local_vc_size;
 
-   /* All vcgs are exceeding their bandwidth limits*/
-   msg->last_saved_qos = s->last_qos_lvl[output_port];
-   int next_rr_vcg = (s->last_qos_lvl[output_port] + 1) % num_qos_levels;
+        /* TODO: If none of the vcg is exceeding bandwidth limit then select high
+   * priority traffic first. */
+        for (int i = 0; i < num_qos_levels; i++) {
+            if (s->qos_status[output_port][i] == Q_ACTIVE) {
+                int base_limit = i * vcs_per_qos;
+                for (int k = base_limit; k < base_limit + vcs_per_qos; k++) {
+                    if (s->pending_msgs[output_port][k] != NULL)
+                        return k;
+                }
+            }
+        }
+    }
 
-   for(int i = 0; i < num_qos_levels; i++)
-   {
-       base_limit = next_rr_vcg * vcs_per_qos;
-       for (int k = base_limit; k < base_limit + vcs_per_qos; k++)
-       {
-           if (s->pending_msgs[output_port][k] != NULL)
-           {
-               if (msg->last_saved_qos < 0)
-                   msg->last_saved_qos = s->last_qos_lvl[output_port];
+    /* All vcgs are exceeding their bandwidth limits*/
+    msg->last_saved_qos = s->last_qos_lvl[output_port];
+    int next_rr_vcg = (s->last_qos_lvl[output_port] + 1) % num_qos_levels;
 
-               s->last_qos_lvl[output_port] = next_rr_vcg;
-               return k;
-           }
+    for (int i = 0; i < num_qos_levels; i++) {
+        base_limit = next_rr_vcg * vcs_per_qos;
+        for (int k = base_limit; k < base_limit + vcs_per_qos; k++) {
+            if (s->pending_msgs[output_port][k] != NULL) {
+                if (msg->last_saved_qos < 0)
+                    msg->last_saved_qos = s->last_qos_lvl[output_port];
+
+                s->last_qos_lvl[output_port] = next_rr_vcg;
+                return k;
+            }
         }
         next_rr_vcg = (next_rr_vcg + 1) % num_qos_levels;
         assert(next_rr_vcg < 2);
-   }
-   return -1;
+    }
+    return -1;
 }
 
-void terminal_plus_commit(terminal_state *s,
-                          tw_bf *bf,
-                          terminal_plus_message *msg,
-                          tw_lp *lp)
-{
-    if(msg->type == T_BANDWIDTH)
-    {
-        if(msg->rc_is_qos_set == 1) {
+void terminal_plus_commit(terminal_state* s, tw_bf* bf, terminal_plus_message* msg, tw_lp* lp) {
+    if (msg->type == T_BANDWIDTH) {
+        if (msg->rc_is_qos_set == 1) {
             free(msg->rc_qos_data);
             free(msg->rc_qos_status);
             msg->rc_is_qos_set = 0;
@@ -2810,14 +2774,9 @@ void terminal_plus_commit(terminal_state *s,
     }
 }
 
-void router_plus_commit(router_state *s,
-                        tw_bf *bf,
-                        terminal_plus_message *msg,
-                        tw_lp *lp)
-{
-    if(msg->type == R_BANDWIDTH)
-    {
-        if(msg->rc_is_qos_set == 1) {
+void router_plus_commit(router_state* s, tw_bf* bf, terminal_plus_message* msg, tw_lp* lp) {
+    if (msg->type == R_BANDWIDTH) {
+        if (msg->rc_is_qos_set == 1) {
             free(msg->rc_qos_data);
             free(msg->rc_qos_status);
             msg->rc_is_qos_set = 0;
@@ -2826,8 +2785,7 @@ void router_plus_commit(router_state *s,
 }
 
 /* initialize a dragonfly compute node terminal */
-void terminal_plus_init(terminal_state *s, tw_lp *lp)
-{
+void terminal_plus_init(terminal_state* s, tw_lp* lp) {
     // printf("%d: Terminal Init()\n",lp->gid);
     s->packet_gen = 0;
     s->packet_fin = 0;
@@ -2844,21 +2802,20 @@ void terminal_plus_init(terminal_state *s, tw_lp *lp)
     if (anno[0] == '\0') {
         s->anno = NULL;
         s->params = &all_params[num_params - 1];
-    }
-    else {
+    } else {
         s->anno = strdup(anno);
         int id = configuration_get_annotation_index(anno, anno_map);
         s->params = &all_params[id];
     }
 
-    const dragonfly_plus_param * p = s->params;
+    const dragonfly_plus_param* p = s->params;
 
     int num_qos_levels = s->params->num_qos_levels;
     int num_lps = codes_mapping_get_lp_count(lp_group_name, 1, LP_CONFIG_NM_TERM, s->anno, 0);
 
     s->terminal_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
-    s->router_id = (unsigned int *)calloc(p->num_rails, sizeof(unsigned int));
-    s->router_lp = (tw_lpid *)calloc(p->num_rails, sizeof(tw_lpid));
+    s->router_id = (unsigned int*)calloc(p->num_rails, sizeof(unsigned int));
+    s->router_lp = (tw_lpid*)calloc(p->num_rails, sizeof(tw_lpid));
 
     // ROSS allocates LP state as a zeroed POD blob and never runs C++ ctors.
     // Assigning into a never-constructed map-of-maps is UB; libc++ (macOS)
@@ -2868,29 +2825,30 @@ void terminal_plus_init(terminal_state *s, tw_lp *lp)
     new (&s->connMan) DragonflyConnectionManager();
     s->connMan = netMan.get_connection_manager_for_terminal(s->terminal_id);
 
-    for (i = 0; i < p->num_rails; i++)
-    {
+    for (i = 0; i < p->num_rails; i++) {
         s->router_id[i] = dragonfly_plus_get_assigned_router_id(s->params, s->terminal_id, i);
-        num_routers_per_mgrp = codes_mapping_get_lp_count(lp_group_name, 1, "modelnet_dragonfly_plus_router",
-                                                          NULL, 0);
-        codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, NULL, 1, s->router_id[i] / num_routers_per_mgrp, s->router_id[i] % num_routers_per_mgrp, &s->router_lp[i]);
+        num_routers_per_mgrp =
+            codes_mapping_get_lp_count(lp_group_name, 1, "modelnet_dragonfly_plus_router", NULL, 0);
+        codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, NULL, 1,
+                                s->router_id[i] / num_routers_per_mgrp,
+                                s->router_id[i] % num_routers_per_mgrp, &s->router_lp[i]);
     }
 
     // printf("%d gid is TERMINAL %d with assigned router %d\n",lp->gid,s->terminal_id,s->router_id);
-    s->terminal_available_time = (tw_stime *)calloc(p->num_rails, sizeof(tw_stime));
+    s->terminal_available_time = (tw_stime*)calloc(p->num_rails, sizeof(tw_stime));
     s->packet_counter = 0;
     s->min_latency = INT_MAX;
     s->max_latency = 0;
 
-    s->link_traffic = (uint64_t *)calloc(p->num_rails, sizeof(uint64_t));
+    s->link_traffic = (uint64_t*)calloc(p->num_rails, sizeof(uint64_t));
     s->finished_msgs = 0;
     s->finished_chunks = 0;
     s->finished_packets = 0;
     s->total_time = 0.0;
     s->total_msg_size = 0;
 
-    s->stalled_chunks = (unsigned long *)calloc(p->num_rails, sizeof(uint64_t));
-    s->busy_time = (tw_stime *)calloc(p->num_rails, sizeof(tw_stime));
+    s->stalled_chunks = (unsigned long*)calloc(p->num_rails, sizeof(uint64_t));
+    s->busy_time = (tw_stime*)calloc(p->num_rails, sizeof(tw_stime));
 
     s->fwd_events = 0;
     s->rev_events = 0;
@@ -2901,25 +2859,25 @@ void terminal_plus_init(terminal_state *s, tw_lp *lp)
     if (num_qos_levels > 1)
         s->num_vcs *= num_qos_levels;
 
-    s->vc_occupancy = (int **)calloc(p->num_rails, sizeof(int *));
-    s->last_buf_full = (tw_stime *)calloc(p->num_rails, sizeof(tw_stime));
+    s->vc_occupancy = (int**)calloc(p->num_rails, sizeof(int*));
+    s->last_buf_full = (tw_stime*)calloc(p->num_rails, sizeof(tw_stime));
 
-    s->terminal_length = (int **)calloc(p->num_rails, sizeof(int *)); // 1 vc times number of qos levels
+    s->terminal_length =
+        (int**)calloc(p->num_rails, sizeof(int*)); // 1 vc times number of qos levels
 
-    for (i = 0; i < p->num_rails; i++)
-    {
-        s->vc_occupancy[i] = (int *)calloc(num_qos_levels, sizeof(int));
-        s->terminal_length[i] = (int *)calloc(num_qos_levels, sizeof(int));
+    for (i = 0; i < p->num_rails; i++) {
+        s->vc_occupancy[i] = (int*)calloc(num_qos_levels, sizeof(int));
+        s->terminal_length[i] = (int*)calloc(num_qos_levels, sizeof(int));
     }
 
-    s->in_send_loop = (int *)calloc(p->num_rails, sizeof(int));
-    s->issueIdle = (int *)calloc(p->num_rails, sizeof(int));
+    s->in_send_loop = (int*)calloc(p->num_rails, sizeof(int));
+    s->issueIdle = (int*)calloc(p->num_rails, sizeof(int));
 
     s->rank_tbl = NULL;
     s->terminal_msgs =
-        (terminal_plus_message_list ***)calloc(p->num_rails, sizeof(terminal_plus_message_list **));
+        (terminal_plus_message_list***)calloc(p->num_rails, sizeof(terminal_plus_message_list**));
     s->terminal_msgs_tail =
-        (terminal_plus_message_list ***)calloc(p->num_rails, sizeof(terminal_plus_message_list **));
+        (terminal_plus_message_list***)calloc(p->num_rails, sizeof(terminal_plus_message_list**));
 
     /* Whether the virtual channel group is active or over-bw*/
     s->qos_status = (int**)calloc(p->num_rails, sizeof(int*));
@@ -2927,14 +2885,16 @@ void terminal_plus_init(terminal_state *s, tw_lp *lp)
     * the window */
     s->qos_data = (int**)calloc(p->num_rails, sizeof(int*));
 
-    for(i = 0; i < p->num_rails; i++)
-    {
+    for (i = 0; i < p->num_rails; i++) {
         s->in_send_loop[i] = 0;
-        s->terminal_msgs[i] = (terminal_plus_message_list**)calloc(num_qos_levels, sizeof(terminal_plus_message_list*));
-        s->terminal_msgs_tail[i] = (terminal_plus_message_list**)calloc(num_qos_levels, sizeof(terminal_plus_message_list*));
+        s->terminal_msgs[i] =
+            (terminal_plus_message_list**)calloc(num_qos_levels,
+                                                 sizeof(terminal_plus_message_list*));
+        s->terminal_msgs_tail[i] =
+            (terminal_plus_message_list**)calloc(num_qos_levels,
+                                                 sizeof(terminal_plus_message_list*));
 
-        for(int j = 0; j < num_qos_levels; j++)
-        {
+        for (int j = 0; j < num_qos_levels; j++) {
             s->terminal_msgs[i][j] = NULL;
             s->terminal_msgs_tail[i][j] = NULL;
         }
@@ -2945,8 +2905,7 @@ void terminal_plus_init(terminal_state *s, tw_lp *lp)
         /* How much data has been transmitted on the virtual channel group within
             * the window */
         s->qos_data[i] = (int*)calloc(num_qos_levels, sizeof(int));
-        for(int j = 0; j < num_qos_levels; j++)
-        {
+        for (int j = 0; j < num_qos_levels; j++) {
             s->qos_data[i][j] = 0;
             s->qos_status[i][j] = Q_ACTIVE;
         }
@@ -2963,8 +2922,7 @@ void terminal_plus_init(terminal_state *s, tw_lp *lp)
 
 /* sets up the router virtual channels, global channels,
  * local channels, compute node channels */
-void router_plus_init(router_state *r, tw_lp *lp)
-{
+void router_plus_init(router_state* r, tw_lp* lp) {
     // printf("%d: Router Init()\n",lp->gid);
 
     char anno[MAX_NAME_LENGTH];
@@ -2974,24 +2932,24 @@ void router_plus_init(router_state *r, tw_lp *lp)
     if (anno[0] == '\0') {
         r->anno = NULL;
         r->params = &all_params[num_params - 1];
-    }
-    else {
+    } else {
         r->anno = strdup(anno);
         int id = configuration_get_annotation_index(anno, anno_map);
         r->params = &all_params[id];
     }
 
     // shorthand
-    const dragonfly_plus_param *p = r->params;
+    const dragonfly_plus_param* p = r->params;
 
     num_routers_per_mgrp =
         codes_mapping_get_lp_count(lp_group_name, 1, "modelnet_dragonfly_plus_router", NULL, 0);
     int num_grp_reps = codes_mapping_get_group_reps(lp_group_name);
     if (p->total_routers != num_grp_reps * num_routers_per_mgrp)
-        tw_error(TW_LOC,
-                 "\n Config error: num_routers specified %d total routers computed in the network %d "
-                 "does not match with repetitions * dragonfly_router %d  ",
-                 p->num_routers, p->total_routers, num_grp_reps * num_routers_per_mgrp);
+        tw_error(
+            TW_LOC,
+            "\n Config error: num_routers specified %d total routers computed in the network %d "
+            "does not match with repetitions * dragonfly_router %d  ",
+            p->num_routers, p->total_routers, num_grp_reps * num_routers_per_mgrp);
 
     r->router_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
     r->plane_id = r->router_id / p->num_routers_per_plane;
@@ -3013,8 +2971,7 @@ void router_plus_init(router_state *r, tw_lp *lp)
         r->dfp_router_type = SPINE;
         assert(router_type_map[r->router_id] == SPINE);
         // printf("%lu: %i is a SPINE\n",lp->gid, r->router_id);
-    }
-    else {
+    } else {
         r->dfp_router_type = LEAF;
         assert(router_type_map[r->router_id] == LEAF);
         // printf("%lu: %i is a LEAF\n",lp->gid, r->router_id);
@@ -3023,126 +2980,124 @@ void router_plus_init(router_state *r, tw_lp *lp)
     char rtr_bw_log[128];
     sprintf(rtr_bw_log, "router-bw-tracker-%d", g_tw_mynode);
 
-    if (dragonfly_rtr_bw_log == NULL && ROUTER_BW_LOG)
-    {
+    if (dragonfly_rtr_bw_log == NULL && ROUTER_BW_LOG) {
         dragonfly_rtr_bw_log = fopen(rtr_bw_log, "w+");
 
-        fprintf(dragonfly_rtr_bw_log, "\n router-id time-stamp port-id qos-level bw-consumed qos-status qos-data busy-time");
+        fprintf(
+            dragonfly_rtr_bw_log,
+            "\n router-id time-stamp port-id qos-level bw-consumed qos-status qos-data busy-time");
     }
 #endif
-        // TODO: drop once make_lptype<T>() trampoline lands.
-        new (&r->connMan) DragonflyConnectionManager();
-        r->connMan = netMan.get_connection_manager_for_router(r->router_id);
+    // TODO: drop once make_lptype<T>() trampoline lands.
+    new (&r->connMan) DragonflyConnectionManager();
+    r->connMan = netMan.get_connection_manager_for_router(r->router_id);
 
-        r->gc_usage = (int *)calloc(p->num_global_connections, sizeof(int));
+    r->gc_usage = (int*)calloc(p->num_global_connections, sizeof(int));
 
-        r->global_channel = (int *)calloc(p->num_global_connections, sizeof(int));
-        r->next_output_available_time = (tw_stime *)calloc(p->radix, sizeof(tw_stime));
-        r->link_traffic = (int64_t *)calloc(p->radix, sizeof(int64_t));
-        r->link_traffic_sample = (int64_t *)calloc(p->radix, sizeof(int64_t));
+    r->global_channel = (int*)calloc(p->num_global_connections, sizeof(int));
+    r->next_output_available_time = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
+    r->link_traffic = (int64_t*)calloc(p->radix, sizeof(int64_t));
+    r->link_traffic_sample = (int64_t*)calloc(p->radix, sizeof(int64_t));
 
-        r->stalled_chunks = (unsigned long *)calloc(p->radix, sizeof(unsigned long));
+    r->stalled_chunks = (unsigned long*)calloc(p->radix, sizeof(unsigned long));
 
-        r->vc_occupancy = (int **)calloc(p->radix, sizeof(int *));
-        r->qos_data = (unsigned long long **)calloc(p->radix, sizeof(unsigned long long *));
-        r->last_qos_lvl = (int *)calloc(p->radix, sizeof(int));
-        r->qos_status = (int **)calloc(p->radix, sizeof(int *));
-        r->in_send_loop = (int *)calloc(p->radix, sizeof(int));
-        r->pending_msgs =
-            (terminal_plus_message_list ***)calloc(p->radix, sizeof(terminal_plus_message_list **));
-        r->pending_msgs_tail =
-            (terminal_plus_message_list ***)calloc(p->radix, sizeof(terminal_plus_message_list **));
-        r->queued_msgs =
-            (terminal_plus_message_list ***)calloc(p->radix, sizeof(terminal_plus_message_list **));
-        r->queued_msgs_tail =
-            (terminal_plus_message_list ***)calloc(p->radix, sizeof(terminal_plus_message_list **));
-        r->queued_count = (int *)calloc(p->radix, sizeof(int));
-        r->last_buf_full = (tw_stime *)calloc(p->radix, sizeof(tw_stime *));
-        r->busy_time = (tw_stime *)calloc(p->radix, sizeof(tw_stime));
-        r->busy_time_sample = (tw_stime *)calloc(p->radix, sizeof(tw_stime));
+    r->vc_occupancy = (int**)calloc(p->radix, sizeof(int*));
+    r->qos_data = (unsigned long long**)calloc(p->radix, sizeof(unsigned long long*));
+    r->last_qos_lvl = (int*)calloc(p->radix, sizeof(int));
+    r->qos_status = (int**)calloc(p->radix, sizeof(int*));
+    r->in_send_loop = (int*)calloc(p->radix, sizeof(int));
+    r->pending_msgs =
+        (terminal_plus_message_list***)calloc(p->radix, sizeof(terminal_plus_message_list**));
+    r->pending_msgs_tail =
+        (terminal_plus_message_list***)calloc(p->radix, sizeof(terminal_plus_message_list**));
+    r->queued_msgs =
+        (terminal_plus_message_list***)calloc(p->radix, sizeof(terminal_plus_message_list**));
+    r->queued_msgs_tail =
+        (terminal_plus_message_list***)calloc(p->radix, sizeof(terminal_plus_message_list**));
+    r->queued_count = (int*)calloc(p->radix, sizeof(int));
+    r->last_buf_full = (tw_stime*)calloc(p->radix, sizeof(tw_stime*));
+    r->busy_time = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
+    r->busy_time_sample = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
 
-        /* set up for ROSS stats sampling */
-        r->link_traffic_ross_sample = (int64_t *)calloc(p->radix, sizeof(int64_t));
-        r->busy_time_ross_sample = (tw_stime *)calloc(p->radix, sizeof(tw_stime));
-        if (g_st_model_stats)
-            lp->model_types->mstat_sz = sizeof(tw_lpid) + (sizeof(int64_t) + sizeof(tw_stime)) * p->radix;
-        if (g_st_use_analysis_lps && g_st_model_stats)
-            lp->model_types->sample_struct_sz = sizeof(struct dfly_router_sample) + (sizeof(tw_stime) + sizeof(int64_t)) * p->radix;
-        r->ross_rsample.busy_time = (tw_stime *)calloc(p->radix, sizeof(tw_stime));
-        r->ross_rsample.link_traffic_sample = (int64_t *)calloc(p->radix, sizeof(int64_t));
+    /* set up for ROSS stats sampling */
+    r->link_traffic_ross_sample = (int64_t*)calloc(p->radix, sizeof(int64_t));
+    r->busy_time_ross_sample = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
+    if (g_st_model_stats)
+        lp->model_types->mstat_sz =
+            sizeof(tw_lpid) + (sizeof(int64_t) + sizeof(tw_stime)) * p->radix;
+    if (g_st_use_analysis_lps && g_st_model_stats)
+        lp->model_types->sample_struct_sz =
+            sizeof(struct dfly_router_sample) + (sizeof(tw_stime) + sizeof(int64_t)) * p->radix;
+    r->ross_rsample.busy_time = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
+    r->ross_rsample.link_traffic_sample = (int64_t*)calloc(p->radix, sizeof(int64_t));
 
-        // for counting app message percentage
-        if (p->counting_bool > 0)
-        {
-            r->total_packets_received = 0;
-            r->total_packets_sent = 0;
-            r->msg_counting = (int **)calloc(p->counting_windows, sizeof(int *));
-            r->msg_counting_out = (int **)calloc(p->counting_windows, sizeof(int *));
+    // for counting app message percentage
+    if (p->counting_bool > 0) {
+        r->total_packets_received = 0;
+        r->total_packets_sent = 0;
+        r->msg_counting = (int**)calloc(p->counting_windows, sizeof(int*));
+        r->msg_counting_out = (int**)calloc(p->counting_windows, sizeof(int*));
 
-            for (int i = 0; i < p->counting_windows; ++i)
-            {
-                r->msg_counting[i] = (int *)calloc(2, sizeof(int));
-                r->msg_counting_out[i] = (int *)calloc(2, sizeof(int));
+        for (int i = 0; i < p->counting_windows; ++i) {
+            r->msg_counting[i] = (int*)calloc(2, sizeof(int));
+            r->msg_counting_out[i] = (int*)calloc(2, sizeof(int));
 
-                r->msg_counting[i][0] = 0;
-                r->msg_counting[i][1] = 0;
+            r->msg_counting[i][0] = 0;
+            r->msg_counting[i][1] = 0;
 
-                r->msg_counting_out[i][0] = 0;
-                r->msg_counting_out[i][1] = 0;
-            }
+            r->msg_counting_out[i][0] = 0;
+            r->msg_counting_out[i][1] = 0;
         }
+    }
 
-        rc_stack_create(&r->st);
+    rc_stack_create(&r->st);
 
-        for (int i = 0; i < p->radix; i++)
-        {
-            // Set credit & router occupancy
-            r->last_buf_full[i] = 0.0;
-            r->busy_time[i] = 0.0;
-            r->busy_time_sample[i] = 0.0;
-            r->next_output_available_time[i] = 0;
-            r->last_qos_lvl[i] = 0;
-            r->link_traffic[i] = 0;
-            r->link_traffic_sample[i] = 0;
-            r->queued_count[i] = 0;
-            r->in_send_loop[i] = 0;
-            r->vc_occupancy[i] = (int *)calloc(p->num_vcs, sizeof(int));
-            r->pending_msgs[i] =
-                (terminal_plus_message_list **)calloc(p->num_vcs, sizeof(terminal_plus_message_list *));
-            r->pending_msgs_tail[i] =
-                (terminal_plus_message_list **)calloc(p->num_vcs, sizeof(terminal_plus_message_list *));
-            r->queued_msgs[i] =
-                (terminal_plus_message_list **)calloc(p->num_vcs, sizeof(terminal_plus_message_list *));
-            r->queued_msgs_tail[i] =
-                (terminal_plus_message_list **)calloc(p->num_vcs, sizeof(terminal_plus_message_list *));
+    for (int i = 0; i < p->radix; i++) {
+        // Set credit & router occupancy
+        r->last_buf_full[i] = 0.0;
+        r->busy_time[i] = 0.0;
+        r->busy_time_sample[i] = 0.0;
+        r->next_output_available_time[i] = 0;
+        r->last_qos_lvl[i] = 0;
+        r->link_traffic[i] = 0;
+        r->link_traffic_sample[i] = 0;
+        r->queued_count[i] = 0;
+        r->in_send_loop[i] = 0;
+        r->vc_occupancy[i] = (int*)calloc(p->num_vcs, sizeof(int));
+        r->pending_msgs[i] =
+            (terminal_plus_message_list**)calloc(p->num_vcs, sizeof(terminal_plus_message_list*));
+        r->pending_msgs_tail[i] =
+            (terminal_plus_message_list**)calloc(p->num_vcs, sizeof(terminal_plus_message_list*));
+        r->queued_msgs[i] =
+            (terminal_plus_message_list**)calloc(p->num_vcs, sizeof(terminal_plus_message_list*));
+        r->queued_msgs_tail[i] =
+            (terminal_plus_message_list**)calloc(p->num_vcs, sizeof(terminal_plus_message_list*));
 
-            r->qos_status[i] = (int *)calloc(num_qos_levels, sizeof(int));
-            r->qos_data[i] = (unsigned long long *)calloc(num_qos_levels, sizeof(unsigned long long));
+        r->qos_status[i] = (int*)calloc(num_qos_levels, sizeof(int));
+        r->qos_data[i] = (unsigned long long*)calloc(num_qos_levels, sizeof(unsigned long long));
 
-            for (int j = 0; j < num_qos_levels; j++)
-            {
-                r->qos_status[i][j] = Q_ACTIVE;
-                r->qos_data[i][j] = 0;
-            }
-            for (int j = 0; j < p->num_vcs; j++)
-            {
-                r->vc_occupancy[i][j] = 0;
-                r->pending_msgs[i][j] = NULL;
-                r->pending_msgs_tail[i][j] = NULL;
-                r->queued_msgs[i][j] = NULL;
-                r->queued_msgs_tail[i][j] = NULL;
-            }
+        for (int j = 0; j < num_qos_levels; j++) {
+            r->qos_status[i][j] = Q_ACTIVE;
+            r->qos_data[i][j] = 0;
         }
+        for (int j = 0; j < p->num_vcs; j++) {
+            r->vc_occupancy[i][j] = 0;
+            r->pending_msgs[i][j] = NULL;
+            r->pending_msgs_tail[i][j] = NULL;
+            r->queued_msgs[i][j] = NULL;
+            r->queued_msgs_tail[i][j] = NULL;
+        }
+    }
 
-        if (!r->connMan.check_is_solidified())
-            tw_error(TW_LOC, "Connection Manager not solidified - should be performed after loading topology");
+    if (!r->connMan.check_is_solidified())
+        tw_error(TW_LOC,
+                 "Connection Manager not solidified - should be performed after loading topology");
 
-        return;
+    return;
 }
 
 /* dragonfly packet event reverse handler */
-static void dragonfly_plus_packet_event_rc(tw_lp *sender)
-{
+static void dragonfly_plus_packet_event_rc(tw_lp* sender) {
     codes_local_latency_reverse(sender);
     return;
 }
@@ -3150,29 +3105,24 @@ static void dragonfly_plus_packet_event_rc(tw_lp *sender)
 /* MM: These packet events (packet_send, packet_receive etc.) will be used as is, basically, the routing
  * functions will be changed only. */
 /* dragonfly packet event , generates a dragonfly packet on the compute node */
-static tw_stime dragonfly_plus_packet_event(model_net_request const *req,
-                                            uint64_t message_offset,
-                                            uint64_t packet_size,
-                                            tw_stime offset,
-                                            mn_sched_params const *sched_params,
-                                            void const *remote_event,
-                                            void const *self_event,
-                                            tw_lp *sender,
-                                            int is_last_pckt,
-                                            bool is_there_another_pckt_in_queue)
-{
-    (void) message_offset;
-    (void) sched_params;
-    tw_event *e_new;
+static tw_stime dragonfly_plus_packet_event(model_net_request const* req, uint64_t message_offset,
+                                            uint64_t packet_size, tw_stime offset,
+                                            mn_sched_params const* sched_params,
+                                            void const* remote_event, void const* self_event,
+                                            tw_lp* sender, int is_last_pckt,
+                                            bool is_there_another_pckt_in_queue) {
+    (void)message_offset;
+    (void)sched_params;
+    tw_event* e_new;
     tw_stime xfer_to_nic_time;
-    terminal_plus_message *msg;
-    char *tmp_ptr;
+    terminal_plus_message* msg;
+    char* tmp_ptr;
 
     xfer_to_nic_time = codes_local_latency(sender);
     // e_new = tw_event_new(sender->gid, xfer_to_nic_time+offset, sender);
     // msg = tw_event_data(e_new);
-    e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time + offset, sender, DRAGONFLY_PLUS,
-                                       (void **) &msg, (void **) &tmp_ptr);
+    e_new = model_net_method_event_new(sender->gid, xfer_to_nic_time + offset, sender,
+                                       DRAGONFLY_PLUS, (void**)&msg, (void**)&tmp_ptr);
     strcpy(msg->category, req->category);
     msg->final_dest_gid = req->final_dest_lp;
     msg->total_size = req->msg_size;
@@ -3184,7 +3134,7 @@ static tw_stime dragonfly_plus_packet_event(model_net_request const *req,
     msg->local_event_size_bytes = 0;
     msg->type = T_GENERATE;
     msg->dest_terminal_id = req->dest_mn_lp;
-    msg->dfp_dest_terminal_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_id,0,0);
+    msg->dfp_dest_terminal_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_id, 0, 0);
     msg->message_id = req->msg_id;
     msg->is_pull = req->is_pull;
     msg->pull_size = req->pull_size;
@@ -3215,28 +3165,28 @@ static tw_stime dragonfly_plus_packet_event(model_net_request const *req,
     return xfer_to_nic_time;
 }
 
-static void packet_generate_rc(terminal_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
+static void packet_generate_rc(terminal_state* s, tw_bf* bf, terminal_plus_message* msg,
+                               tw_lp* lp) {
     s->total_gen_size -= msg->packet_size;
     s->packet_gen--;
     packet_gen--;
     s->packet_counter--;
 
-    if(bf->c2)
+    if (bf->c2)
         num_local_packets_sr--;
-    if(bf->c3)
+    if (bf->c3)
         num_local_packets_sg--;
-    if(bf->c4)
+    if (bf->c4)
         num_remote_packets--;
 
-    for(int i = 0; i < msg->num_rngs; i++)
+    for (int i = 0; i < msg->num_rngs; i++)
         tw_rand_reverse_unif(lp->rng);
 
-    for(int i = 0; i < msg->num_cll; i++)
-       codes_local_latency_reverse(lp);
+    for (int i = 0; i < msg->num_cll; i++)
+        codes_local_latency_reverse(lp);
 
     int num_qos_levels = s->params->num_qos_levels;
-    if(bf->c1)
+    if (bf->c1)
         s->is_monitoring_bw = 0;
 
     int num_chunks = msg->packet_size / s->params->chunk_size;
@@ -3244,8 +3194,7 @@ static void packet_generate_rc(terminal_state *s, tw_bf *bf, terminal_plus_messa
         num_chunks++;
 
     int vcg = 0;
-    if (num_qos_levels > 1)
-    {
+    if (num_qos_levels > 1) {
         vcg = get_vcg_from_category(msg);
         assert(vcg == Q_HIGH || vcg == Q_MEDIUM);
     }
@@ -3253,8 +3202,9 @@ static void packet_generate_rc(terminal_state *s, tw_bf *bf, terminal_plus_messa
 
     int i;
     for (i = 0; i < num_chunks; i++) {
-            delete_terminal_plus_message_list(return_tail(s->terminal_msgs[msg->rail_id], s->terminal_msgs_tail[msg->rail_id], vcg));
-            s->terminal_length[msg->rail_id][vcg] -= s->params->chunk_size;
+        delete_terminal_plus_message_list(
+            return_tail(s->terminal_msgs[msg->rail_id], s->terminal_msgs_tail[msg->rail_id], vcg));
+        s->terminal_length[msg->rail_id][vcg] -= s->params->chunk_size;
     }
     if (bf->c5) {
         s->in_send_loop[msg->rail_id] = 0;
@@ -3264,8 +3214,7 @@ static void packet_generate_rc(terminal_state *s, tw_bf *bf, terminal_plus_messa
     int* iis = (int*)rc_stack_pop(s->st);
     tw_stime* bts = (tw_stime*)rc_stack_pop(s->st);
 
-    for (int j = 0; j < s->params->num_injection_queues; j++)
-    {
+    for (int j = 0; j < s->params->num_injection_queues; j++) {
         s->last_buf_full[j] = bts[j];
         s->issueIdle[j] = iis[j];
         s->stalled_chunks[j] = scs[j];
@@ -3281,7 +3230,7 @@ static void packet_generate_rc(terminal_state *s, tw_bf *bf, terminal_plus_messa
     //         s->last_buf_full[msg->rail_id] = msg->saved_busy_time;
     // }
 
-    struct mn_stats *stat;
+    struct mn_stats* stat;
     stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
     stat->send_count--;
     stat->send_bytes -= msg->packet_size;
@@ -3289,8 +3238,7 @@ static void packet_generate_rc(terminal_state *s, tw_bf *bf, terminal_plus_messa
 }
 
 /* generates packet at the current dragonfly compute node */
-static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
+static void packet_generate(terminal_state* s, tw_bf* bf, terminal_plus_message* msg, tw_lp* lp) {
     msg->num_rngs = 0;
     msg->num_cll = 0;
 
@@ -3301,7 +3249,7 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
     tw_stime ts, nic_ts;
 
     assert(lp->gid != msg->dest_terminal_id);
-    const dragonfly_plus_param *p = s->params;
+    const dragonfly_plus_param* p = s->params;
 
     int total_event_size;
     uint64_t num_chunks = msg->packet_size / p->chunk_size;
@@ -3309,37 +3257,41 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
 
 
     //get rails available: should be from rails known to not be failed
-    vector< Connection > injection_connections = s->connMan.get_connections_by_type(CONN_INJECTION, false);
-    if(injection_connections.size() < 1)
-        tw_error(TW_LOC, "Packet Generation Failure: No non-failed injection connections available on terminal %d\n", s->terminal_id);
+    vector<Connection> injection_connections =
+        s->connMan.get_connections_by_type(CONN_INJECTION, false);
+    if (injection_connections.size() < 1)
+        tw_error(TW_LOC,
+                 "Packet Generation Failure: No non-failed injection connections available on "
+                 "terminal %d\n",
+                 s->terminal_id);
 
-    vector< Connection > valid_rails;
-    if (netMan.is_link_failures_enabled())
-    {
-        for (int i = 0; i < injection_connections.size(); i++)
-        {
+    vector<Connection> valid_rails;
+    if (netMan.is_link_failures_enabled()) {
+        for (int i = 0; i < injection_connections.size(); i++) {
             int rail_id = injection_connections[i].rail_or_planar_id;
-            int dest_router_id = dragonfly_plus_get_assigned_router_id(s->params, msg->dfp_dest_terminal_id, rail_id);
-            int src_router_id = dragonfly_plus_get_assigned_router_id(s->params, s->terminal_id, rail_id);
+            int dest_router_id =
+                dragonfly_plus_get_assigned_router_id(s->params, msg->dfp_dest_terminal_id,
+                                                      rail_id);
+            int src_router_id =
+                dragonfly_plus_get_assigned_router_id(s->params, s->terminal_id, rail_id);
             int src_group_id = src_router_id / s->params->num_routers;
             int dest_group_id = dest_router_id / s->params->num_routers;
 
             if (isRoutingMinimal(routing)) {
-                if (src_group_id == dest_group_id)
-                {
-                    set<Connection> valid_next_stops = netMan.get_valid_next_hops_conns(src_router_id, dest_router_id, max_hops_per_group,0); //max global hops for local group routing == 0
+                if (src_group_id == dest_group_id) {
+                    set<Connection> valid_next_stops = netMan.get_valid_next_hops_conns(
+                        src_router_id, dest_router_id, max_hops_per_group,
+                        0); //max global hops for local group routing == 0
+                    if (valid_next_stops.size() > 0)
+                        valid_rails.push_back(injection_connections[i]);
+                } else {
+                    set<Connection> valid_next_stops = netMan.get_valid_next_hops_conns(
+                        src_router_id, dest_router_id, max_hops_per_group,
+                        1); //max global hops for local group routing == 0
                     if (valid_next_stops.size() > 0)
                         valid_rails.push_back(injection_connections[i]);
                 }
-                else
-                {
-                    set<Connection> valid_next_stops = netMan.get_valid_next_hops_conns(src_router_id, dest_router_id, max_hops_per_group,1); //max global hops for local group routing == 0
-                    if (valid_next_stops.size() > 0)
-                        valid_rails.push_back(injection_connections[i]);
-                }
-            }
-            else
-            {
+            } else {
                 // if (src_group_id == dest_group_id)
                 // {
                 //     set<Connection> valid_next_stops = netMan.get_valid_next_hops_conns(src_router_id, dest_router_id, max_hops_per_group,0); //max global hops for local group routing == 0
@@ -3348,42 +3300,40 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
                 // }
                 // else
                 // {
-                    set<Connection> valid_next_stops = netMan.get_valid_next_hops_conns(src_router_id, dest_router_id, max_hops_per_group,max_global_hops_nonminimal); //max global hops for local group routing == 0
-                    if (valid_next_stops.size() > 0)
-                        valid_rails.push_back(injection_connections[i]);
+                set<Connection> valid_next_stops = netMan.get_valid_next_hops_conns(
+                    src_router_id, dest_router_id, max_hops_per_group,
+                    max_global_hops_nonminimal); //max global hops for local group routing == 0
+                if (valid_next_stops.size() > 0)
+                    valid_rails.push_back(injection_connections[i]);
                 // }
             }
         }
-        if (valid_rails.size() < 1)
-        {
-            tw_error(TW_LOC,"Invalid Connections in Network due to link failures!\n");
+        if (valid_rails.size() < 1) {
+            tw_error(TW_LOC, "Invalid Connections in Network due to link failures!\n");
             // valid_rails = injection_connections; //TODO will cause problems - deal with
         }
-    }
-    else
-    {
+    } else {
         valid_rails = injection_connections;
     }
 
-    vector< Connection > tied_rails;
+    vector<Connection> tied_rails;
 
     //determine rail
-    Connection target_rail_connection =  valid_rails[0];
-    if (valid_rails.size() > 1)
-    {
+    Connection target_rail_connection = valid_rails[0];
+    if (valid_rails.size() > 1) {
         bool congestion_fallback = false;
 
-        if (s->params->rail_select == RAIL_DEDICATED) { //then attempt to inject on rail based on the injection queue from the workload
-            Connection specific_injection_conn = s->connMan.get_connection_on_port(msg->rail_id, true);
-            if (specific_injection_conn.port == - 1)
+        if (s->params->rail_select ==
+            RAIL_DEDICATED) { //then attempt to inject on rail based on the injection queue from the workload
+            Connection specific_injection_conn =
+                s->connMan.get_connection_on_port(msg->rail_id, true);
+            if (specific_injection_conn.port == -1)
                 tw_error(TW_LOC, "Packet Generation Failure: No Connection on specified rail\n");
             if (specific_injection_conn.is_failed)
                 congestion_fallback = true;
-            else
-            {
+            else {
                 target_rail_connection = specific_injection_conn;
             }
-
         }
 
         if (s->params->rail_select == RAIL_PATH) {
@@ -3391,53 +3341,51 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
             int min_len = 99999;
             int path_tie = 0;
             int index = 0;
-            vector< Connection >::iterator it = valid_rails.begin();
-            for(; it != valid_rails.end(); it++)
-            {
+            vector<Connection>::iterator it = valid_rails.begin();
+            for (; it != valid_rails.end(); it++) {
                 int rail_id = it->rail_or_planar_id;
-                int dest_router_id = dragonfly_plus_get_assigned_router_id(s->params, msg->dfp_dest_terminal_id, rail_id);
-                int src_router_id = dragonfly_plus_get_assigned_router_id(s->params, s->terminal_id, rail_id);
+                int dest_router_id =
+                    dragonfly_plus_get_assigned_router_id(s->params, msg->dfp_dest_terminal_id,
+                                                          rail_id);
+                int src_router_id =
+                    dragonfly_plus_get_assigned_router_id(s->params, s->terminal_id, rail_id);
 
-                path_lens[index] = netMan.get_shortest_dist_between_routers(src_router_id, dest_router_id);
+                path_lens[index] =
+                    netMan.get_shortest_dist_between_routers(src_router_id, dest_router_id);
                 if (path_lens[index] < min_len) {
                     min_len = path_lens[index];
                     target_rail_connection = *it;
                     tied_rails.clear();
                     tied_rails.push_back(*it);
                     path_tie = 0;
-                }
-                else if (path_lens[rail_id] == min_len)
-                {
+                } else if (path_lens[rail_id] == min_len) {
                     path_tie = 1;
                     tied_rails.push_back(*it);
                 }
                 index++;
             }
 
-            if(path_tie == 1)
-            {
-                int rand_sel = tw_rand_integer(lp->rng, 0, tied_rails.size()-1);
+            if (path_tie == 1) {
+                int rand_sel = tw_rand_integer(lp->rng, 0, tied_rails.size() - 1);
                 msg->num_rngs++;
                 target_rail_connection = tied_rails[rand_sel];
             }
         }
 
-        if(s->params->rail_select == RAIL_RAND) {
-            int target_rail_sel = tw_rand_integer(lp->rng, 0, valid_rails.size()-1);
+        if (s->params->rail_select == RAIL_RAND) {
+            int target_rail_sel = tw_rand_integer(lp->rng, 0, valid_rails.size() - 1);
             target_rail_connection = valid_rails[target_rail_sel];
             msg->num_rngs++;
         }
 
-        if(s->params->rail_select == RAIL_CONGESTION || congestion_fallback) {
+        if (s->params->rail_select == RAIL_CONGESTION || congestion_fallback) {
             int min_score = INT_MAX;
             int path_tie = 0;
 
             vector<Connection>::iterator it = valid_rails.begin();
-            for(; it != valid_rails.end(); it++)
-            {
+            for (; it != valid_rails.end(); it++) {
                 int sum = 0;
-                for(int j = 0; j < p->num_qos_levels; j++)
-                {
+                for (int j = 0; j < p->num_qos_levels; j++) {
                     int port_no = it->port;
                     sum += s->vc_occupancy[port_no][j];
                 }
@@ -3447,16 +3395,13 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
                     tied_rails.clear();
                     tied_rails.push_back(*it);
                     path_tie = 0;
-                }
-                else if (sum == min_score)
-                {
+                } else if (sum == min_score) {
                     path_tie = 1;
                     tied_rails.push_back(*it);
                 }
             }
-            if (path_tie == 1)
-            {
-                int rand_sel = tw_rand_integer(lp->rng, 0, tied_rails.size() -1);
+            if (path_tie == 1) {
+                int rand_sel = tw_rand_integer(lp->rng, 0, tied_rails.size() - 1);
                 msg->num_rngs++;
                 target_rail_connection = tied_rails[rand_sel];
             }
@@ -3464,25 +3409,20 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
     }
     msg->rail_id = target_rail_connection.rail_or_planar_id;
 
-    int dest_router_id = dragonfly_plus_get_assigned_router_id(p, msg->dfp_dest_terminal_id, msg->rail_id);
+    int dest_router_id =
+        dragonfly_plus_get_assigned_router_id(p, msg->dfp_dest_terminal_id, msg->rail_id);
     int dest_grp_id = dest_router_id / s->params->num_routers;
     int src_grp_id = s->router_id[msg->rail_id] / s->params->num_routers;
 
-    if(src_grp_id == dest_grp_id)
-    {
-        if(dest_router_id == s->router_id[msg->rail_id])
-        {
+    if (src_grp_id == dest_grp_id) {
+        if (dest_router_id == s->router_id[msg->rail_id]) {
             bf->c2 = 1;
             num_local_packets_sr++;
-        }
-        else
-        {
+        } else {
             bf->c3 = 1;
             num_local_packets_sg++;
         }
-    }
-    else
-    {
+    } else {
         bf->c4 = 1;
         num_remote_packets++;
     }
@@ -3508,17 +3448,15 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
     int num_qos_levels = s->params->num_qos_levels;
     int vcg = 0;
 
-    if(num_qos_levels > 1)
-    {
-        if(s->is_monitoring_bw == 0)
-        {
+    if (num_qos_levels > 1) {
+        if (s->is_monitoring_bw == 0) {
             bf->c1 = 1;
             /* Issue an event on both terminal and router to monitor bandwidth */
             msg->num_cll++;
             tw_stime bw_ts = bw_reset_window + codes_local_latency(lp);
-            terminal_dally_message * m;
-            tw_event * e = model_net_method_event_new(lp->gid, bw_ts, lp, DRAGONFLY_PLUS,
-                (void**)&m, NULL);
+            terminal_dally_message* m;
+            tw_event* e =
+                model_net_method_event_new(lp->gid, bw_ts, lp, DRAGONFLY_PLUS, (void**)&m, NULL);
             m->type = T_BANDWIDTH;
             m->magic = terminal_magic_num;
             s->is_monitoring_bw = 1;
@@ -3530,65 +3468,65 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
     assert(vcg < num_qos_levels);
 
 
-
     // if(msg->dest_terminal_id == TRACK)
     if (msg->packet_ID == LLU(TRACK_PKT) && lp->gid == T_ID)
-        printf("\n Packet %llu generated at terminal %d dest %llu size %llu num chunks %llu ", msg->packet_ID,
-               s->terminal_id, LLU(msg->dest_terminal_id), LLU(msg->packet_size), LLU(num_chunks));
+        printf("\n Packet %llu generated at terminal %d dest %llu size %llu num chunks %llu ",
+               msg->packet_ID, s->terminal_id, LLU(msg->dest_terminal_id), LLU(msg->packet_size),
+               LLU(num_chunks));
 
     for (int i = 0; i < num_chunks; i++) {
-        terminal_plus_message_list *cur_chunk =
-            (terminal_plus_message_list *) calloc(1, sizeof(terminal_plus_message_list));
+        terminal_plus_message_list* cur_chunk =
+            (terminal_plus_message_list*)calloc(1, sizeof(terminal_plus_message_list));
         msg->origin_router_id = s->router_id[msg->rail_id];
         msg->dfp_src_terminal_id = s->terminal_id;
         init_terminal_plus_message_list(cur_chunk, msg);
 
         if (msg->remote_event_size_bytes + msg->local_event_size_bytes > 0) {
             cur_chunk->event_data =
-                (char *) calloc(1, msg->remote_event_size_bytes + msg->local_event_size_bytes);
+                (char*)calloc(1, msg->remote_event_size_bytes + msg->local_event_size_bytes);
         }
 
-        void *m_data_src = model_net_method_get_edata(DRAGONFLY_PLUS, msg);
+        void* m_data_src = model_net_method_get_edata(DRAGONFLY_PLUS, msg);
         if (msg->remote_event_size_bytes) {
             memcpy(cur_chunk->event_data, m_data_src, msg->remote_event_size_bytes);
         }
         if (msg->local_event_size_bytes) {
-            m_data_src = (char *) m_data_src + msg->remote_event_size_bytes;
-            memcpy((char *) cur_chunk->event_data + msg->remote_event_size_bytes, m_data_src,
+            m_data_src = (char*)m_data_src + msg->remote_event_size_bytes;
+            memcpy((char*)cur_chunk->event_data + msg->remote_event_size_bytes, m_data_src,
                    msg->local_event_size_bytes);
         }
 
         cur_chunk->msg.rail_id = msg->rail_id;
-        cur_chunk->msg.output_chan = vcg; //By default is 0 but QoS can mean more than just a single VC for terminals
+        cur_chunk->msg.output_chan =
+            vcg; //By default is 0 but QoS can mean more than just a single VC for terminals
         cur_chunk->msg.chunk_id = i;
         cur_chunk->msg.origin_router_id = s->router_id[msg->rail_id];
-        append_to_terminal_plus_message_list(s->terminal_msgs[msg->rail_id], s->terminal_msgs_tail[msg->rail_id],vcg, cur_chunk);
+        append_to_terminal_plus_message_list(s->terminal_msgs[msg->rail_id],
+                                             s->terminal_msgs_tail[msg->rail_id], vcg, cur_chunk);
         s->terminal_length[msg->rail_id][vcg] += s->params->chunk_size;
     }
 
-    tw_stime *bts = buff_time_storage_create(s); //mallocs space to push onto the rc stack -- free'd in rc
-    int *iis = int_storage_create(s);
-    int *scs = int_storage_create(s);
+    tw_stime* bts =
+        buff_time_storage_create(s); //mallocs space to push onto the rc stack -- free'd in rc
+    int* iis = int_storage_create(s);
+    int* scs = int_storage_create(s);
 
     //TODO: Inspect this and verify that we should be looking at each port always
-    for(int j=0; j<s->params->num_injection_queues; j++){
+    for (int j = 0; j < s->params->num_injection_queues; j++) {
         bts[j] = s->last_buf_full[j];
         iis[j] = s->issueIdle[j];
         scs[j] = s->stalled_chunks[j];
 
-        if(s->terminal_length[j][vcg] < s->params->cn_vc_size)
-        {
+        if (s->terminal_length[j][vcg] < s->params->cn_vc_size) {
             double dither = .0001 * tw_rand_unif(lp->rng);
             msg->num_rngs++;
-            model_net_method_idle_event2(nic_ts+dither, 0, j, lp);
-        }
-        else
-        {
+            model_net_method_idle_event2(nic_ts + dither, 0, j, lp);
+        } else {
             s->issueIdle[j] = 1;
             s->stalled_chunks[j]++;
-            if(s->last_buf_full[j] == 0.0)
-            {
-                s->last_buf_full[j] = tw_now(lp);;
+            if (s->last_buf_full[j] == 0.0) {
+                s->last_buf_full[j] = tw_now(lp);
+                ;
             }
         }
     }
@@ -3596,12 +3534,12 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
     rc_stack_push(lp, iis, int_storage_delete, s->st);
     rc_stack_push(lp, scs, int_storage_delete, s->st);
 
-    if(s->in_send_loop[msg->rail_id] == 0) {
+    if (s->in_send_loop[msg->rail_id] == 0) {
         bf->c5 = 1;
         msg->num_cll++;
         ts = codes_local_latency(lp);
-        terminal_plus_message *m;
-        tw_event *e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_PLUS, (void **) &m, NULL);
+        terminal_plus_message* m;
+        tw_event* e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_PLUS, (void**)&m, NULL);
         m->rail_id = msg->rail_id;
         m->type = T_SEND;
         m->magic = terminal_magic_num;
@@ -3609,9 +3547,9 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
         tw_event_send(e);
     }
 
-    total_event_size =
-        model_net_get_msg_sz(DRAGONFLY_PLUS) + msg->remote_event_size_bytes + msg->local_event_size_bytes;
-    mn_stats *stat;
+    total_event_size = model_net_get_msg_sz(DRAGONFLY_PLUS) + msg->remote_event_size_bytes +
+                       msg->local_event_size_bytes;
+    mn_stats* stat;
     stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
     stat->send_count++;
     stat->send_bytes += msg->packet_size;
@@ -3622,60 +3560,55 @@ static void packet_generate(terminal_state *s, tw_bf *bf, terminal_plus_message 
     return;
 }
 
-static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_plus_message * msg, tw_lp * lp)
-{
+static void packet_send_rc(terminal_state* s, tw_bf* bf, terminal_plus_message* msg, tw_lp* lp) {
     int num_qos_levels = s->params->num_qos_levels;
 
-    if(msg->qos_reset1)
+    if (msg->qos_reset1)
         s->qos_status[msg->rail_id][0] = Q_ACTIVE;
-    if(msg->qos_reset2)
+    if (msg->qos_reset2)
         s->qos_status[msg->rail_id][1] = Q_ACTIVE;
 
-    if(msg->last_saved_qos)
+    if (msg->last_saved_qos)
         s->last_qos_lvl[msg->rail_id] = msg->last_saved_qos;
 
-    if(bf->c1) {
+    if (bf->c1) {
         s->in_send_loop[msg->rail_id] = 1;
-        if(bf->c3)
+        if (bf->c3)
             s->last_buf_full[msg->rail_id] = msg->saved_busy_time;
         return;
     }
 
-    for (int i = 0; i < msg->num_cll; i++)
-    {
+    for (int i = 0; i < msg->num_cll; i++) {
         codes_local_latency_reverse(lp);
     }
 
-    for(int i = 0; i < msg->num_rngs; i++)
-    {
+    for (int i = 0; i < msg->num_rngs; i++) {
         tw_rand_reverse_unif(lp->rng);
     }
     int vcg = msg->saved_vc;
     s->terminal_available_time[msg->rail_id] = msg->saved_available_time;
 
-    s->terminal_length[msg->rail_id][vcg] += s->params->chunk_size;    /*TODO: MM change this to the vcg */
+    s->terminal_length[msg->rail_id][vcg] +=
+        s->params->chunk_size; /*TODO: MM change this to the vcg */
     s->vc_occupancy[msg->rail_id][vcg] -= s->params->chunk_size;
-    s->link_traffic[msg->rail_id]-=s->params->chunk_size;
+    s->link_traffic[msg->rail_id] -= s->params->chunk_size;
 
-    terminal_plus_message_list* cur_entry = (terminal_plus_message_list *)rc_stack_pop(s->st);
+    terminal_plus_message_list* cur_entry = (terminal_plus_message_list*)rc_stack_pop(s->st);
 
     int data_size = s->params->chunk_size;
-    if(cur_entry->msg.packet_size < s->params->chunk_size)
+    if (cur_entry->msg.packet_size < s->params->chunk_size)
         data_size = cur_entry->msg.packet_size % s->params->chunk_size;
 
     s->qos_data[msg->rail_id][vcg] -= data_size;
 
     prepend_to_terminal_plus_message_list(s->terminal_msgs[msg->rail_id],
                                           s->terminal_msgs_tail[msg->rail_id], vcg, cur_entry);
-    if (bf->c4)
-    {
+    if (bf->c4) {
         s->in_send_loop[msg->rail_id] = 1;
     }
-    if (bf->c5)
-    {
+    if (bf->c5) {
         s->issueIdle[msg->rail_id] = 1;
-        if (bf->c6)
-        {
+        if (bf->c6) {
             s->busy_time[msg->rail_id] = msg->saved_total_time;
             s->last_buf_full[msg->rail_id] = msg->saved_busy_time;
             s->busy_time_sample[msg->rail_id] = msg->saved_sample_time;
@@ -3686,11 +3619,10 @@ static void packet_send_rc(terminal_state * s, tw_bf * bf, terminal_plus_message
     return;
 }
 /* sends the packet from the current dragonfly compute node to the attached router */
-static void packet_send(terminal_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
+static void packet_send(terminal_state* s, tw_bf* bf, terminal_plus_message* msg, tw_lp* lp) {
     tw_stime ts;
-    tw_event *e;
-    terminal_plus_message *m;
+    tw_event* e;
+    terminal_plus_message* m;
     tw_lpid router_id;
 
     int vcg = 0;
@@ -3707,12 +3639,10 @@ static void packet_send(terminal_state *s, tw_bf *bf, terminal_plus_message *msg
     /* For a terminal to router Connection, there would be as many VCGs as number
      * of VCs*/
 
-    if (vcg == -1)
-    {
+    if (vcg == -1) {
         bf->c1 = 1;
         s->in_send_loop[msg->rail_id] = 0;
-        if (!s->last_buf_full[msg->rail_id])
-        {
+        if (!s->last_buf_full[msg->rail_id]) {
             bf->c3 = 1;
             msg->saved_busy_time = s->last_buf_full[msg->rail_id];
             s->last_buf_full[msg->rail_id] = tw_now(lp);
@@ -3721,17 +3651,18 @@ static void packet_send(terminal_state *s, tw_bf *bf, terminal_plus_message *msg
     }
 
     msg->saved_vc = vcg;
-    terminal_plus_message_list *cur_entry = s->terminal_msgs[msg->rail_id][vcg];
+    terminal_plus_message_list* cur_entry = s->terminal_msgs[msg->rail_id][vcg];
     int data_size = s->params->chunk_size;
     uint64_t num_chunks = cur_entry->msg.packet_size / s->params->chunk_size;
     if (cur_entry->msg.packet_size < s->params->chunk_size)
         num_chunks++;
 
     tw_stime delay = s->params->cn_delay;
-    if ((cur_entry->msg.packet_size < s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1))
-    {
+    if ((cur_entry->msg.packet_size < s->params->chunk_size) &&
+        (cur_entry->msg.chunk_id == num_chunks - 1)) {
         data_size = cur_entry->msg.packet_size % s->params->chunk_size;
-        delay = bytes_to_ns(cur_entry->msg.packet_size % s->params->chunk_size, s->params->cn_bandwidth);
+        delay = bytes_to_ns(cur_entry->msg.packet_size % s->params->chunk_size,
+                            s->params->cn_bandwidth);
     }
 
     s->qos_data[msg->rail_id][vcg] += data_size;
@@ -3741,18 +3672,19 @@ static void packet_send(terminal_state *s, tw_bf *bf, terminal_plus_message *msg
     msg->num_rngs++;
     ts = g_tw_lookahead + delay + tw_rand_unif(lp->rng);
 
-    s->terminal_available_time[msg->rail_id] = maxd(s->terminal_available_time[msg->rail_id], tw_now(lp));
+    s->terminal_available_time[msg->rail_id] =
+        maxd(s->terminal_available_time[msg->rail_id], tw_now(lp));
     s->terminal_available_time[msg->rail_id] += ts;
 
     ts = s->terminal_available_time[msg->rail_id] - tw_now(lp);
     router_id = s->router_lp[msg->rail_id];
     //  printf("\n Local router id %d global router id %d ", s->router_id, router_id);
     // we are sending an event to the router, so no method_event here
-    void *remote_event;
-    e = model_net_method_event_new(router_id, ts, lp, DRAGONFLY_PLUS_ROUTER, (void **)&m, &remote_event);
+    void* remote_event;
+    e = model_net_method_event_new(router_id, ts, lp, DRAGONFLY_PLUS_ROUTER, (void**)&m,
+                                   &remote_event);
     memcpy(m, &cur_entry->msg, sizeof(terminal_plus_message));
-    if (m->remote_event_size_bytes)
-    {
+    if (m->remote_event_size_bytes) {
         memcpy(remote_event, cur_entry->event_data, m->remote_event_size_bytes);
     }
 
@@ -3769,20 +3701,20 @@ static void packet_send(terminal_state *s, tw_bf *bf, terminal_plus_message *msg
     m->dfp_upward_channel_flag = 0;
     tw_event_send(e);
 
-    if (cur_entry->msg.chunk_id == num_chunks - 1 && (cur_entry->msg.local_event_size_bytes > 0))
-    {
+    if (cur_entry->msg.chunk_id == num_chunks - 1 && (cur_entry->msg.local_event_size_bytes > 0)) {
         msg->num_cll++;
         tw_stime local_ts = codes_local_latency(lp);
-        tw_event *e_new = tw_event_new(cur_entry->msg.sender_lp, local_ts, lp);
-        void *m_new = tw_event_data(e_new);
-        void *local_event = (char *)cur_entry->event_data + cur_entry->msg.remote_event_size_bytes;
+        tw_event* e_new = tw_event_new(cur_entry->msg.sender_lp, local_ts, lp);
+        void* m_new = tw_event_data(e_new);
+        void* local_event = (char*)cur_entry->event_data + cur_entry->msg.remote_event_size_bytes;
         memcpy(m_new, local_event, cur_entry->msg.local_event_size_bytes);
         tw_event_send(e_new);
     }
 
     // s->packet_counter++;
     s->vc_occupancy[msg->rail_id][vcg] += s->params->chunk_size;
-    cur_entry = return_head(s->terminal_msgs[msg->rail_id], s->terminal_msgs_tail[msg->rail_id], vcg);
+    cur_entry =
+        return_head(s->terminal_msgs[msg->rail_id], s->terminal_msgs_tail[msg->rail_id], vcg);
     rc_stack_push(lp, cur_entry, delete_terminal_plus_message_list, s->st);
     s->terminal_length[msg->rail_id][vcg] -= s->params->chunk_size;
     s->link_traffic[msg->rail_id] += s->params->chunk_size;
@@ -3797,33 +3729,29 @@ static void packet_send(terminal_state *s, tw_bf *bf, terminal_plus_message *msg
         cur_entry = s->terminal_msgs[msg->rail_id][next_vcg];
 
     /* if there is another packet inline then schedule another send event */
-    if (cur_entry != NULL && s->vc_occupancy[msg->rail_id][next_vcg] + s->params->chunk_size <= s->params->cn_vc_size)
-    {
-        terminal_plus_message *m_new;
+    if (cur_entry != NULL &&
+        s->vc_occupancy[msg->rail_id][next_vcg] + s->params->chunk_size <= s->params->cn_vc_size) {
+        terminal_plus_message* m_new;
         msg->num_rngs++;
         ts += tw_rand_unif(lp->rng);
-        e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_PLUS, (void **)&m_new, NULL);
+        e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_PLUS, (void**)&m_new, NULL);
         m_new->type = T_SEND;
         m_new->rail_id = msg->rail_id;
         m_new->magic = terminal_magic_num;
         tw_event_send(e);
-    }
-    else
-    {
+    } else {
         /* If not then the LP will wait for another credit or packet generation */
         bf->c4 = 1;
         s->in_send_loop[msg->rail_id] = 0;
     }
-    if (s->issueIdle[msg->rail_id])
-    {
+    if (s->issueIdle[msg->rail_id]) {
         bf->c5 = 1;
         s->issueIdle[msg->rail_id] = 0;
         msg->num_rngs++;
         ts += tw_rand_unif(lp->rng);
         model_net_method_idle_event2(ts, 0, msg->rail_id, lp);
 
-        if (s->last_buf_full[msg->rail_id] > 0.0)
-        {
+        if (s->last_buf_full[msg->rail_id] > 0.0) {
             bf->c6 = 1;
             msg->saved_total_time = s->busy_time[msg->rail_id];
             msg->saved_busy_time = s->last_buf_full[msg->rail_id];
@@ -3831,7 +3759,8 @@ static void packet_send(terminal_state *s, tw_bf *bf, terminal_plus_message *msg
 
             s->busy_time[msg->rail_id] += (tw_now(lp) - s->last_buf_full[msg->rail_id]);
             s->busy_time_sample[msg->rail_id] += (tw_now(lp) - s->last_buf_full[msg->rail_id]);
-            s->ross_sample.busy_time_sample[msg->rail_id] += (tw_now(lp) - s->last_buf_full[msg->rail_id]);
+            s->ross_sample.busy_time_sample[msg->rail_id] +=
+                (tw_now(lp) - s->last_buf_full[msg->rail_id]);
             msg->saved_busy_time_ross = s->busy_time_ross_sample[msg->rail_id];
             s->busy_time_ross_sample[msg->rail_id] += (tw_now(lp) - s->last_buf_full[msg->rail_id]);
             s->last_buf_full[msg->rail_id] = 0.0;
@@ -3840,45 +3769,41 @@ static void packet_send(terminal_state *s, tw_bf *bf, terminal_plus_message *msg
     return;
 }
 
-static void send_remote_event(terminal_state *s, terminal_plus_message *msg, tw_lp *lp, tw_bf *bf,
-                              char *event_data, int remote_event_size)
-{
-    void *tmp_ptr = model_net_method_get_edata(DRAGONFLY_PLUS, msg);
+static void send_remote_event(terminal_state* s, terminal_plus_message* msg, tw_lp* lp, tw_bf* bf,
+                              char* event_data, int remote_event_size) {
+    void* tmp_ptr = model_net_method_get_edata(DRAGONFLY_PLUS, msg);
     // tw_stime ts = g_tw_lookahead + bytes_to_ns(msg->remote_event_size_bytes, (1/s->params->cn_bandwidth));
     msg->num_rngs++;
     tw_stime ts = g_tw_lookahead + mpi_soft_overhead + tw_rand_unif(lp->rng);
-    if (msg->is_pull)
-    {
+    if (msg->is_pull) {
         bf->c4 = 1;
         struct codes_mctx mc_dst = codes_mctx_set_global_direct(msg->sender_mn_lp);
         struct codes_mctx mc_src = codes_mctx_set_global_direct(lp->gid);
         int net_id = model_net_get_id(LP_METHOD_NM_TERM);
 
-        model_net_set_msg_param(MN_MSG_PARAM_START_TIME, MN_MSG_PARAM_START_TIME_VAL, &(msg->msg_start_time));
+        model_net_set_msg_param(MN_MSG_PARAM_START_TIME, MN_MSG_PARAM_START_TIME_VAL,
+                                &(msg->msg_start_time));
 
-        msg->event_rc = model_net_event_mctx(net_id, &mc_src, &mc_dst, msg->category, msg->sender_lp,
-                                             msg->pull_size, ts, remote_event_size, tmp_ptr, 0, NULL, lp);
-    }
-    else
-    {
-        tw_event *e = tw_event_new(msg->final_dest_gid, ts, lp);
-        void *m_remote = tw_event_data(e);
+        msg->event_rc =
+            model_net_event_mctx(net_id, &mc_src, &mc_dst, msg->category, msg->sender_lp,
+                                 msg->pull_size, ts, remote_event_size, tmp_ptr, 0, NULL, lp);
+    } else {
+        tw_event* e = tw_event_new(msg->final_dest_gid, ts, lp);
+        void* m_remote = tw_event_data(e);
         memcpy(m_remote, event_data, remote_event_size);
         tw_event_send(e);
     }
     return;
 }
 
-static void packet_arrive_rc(terminal_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
+static void packet_arrive_rc(terminal_state* s, tw_bf* bf, terminal_plus_message* msg, tw_lp* lp) {
     for (int i = 0; i < msg->num_rngs; i++)
         tw_rand_reverse_unif(lp->rng);
 
     for (int i = 0; i < msg->num_cll; i++)
         codes_local_latency_reverse(lp);
 
-    if (bf->c31)
-    {
+    if (bf->c31) {
         s->packet_fin--;
         packet_fin--;
     }
@@ -3905,8 +3830,8 @@ static void packet_arrive_rc(terminal_state *s, tw_bf *bf, terminal_plus_message
     s->fin_chunks_time_ross_sample = msg->saved_fin_chunks_ross;
     s->total_time = msg->saved_avg_time;
 
-    struct qhash_head *hash_link = NULL;
-    struct dfly_qhash_entry *tmp = NULL;
+    struct qhash_head* hash_link = NULL;
+    struct dfly_qhash_entry* tmp = NULL;
 
     struct dfly_hash_key key;
     key.message_id = msg->message_id;
@@ -3915,24 +3840,21 @@ static void packet_arrive_rc(terminal_state *s, tw_bf *bf, terminal_plus_message
     hash_link = qhash_search(s->rank_tbl, &key);
     tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
 
-    mn_stats *stat;
+    mn_stats* stat;
     stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
     stat->recv_time = msg->saved_rcv_time;
 
-    if (bf->c1)
-    {
+    if (bf->c1) {
         stat->recv_count--;
         stat->recv_bytes -= msg->packet_size;
         N_finished_packets--;
         s->finished_packets--;
     }
 
-    if (bf->c22)
-    {
+    if (bf->c22) {
         s->max_latency = msg->saved_available_time;
     }
-    if (bf->c7)
-    {
+    if (bf->c7) {
         // assert(!hash_link);
         N_finished_msgs--;
         s->finished_msgs--;
@@ -3942,12 +3864,13 @@ static void packet_arrive_rc(terminal_state *s, tw_bf *bf, terminal_plus_message
         s->ross_sample.data_size_sample -= msg->total_size;
         s->data_size_ross_sample -= msg->total_size;
 
-        struct dfly_qhash_entry *d_entry_pop = (dfly_qhash_entry *)rc_stack_pop(s->st);
+        struct dfly_qhash_entry* d_entry_pop = (dfly_qhash_entry*)rc_stack_pop(s->st);
         qhash_add(s->rank_tbl, &key, &(d_entry_pop->hash_link));
         s->rank_tbl_pop++;
 
         if (s->rank_tbl_pop >= DFLY_HASH_TABLE_SIZE)
-            tw_error(TW_LOC, "\n Exceeded allocated qhash size, increase hash size in dragonfly model");
+            tw_error(TW_LOC,
+                     "\n Exceeded allocated qhash size, increase hash size in dragonfly model");
 
         hash_link = &(d_entry_pop->hash_link);
         tmp = d_entry_pop;
@@ -3959,8 +3882,7 @@ static void packet_arrive_rc(terminal_state *s, tw_bf *bf, terminal_plus_message
     assert(tmp);
     tmp->num_chunks--;
 
-    if (bf->c5)
-    {
+    if (bf->c5) {
         qhash_del(hash_link);
         free_tmp(tmp);
         s->rank_tbl_pop--;
@@ -3969,38 +3891,36 @@ static void packet_arrive_rc(terminal_state *s, tw_bf *bf, terminal_plus_message
 }
 
 /* packet arrives at the destination terminal */
-static void packet_arrive(terminal_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
+static void packet_arrive(terminal_state* s, tw_bf* bf, terminal_plus_message* msg, tw_lp* lp) {
     // NIC aggregation - should this be a separate function?
     // Trigger an event on receiving server
 
-    if (isRoutingMinimal(routing) && msg->my_N_hop > 4)
-    {
+    if (isRoutingMinimal(routing) && msg->my_N_hop > 4) {
         printf("TERMINAL RECEIVED A NONMINIMAL LENGTH PACKET\n");
     }
-    if (isRoutingMinimal(routing) && msg->my_g_hop > 1)
-    {
+    if (isRoutingMinimal(routing) && msg->my_g_hop > 1) {
         printf("TERMINAL RECEIVED A DOUBLE GLOBAL HOP PACKET\n");
     }
     // printf("%d\n",msg->my_g_hop);
 
-    if (msg->my_N_hop > s->params->max_hops_notify)
-    {
-        printf("Terminal received a packet with %d hops! (Notify on > than %d)\n", msg->my_N_hop, s->params->max_hops_notify);
+    if (msg->my_N_hop > s->params->max_hops_notify) {
+        printf("Terminal received a packet with %d hops! (Notify on > than %d)\n", msg->my_N_hop,
+               s->params->max_hops_notify);
     }
 
     msg->num_rngs = 0;
     msg->num_cll = 0;
 
     if (!s->rank_tbl)
-        s->rank_tbl = qhash_init(dragonfly_rank_hash_compare, dragonfly_hash_func, DFLY_HASH_TABLE_SIZE);
+        s->rank_tbl =
+            qhash_init(dragonfly_rank_hash_compare, dragonfly_hash_func, DFLY_HASH_TABLE_SIZE);
 
     struct dfly_hash_key key;
     key.message_id = msg->message_id;
     key.sender_id = msg->sender_lp;
 
-    struct qhash_head *hash_link = NULL;
-    struct dfly_qhash_entry *tmp = NULL;
+    struct qhash_head* hash_link = NULL;
+    struct dfly_qhash_entry* tmp = NULL;
 
     hash_link = qhash_search(s->rank_tbl, &key);
 
@@ -4027,16 +3947,17 @@ static void packet_arrive(terminal_state *s, tw_bf *bf, terminal_plus_message *m
     assert(lp->gid == msg->dest_terminal_id);
 
     if (msg->packet_ID == LLU(TRACK_PKT) && msg->src_terminal_id == T_ID)
-        printf("\n Packet %llu arrived at lp %llu hops %d ", msg->packet_ID, LLU(lp->gid), msg->my_N_hop);
+        printf("\n Packet %llu arrived at lp %llu hops %d ", msg->packet_ID, LLU(lp->gid),
+               msg->my_N_hop);
 
     msg->num_rngs++;
     tw_stime ts = g_tw_lookahead + s->params->cn_credit_delay + tw_rand_unif(lp->rng);
 
     // no method_event here - message going to router
-    tw_event *buf_e;
-    terminal_plus_message *buf_msg;
-    buf_e =
-        model_net_method_event_new(msg->intm_lp_id, ts, lp, DRAGONFLY_PLUS_ROUTER, (void **)&buf_msg, NULL);
+    tw_event* buf_e;
+    terminal_plus_message* buf_msg;
+    buf_e = model_net_method_event_new(msg->intm_lp_id, ts, lp, DRAGONFLY_PLUS_ROUTER,
+                                       (void**)&buf_msg, NULL);
     buf_msg->magic = router_magic_num;
     buf_msg->rail_id = msg->rail_id;
     buf_msg->vc_index = msg->vc_index;
@@ -4062,7 +3983,8 @@ static void packet_arrive(terminal_state *s, tw_bf *bf, terminal_plus_message *m
     assert(lp->gid != msg->src_terminal_id);
 
     // Verify that the router that send the packet to this terminal is the router assigned to this terminal
-    int dest_router_id = dragonfly_plus_get_assigned_router_id(s->params, s->terminal_id, msg->rail_id);
+    int dest_router_id =
+        dragonfly_plus_get_assigned_router_id(s->params, s->terminal_id, msg->rail_id);
     int received_from_rel_id = codes_mapping_get_lp_relative_id(msg->intm_lp_id, 0, 0);
     assert(dest_router_id == received_from_rel_id);
 
@@ -4075,8 +3997,7 @@ static void packet_arrive(terminal_state *s, tw_bf *bf, terminal_plus_message *m
     else
         nonmin_count++;
 
-    if (msg->chunk_id == num_chunks - 1)
-    {
+    if (msg->chunk_id == num_chunks - 1) {
         bf->c31 = 1;
         s->packet_fin++;
         packet_fin++;
@@ -4100,14 +4021,15 @@ static void packet_arrive(terminal_state *s, tw_bf *bf, terminal_plus_message *m
     s->ross_sample.fin_hops_sample += msg->my_N_hop;
     s->fin_hops_ross_sample += msg->my_N_hop;
 
-    mn_stats *stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
+    mn_stats* stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
     msg->saved_rcv_time = stat->recv_time;
     stat->recv_time += (tw_now(lp) - msg->travel_start_time);
 
 #if DEBUG == 1
-    if (msg->packet_ID == TRACK && msg->chunk_id == num_chunks - 1 && msg->message_id == TRACK_MSG)
-    {
-        printf("(%lf) [Terminal %d] packet %lld has arrived  \n", tw_now(lp), (int)lp->gid, msg->packet_ID);
+    if (msg->packet_ID == TRACK && msg->chunk_id == num_chunks - 1 &&
+        msg->message_id == TRACK_MSG) {
+        printf("(%lf) [Terminal %d] packet %lld has arrived  \n", tw_now(lp), (int)lp->gid,
+               msg->packet_ID);
 
         printf("travel start time is %f\n", msg->travel_start_time);
 
@@ -4117,13 +4039,13 @@ static void packet_arrive(terminal_state *s, tw_bf *bf, terminal_plus_message *m
 
     /* Now retreieve the number of chunks completed from the hash and update
      * them */
-    void *m_data_src = model_net_method_get_edata(DRAGONFLY_PLUS, msg);
+    void* m_data_src = model_net_method_get_edata(DRAGONFLY_PLUS, msg);
 
     /* If an entry does not exist then create one */
-    if (!tmp)
-    {
+    if (!tmp) {
         bf->c5 = 1;
-        struct dfly_qhash_entry *d_entry = (dfly_qhash_entry *)calloc(1, sizeof(struct dfly_qhash_entry));
+        struct dfly_qhash_entry* d_entry =
+            (dfly_qhash_entry*)calloc(1, sizeof(struct dfly_qhash_entry));
         d_entry->num_chunks = 0;
         d_entry->key = key;
         d_entry->remote_event_data = NULL;
@@ -4132,7 +4054,8 @@ static void packet_arrive(terminal_state *s, tw_bf *bf, terminal_plus_message *m
         s->rank_tbl_pop++;
 
         if (s->rank_tbl_pop >= DFLY_HASH_TABLE_SIZE)
-            tw_error(TW_LOC, "\n Exceeded allocated qhash size, increase hash size in dragonfly model");
+            tw_error(TW_LOC,
+                     "\n Exceeded allocated qhash size, increase hash size in dragonfly model");
 
         hash_link = &(d_entry->hash_link);
         tmp = d_entry;
@@ -4141,8 +4064,7 @@ static void packet_arrive(terminal_state *s, tw_bf *bf, terminal_plus_message *m
     assert(tmp);
     tmp->num_chunks++;
 
-    if (msg->chunk_id == num_chunks - 1)
-    {
+    if (msg->chunk_id == num_chunks - 1) {
         bf->c1 = 1;
         stat->recv_count++;
         stat->recv_bytes += msg->packet_size;
@@ -4151,21 +4073,18 @@ static void packet_arrive(terminal_state *s, tw_bf *bf, terminal_plus_message *m
         s->finished_packets++;
     }
     /* if its the last chunk of the packet then handle the remote event data */
-    if (msg->remote_event_size_bytes > 0 && !tmp->remote_event_data)
-    {
+    if (msg->remote_event_size_bytes > 0 && !tmp->remote_event_data) {
         /* Retreive the remote event entry */
-        tmp->remote_event_data = (char *)calloc(1, msg->remote_event_size_bytes);
+        tmp->remote_event_data = (char*)calloc(1, msg->remote_event_size_bytes);
         assert(tmp->remote_event_data);
         tmp->remote_event_size = msg->remote_event_size_bytes;
         memcpy(tmp->remote_event_data, m_data_src, msg->remote_event_size_bytes);
     }
-    if (s->min_latency > tw_now(lp) - msg->travel_start_time)
-    {
+    if (s->min_latency > tw_now(lp) - msg->travel_start_time) {
         s->min_latency = tw_now(lp) - msg->travel_start_time;
     }
 
-    if (s->max_latency < tw_now(lp) - msg->travel_start_time)
-    {
+    if (s->max_latency < tw_now(lp) - msg->travel_start_time) {
         bf->c22 = 1;
         msg->saved_available_time = s->max_latency;
         s->max_latency = tw_now(lp) - msg->travel_start_time;
@@ -4174,8 +4093,7 @@ static void packet_arrive(terminal_state *s, tw_bf *bf, terminal_plus_message *m
      * callee*/
     // assert(tmp->num_chunks <= total_chunks);
 
-    if (tmp->num_chunks >= total_chunks)
-    {
+    if (tmp->num_chunks >= total_chunks) {
         bf->c7 = 1;
 
         s->data_size_sample += msg->total_size;
@@ -4187,8 +4105,7 @@ static void packet_arrive(terminal_state *s, tw_bf *bf, terminal_plus_message *m
         s->finished_msgs++;
 
         // assert(tmp->remote_event_data && tmp->remote_event_size > 0);
-        if (tmp->remote_event_data && tmp->remote_event_size > 0)
-        {
+        if (tmp->remote_event_data && tmp->remote_event_size > 0) {
             bf->c8 = 1;
             send_remote_event(s, msg, lp, bf, tmp->remote_event_data, tmp->remote_event_size);
         }
@@ -4200,8 +4117,8 @@ static void packet_arrive(terminal_state *s, tw_bf *bf, terminal_plus_message *m
     return;
 }
 
-static void terminal_buf_update_rc(terminal_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
+static void terminal_buf_update_rc(terminal_state* s, tw_bf* bf, terminal_plus_message* msg,
+                                   tw_lp* lp) {
     int vcg = 0;
     int num_qos_levels = s->params->num_qos_levels;
 
@@ -4212,15 +4129,14 @@ static void terminal_buf_update_rc(terminal_state *s, tw_bf *bf, terminal_plus_m
         vcg = get_vcg_from_category(msg);
 
     s->vc_occupancy[msg->rail_id][vcg] += s->params->chunk_size;
-    if (bf->c1)
-    {
+    if (bf->c1) {
         s->in_send_loop[msg->rail_id] = 0;
     }
     return;
 }
 /* update the compute node-router channel buffer */
-static void terminal_buf_update(terminal_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
+static void terminal_buf_update(terminal_state* s, tw_bf* bf, terminal_plus_message* msg,
+                                tw_lp* lp) {
     msg->num_cll = 0;
     msg->num_rngs = 0;
 
@@ -4236,11 +4152,10 @@ static void terminal_buf_update(terminal_state *s, tw_bf *bf, terminal_plus_mess
     tw_stime ts = codes_local_latency(lp);
     s->vc_occupancy[msg->rail_id][vcg] -= s->params->chunk_size;
 
-    if (s->in_send_loop[msg->rail_id] == 0 && s->terminal_msgs[msg->rail_id][vcg] != NULL)
-    {
-        terminal_plus_message *m;
+    if (s->in_send_loop[msg->rail_id] == 0 && s->terminal_msgs[msg->rail_id][vcg] != NULL) {
+        terminal_plus_message* m;
         bf->c1 = 1;
-        tw_event *e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_PLUS, (void **)&m, NULL);
+        tw_event* e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_PLUS, (void**)&m, NULL);
         m->rail_id = msg->rail_id;
         m->type = T_SEND;
         m->magic = terminal_magic_num;
@@ -4250,8 +4165,7 @@ static void terminal_buf_update(terminal_state *s, tw_bf *bf, terminal_plus_mess
     return;
 }
 
-void dragonfly_plus_terminal_final(terminal_state *s, tw_lp *lp)
-{
+void dragonfly_plus_terminal_final(terminal_state* s, tw_lp* lp) {
     dragonfly_total_time += s->total_time; // increment the PE level time counter
 
     if (s->max_latency > dragonfly_max_latency)
@@ -4260,21 +4174,22 @@ void dragonfly_plus_terminal_final(terminal_state *s, tw_lp *lp)
     model_net_print_stats(lp->gid, s->dragonfly_stats_array);
 
     int written = 0;
-    if (s->terminal_id == 0)
-    {
-        written += sprintf(s->output_buf + written, "# Format <source_id> <source_type> <dest_id> < dest_type>  <link_type> <link_traffic> <link_saturation> <stalled_chunks>\n");
+    if (s->terminal_id == 0) {
+        written += sprintf(s->output_buf + written,
+                           "# Format <source_id> <source_type> <dest_id> < dest_type>  <link_type> "
+                           "<link_traffic> <link_saturation> <stalled_chunks>\n");
     }
     // written += sprintf(s->output_buf + written, "%u %s %u %s %s %llu %lf %lu\n",
     //     s->terminal_id, "T", s->router_id, "R", "CN", LLU(s->total_msg_size), s->busy_time, s->stalled_chunks);
 
-    for (int i = 0; i < s->params->num_rails; i++)
-    {
+    for (int i = 0; i < s->params->num_rails; i++) {
         // since LLU(s->total_msg_size) is total message size a terminal received from a router so source is router and destination is terminal
-        written += sprintf(s->output_buf + written, "%u %s %u %s %s %llu %lf %lu\n",
-                           s->terminal_id, "T", s->router_id[i], "R", "CN", LLU(s->link_traffic[i]), s->busy_time[i], s->stalled_chunks[i]);
+        written += sprintf(s->output_buf + written, "%u %s %u %s %s %llu %lf %lu\n", s->terminal_id,
+                           "T", s->router_id[i], "R", "CN", LLU(s->link_traffic[i]),
+                           s->busy_time[i], s->stalled_chunks[i]);
     }
 
-    lp_io_write(lp->gid, (char *)"dragonfly-plus-local-link-stats", written, s->output_buf);
+    lp_io_write(lp->gid, (char*)"dragonfly-plus-local-link-stats", written, s->output_buf);
 
     // if (s->terminal_id == 0) {
     //     char meta_filename[64];
@@ -4293,9 +4208,11 @@ void dragonfly_plus_terminal_final(terminal_state *s, tw_lp *lp)
     //         s->busy_time, (double)s->total_hops/s->finished_chunks);
 
     written = 0;
-    if (s->terminal_id == 0)
-    {
-        written += sprintf(s->output_buf2 + written, "# Format <LP id> <Terminal ID> <Total Data Sent> <Total Data Received> <Avg packet latency> <Max packet Latency> <Min packet Latency> <# Packets finished> <Avg Hops> <Avg Busy Time (over rails)>\n");
+    if (s->terminal_id == 0) {
+        written += sprintf(s->output_buf2 + written,
+                           "# Format <LP id> <Terminal ID> <Total Data Sent> <Total Data Received> "
+                           "<Avg packet latency> <Max packet Latency> <Min packet Latency> <# "
+                           "Packets finished> <Avg Hops> <Avg Busy Time (over rails)>\n");
     }
 
     tw_stime avg_busy_time = 0;
@@ -4303,9 +4220,11 @@ void dragonfly_plus_terminal_final(terminal_state *s, tw_lp *lp)
         avg_busy_time += s->busy_time[i];
     avg_busy_time = avg_busy_time / s->params->num_rails;
 
-    written += sprintf(s->output_buf2 + written, "%llu %u %d %llu %lf %lf %lf %ld %lf %lf\n",
-                       LLU(lp->gid), s->terminal_id, s->total_gen_size, LLU(s->total_msg_size), s->total_time / s->finished_chunks, s->max_latency, s->min_latency,
-                       s->finished_packets, (double)s->total_hops / s->finished_chunks, avg_busy_time);
+    written +=
+        sprintf(s->output_buf2 + written, "%llu %u %d %llu %lf %lf %lf %ld %lf %lf\n", LLU(lp->gid),
+                s->terminal_id, s->total_gen_size, LLU(s->total_msg_size),
+                s->total_time / s->finished_chunks, s->max_latency, s->min_latency,
+                s->finished_packets, (double)s->total_hops / s->finished_chunks, avg_busy_time);
 
     // written = 0;
     // written += sprintf(s->output_buf2 + written, "%llu %u %lf %lf %lf %lf %ld %lf\n",
@@ -4313,7 +4232,7 @@ void dragonfly_plus_terminal_final(terminal_state *s, tw_lp *lp)
     //         s->busy_time, s->max_latency, s->min_latency,
     //         s->finished_packets, (double)s->total_hops/s->finished_chunks);
 
-    lp_io_write(lp->gid, (char *)"dragonfly-plus-cn-stats", written, s->output_buf2);
+    lp_io_write(lp->gid, (char*)"dragonfly-plus-cn-stats", written, s->output_buf2);
 
     // if (s->terminal_id == 0) {
     //     char meta_filename[64];
@@ -4333,8 +4252,7 @@ void dragonfly_plus_terminal_final(terminal_state *s, tw_lp *lp)
 
     // lp_io_write(lp->gid, (char *) "dragonfly-msg-stats", written, s->output_buf);
 
-    for(int i = 0; i < s->params->num_rails; i++)
-    {
+    for (int i = 0; i < s->params->num_rails; i++) {
         if (s->terminal_msgs[i][0] != NULL)
             printf("[%llu] leftover terminal messages \n", LLU(lp->gid));
     }
@@ -4355,11 +4273,9 @@ void dragonfly_plus_terminal_final(terminal_state *s, tw_lp *lp)
     s->connMan.~DragonflyConnectionManager();
 }
 
-void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
-{
-
+void dragonfly_plus_router_final(router_state* s, tw_lp* lp) {
 #if DEBUG_QOS
-    if(s->router_id == 0 && ROUTER_BW_LOG)
+    if (s->router_id == 0 && ROUTER_BW_LOG)
         fclose(dragonfly_rtr_bw_log);
 #endif
 
@@ -4379,8 +4295,8 @@ void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
 
     rc_stack_destroy(s->st);
 
-    const dragonfly_plus_param *p = s->params;
-    int written = 0; //local link
+    const dragonfly_plus_param* p = s->params;
+    int written = 0;  //local link
     int written2 = 0; //msg app id rec
     int src_rel_id = s->router_id % p->num_routers;
     int local_grp_id = s->router_id / p->num_routers;
@@ -4391,63 +4307,41 @@ void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
     //     written += sprintf(s->output_buf + written, "# Format <source_id> <source_type> <source group> || <dest_id> < dest_type> <destination group>, <link_type> <link_traffic> <link_saturation> <stalled_chunks>");
     // }
 
-    vector< Connection > my_local_links = s->connMan.get_connections_by_type(CONN_LOCAL,true);
-    vector< Connection >::iterator it = my_local_links.begin();
+    vector<Connection> my_local_links = s->connMan.get_connections_by_type(CONN_LOCAL, true);
+    vector<Connection>::iterator it = my_local_links.begin();
 
-    for(; it != my_local_links.end(); it++)
-    {
+    for (; it != my_local_links.end(); it++) {
         int dest_rtr_id = it->dest_gid;
         int port_no = it->port;
         assert(port_no >= 0 && port_no < p->radix);
-        written += sprintf(s->output_buf + written, "\n%d %s %d %s %s %llu %lf %lu",
-            s->router_id,
-            "R",
-            dest_rtr_id,
-            "R",
-            "L",
-            LLU(s->link_traffic[port_no]),
-            s->busy_time[port_no],
-            s->stalled_chunks[port_no]);
+        written += sprintf(s->output_buf + written, "\n%d %s %d %s %s %llu %lf %lu", s->router_id,
+                           "R", dest_rtr_id, "R", "L", LLU(s->link_traffic[port_no]),
+                           s->busy_time[port_no], s->stalled_chunks[port_no]);
     }
 
-    vector< Connection > my_global_links = s->connMan.get_connections_by_type(CONN_GLOBAL,true);
+    vector<Connection> my_global_links = s->connMan.get_connections_by_type(CONN_GLOBAL, true);
     it = my_global_links.begin();
 
-    for(; it != my_global_links.end(); it++)
-    {
+    for (; it != my_global_links.end(); it++) {
         int dest_rtr_id = it->dest_gid;
         int dest_group_id = it->dest_group_id;
         int port_no = it->port;
         assert(port_no >= 0 && port_no < p->radix);
         assert(dragonfly_plus_get_router_type(dest_rtr_id, p) == SPINE);
         written += sprintf(s->output_buf + written, "\n%d %s G%d || %d %s G%d, %s %llu %lf %lu",
-            s->router_id,
-            "R",
-            s->group_id,
-            dest_rtr_id,
-            "R",
-            dest_group_id,
-            "G",
-            LLU(s->link_traffic[port_no]),
-            s->busy_time[port_no],
-            s->stalled_chunks[port_no]);
+                           s->router_id, "R", s->group_id, dest_rtr_id, "R", dest_group_id, "G",
+                           LLU(s->link_traffic[port_no]), s->busy_time[port_no],
+                           s->stalled_chunks[port_no]);
     }
 
-    vector< Connection > my_terminal_links = s->connMan.get_connections_by_type(CONN_TERMINAL,true);
+    vector<Connection> my_terminal_links = s->connMan.get_connections_by_type(CONN_TERMINAL, true);
     it = my_terminal_links.begin();
-    for(; it != my_terminal_links.end(); it++)
-    {
+    for (; it != my_terminal_links.end(); it++) {
         int dest_term_id = it->dest_gid;
         int port_no = it->port;
-        written += sprintf(s->output_buf + written, "\n%d %s %d %s %s %llu %lf %lu",
-                           s->router_id,
-                           "R",
-                           dest_term_id,
-                           "T",
-                           "CN",
-                            LLU(s->link_traffic[port_no]),
-                            s->busy_time[port_no],
-                            s->stalled_chunks[port_no]);
+        written += sprintf(s->output_buf + written, "\n%d %s %d %s %s %llu %lf %lu", s->router_id,
+                           "R", dest_term_id, "T", "CN", LLU(s->link_traffic[port_no]),
+                           s->busy_time[port_no], s->stalled_chunks[port_no]);
     }
 
     sprintf(s->output_buf + written, "\n");
@@ -4458,24 +4352,35 @@ void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
     // written3 + buf5 sent
     int result = 0;
 
-    if (s->router_id == 0 && s->params->counting_bool>0) {
+    if (s->router_id == 0 && s->params->counting_bool > 0) {
         //rec
-        written2 = sprintf(s->output_buf4, "# Received <group_id> <router_id> <window_id> <#app_0> <#app_1>");
-        result=lp_io_write(lp->gid, (char*)"dragonfly-plus-msg-app-id-rec", written2, s->output_buf4);
-        if(result!=0)
-            tw_error(TW_LOC, "\nERROR: msg app id i/o failed, lpio result %d, svr %d, lpgid %llu, writing dragonfly-plus-msg-app-id-rec failed, written %d, buf %s\n", result, s->router_id, LLU(lp->gid), written2, s->output_buf4);
+        written2 = sprintf(s->output_buf4,
+                           "# Received <group_id> <router_id> <window_id> <#app_0> <#app_1>");
+        result =
+            lp_io_write(lp->gid, (char*)"dragonfly-plus-msg-app-id-rec", written2, s->output_buf4);
+        if (result != 0)
+            tw_error(TW_LOC,
+                     "\nERROR: msg app id i/o failed, lpio result %d, svr %d, lpgid %llu, writing "
+                     "dragonfly-plus-msg-app-id-rec failed, written %d, buf %s\n",
+                     result, s->router_id, LLU(lp->gid), written2, s->output_buf4);
     }
 
-    if (s->dfp_router_type == SPINE && s->params->counting_bool >0) {
-        for(int i =0; i < s->params->counting_windows; i++) {
+    if (s->dfp_router_type == SPINE && s->params->counting_bool > 0) {
+        for (int i = 0; i < s->params->counting_windows; i++) {
             //rec
-            if(s->msg_counting[i][0] != 0 || s->msg_counting[i][1] != 0) {
-                written2 = sprintf(s->output_buf4, "\n%d %d %d %d %d", s->group_id, s->router_id, i, s->msg_counting[i][0], s->msg_counting[i][1]);
+            if (s->msg_counting[i][0] != 0 || s->msg_counting[i][1] != 0) {
+                written2 = sprintf(s->output_buf4, "\n%d %d %d %d %d", s->group_id, s->router_id, i,
+                                   s->msg_counting[i][0], s->msg_counting[i][1]);
 
-                result=lp_io_write(lp->gid, (char*)"dragonfly-plus-msg-app-id-rec", written2, s->output_buf4);
+                result = lp_io_write(lp->gid, (char*)"dragonfly-plus-msg-app-id-rec", written2,
+                                     s->output_buf4);
 
-                if(result!=0)
-                    tw_error(TW_LOC, "\nERROR: msg app id i/o failed 2, lpio result %d, svr %llu, lpgid %llu, writting dragonfly-plus-msg-app-id-rec failed, written %d, buf %s, index %d\n", result, LLU(s->router_id), LLU(lp->gid), written2, s->output_buf4, i);
+                if (result != 0)
+                    tw_error(TW_LOC,
+                             "\nERROR: msg app id i/o failed 2, lpio result %d, svr %llu, lpgid "
+                             "%llu, writting dragonfly-plus-msg-app-id-rec failed, written %d, buf "
+                             "%s, index %d\n",
+                             result, LLU(s->router_id), LLU(lp->gid), written2, s->output_buf4, i);
 
                 //printf("\nGroupID %d, RouterID %d, Window %d, #App0 %d #App1 %d", s->group_id, s->router_id, i, s->msg_counting[i][0], s->msg_counting[i][1]);
                 total_packet_verify += (s->msg_counting[i][0] + s->msg_counting[i][1]);
@@ -4483,7 +4388,10 @@ void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
         }
 
         if (total_packet_verify != s->total_packets_received)
-            tw_error(TW_LOC, "\nERROR: Router %d counting msg app id failed: calculated totoal packets %d, recorded total packets %d, Check with roll back computing\n", s->router_id, total_packet_verify, s->total_packets_received);
+            tw_error(TW_LOC,
+                     "\nERROR: Router %d counting msg app id failed: calculated totoal packets %d, "
+                     "recorded total packets %d, Check with roll back computing\n",
+                     s->router_id, total_packet_verify, s->total_packets_received);
     }
 
     // /*MM: These statistics will need to be updated for dragonfly plus.
@@ -4552,37 +4460,44 @@ void dragonfly_plus_router_final(router_state *s, tw_lp *lp)
     s->connMan.~DragonflyConnectionManager();
 }
 
-static Connection do_dfp_routing(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id)
-{
+static Connection do_dfp_routing(router_state* s, tw_bf* bf, terminal_plus_message* msg, tw_lp* lp,
+                                 int fdest_router_id) {
     int my_router_id = s->router_id;
     int my_group_id = s->router_id / s->params->num_routers;
     int fdest_group_id = fdest_router_id / s->params->num_routers;
     int origin_group_id = msg->origin_router_id / s->params->num_routers;
-    bool in_intermediate_group = (my_group_id != origin_group_id) && (my_group_id != fdest_group_id);
+    bool in_intermediate_group =
+        (my_group_id != origin_group_id) && (my_group_id != fdest_group_id);
 
-    if (!isRoutingSmart(routing))
-    {
+    if (!isRoutingSmart(routing)) {
         //----------- DESTINATION LOCAL GROUP ROUTING --------------
         if (my_router_id == fdest_router_id) {
-            vector< Connection > poss_next_stops = s->connMan.get_connections_to_gid(msg->dfp_dest_terminal_id, CONN_TERMINAL);
+            vector<Connection> poss_next_stops =
+                s->connMan.get_connections_to_gid(msg->dfp_dest_terminal_id, CONN_TERMINAL);
             if (poss_next_stops.size() < 1)
                 tw_error(TW_LOC, "Destination Router: No Connection to destination terminal\n");
 
-            Connection best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
+            Connection best_min_conn =
+                get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
             return best_min_conn;
-        }
-        else if (my_group_id == fdest_group_id) { //then we just route minimally
-            vector< Connection > poss_next_stops = get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
+        } else if (my_group_id == fdest_group_id) { //then we just route minimally
+            vector<Connection> poss_next_stops =
+                get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
             if (poss_next_stops.size() < 1)
-                tw_error(TW_LOC, "DEAD END WHEN ROUTING LOCALLY - My Router ID: %d    FDest Router ID: %d (origin router ID: %d)\n", my_router_id, fdest_router_id, msg->origin_router_id);
+                tw_error(TW_LOC,
+                         "DEAD END WHEN ROUTING LOCALLY - My Router ID: %d    FDest Router ID: %d "
+                         "(origin router ID: %d)\n",
+                         my_router_id, fdest_router_id, msg->origin_router_id);
 
-            Connection best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
+            Connection best_min_conn =
+                get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
             return best_min_conn;
         }
         //------------ END DESTINATION LOCAL GROUP ROUTING ---------
         // from here we can assume that we are not in the destination group
 
-        if(msg->last_hop == TERMINAL) //This is used by dfdally_nonminimal_routing and dfdally_prog_adaptive_routing
+        if (msg->last_hop ==
+            TERMINAL) //This is used by dfdally_nonminimal_routing and dfdally_prog_adaptive_routing
         {
             if (msg->intm_grp_id == -1)
                 dfp_select_intermediate_group(s, bf, msg, lp, fdest_router_id);
@@ -4590,94 +4505,90 @@ static Connection do_dfp_routing(router_state *s, tw_bf *bf, terminal_plus_messa
     }
 
     Connection next_stop_conn;
-    switch (routing)
-    {
-        case MINIMAL:
-            next_stop_conn = dfp_minimal_routing(s, bf, msg, lp, fdest_router_id);
+    switch (routing) {
+    case MINIMAL:
+        next_stop_conn = dfp_minimal_routing(s, bf, msg, lp, fdest_router_id);
         break;
-        case NON_MINIMAL_LEAF:
-            next_stop_conn = dfp_nonminimal_leaf_routing(s, bf, msg, lp, fdest_router_id);
+    case NON_MINIMAL_LEAF:
+        next_stop_conn = dfp_nonminimal_leaf_routing(s, bf, msg, lp, fdest_router_id);
         break;
-        case NON_MINIMAL_SPINE:
-            tw_error(TW_LOC, "Non Minimal Spine Routing not implemented for validity concerns\n");
+    case NON_MINIMAL_SPINE:
+        tw_error(TW_LOC, "Non Minimal Spine Routing not implemented for validity concerns\n");
         break;
-        case PROG_ADAPTIVE:
-            next_stop_conn = dfp_prog_adaptive_routing(s, bf, msg, lp, fdest_router_id);
+    case PROG_ADAPTIVE:
+        next_stop_conn = dfp_prog_adaptive_routing(s, bf, msg, lp, fdest_router_id);
         break;
-        case FULLY_PROG_ADAPTIVE:
-            next_stop_conn = dfp_fully_prog_adaptive_routing(s, bf, msg, lp, fdest_router_id);
+    case FULLY_PROG_ADAPTIVE:
+        next_stop_conn = dfp_fully_prog_adaptive_routing(s, bf, msg, lp, fdest_router_id);
         break;
-        case SMART_MINIMAL:
-            next_stop_conn = dfp_smart_minimal_routing(s, bf, msg, lp, fdest_router_id);
+    case SMART_MINIMAL:
+        next_stop_conn = dfp_smart_minimal_routing(s, bf, msg, lp, fdest_router_id);
         break;
-        case SMART_NON_MINIMAL:
-            next_stop_conn = dfp_smart_nonminimal_routing(s, bf, msg, lp, fdest_router_id);
+    case SMART_NON_MINIMAL:
+        next_stop_conn = dfp_smart_nonminimal_routing(s, bf, msg, lp, fdest_router_id);
         break;
-        case SMART_PROG_ADAPTIVE:
-            next_stop_conn = dfp_smart_prog_adaptive_routing(s, bf, msg, lp, fdest_router_id);
+    case SMART_PROG_ADAPTIVE:
+        next_stop_conn = dfp_smart_prog_adaptive_routing(s, bf, msg, lp, fdest_router_id);
         break;
-        default:
-            tw_error(TW_LOC, "DFP Routing Error: No valid routing algorithm specified\n");
+    default:
+        tw_error(TW_LOC, "DFP Routing Error: No valid routing algorithm specified\n");
         break;
     }
 
     return next_stop_conn;
 }
 
-static void router_verify_valid_receipt(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
-    if (msg->my_N_hop > s->params->max_hops_notify)
-    {
-        printf("Router received a packet with %d hops so far! (Notify on > than %d)\n",msg->my_N_hop, s->params->max_hops_notify);
+static void router_verify_valid_receipt(router_state* s, tw_bf* bf, terminal_plus_message* msg,
+                                        tw_lp* lp) {
+    if (msg->my_N_hop > s->params->max_hops_notify) {
+        printf("Router received a packet with %d hops so far! (Notify on > than %d)\n",
+               msg->my_N_hop, s->params->max_hops_notify);
     }
 
     tw_lpid last_sender_lpid = msg->intm_lp_id;
     int rel_id, src_term_rel_id;
 
     bool has_valid_connection = false;
-    if (msg->last_hop == TERMINAL)
-    {
+    if (msg->last_hop == TERMINAL) {
         tw_lpid src_term_lpgid = msg->src_terminal_id;
         try {
-            src_term_rel_id = codes_mapping_get_lp_relative_id(src_term_lpgid,0,0);
-        }
-        catch (...) {
-            tw_error(TW_LOC, "\nRouter Receipt Verify: Codes Mapping Get LP Rel ID Failure - Terminal");
+            src_term_rel_id = codes_mapping_get_lp_relative_id(src_term_lpgid, 0, 0);
+        } catch (...) {
+            tw_error(TW_LOC,
+                     "\nRouter Receipt Verify: Codes Mapping Get LP Rel ID Failure - Terminal");
         }
         has_valid_connection = s->connMan.is_connected_to_by_type(src_term_rel_id, CONN_TERMINAL);
-    }
-    else if (msg->last_hop == LOCAL)
-    {
+    } else if (msg->last_hop == LOCAL) {
         try {
-            rel_id = codes_mapping_get_lp_relative_id(last_sender_lpid,0,0);
-        }
-        catch (...) {
-            tw_error(TW_LOC, "\nRouter Receipt Verify: Codes Mapping Get LP Rel ID Failure - Local");
+            rel_id = codes_mapping_get_lp_relative_id(last_sender_lpid, 0, 0);
+        } catch (...) {
+            tw_error(TW_LOC,
+                     "\nRouter Receipt Verify: Codes Mapping Get LP Rel ID Failure - Local");
         }
 
         // int rel_loc_id = rel_id % s->params->num_routers;
         has_valid_connection = s->connMan.is_connected_to_by_type(rel_id, CONN_LOCAL);
-    }
-    else if (msg->last_hop == GLOBAL)
-    {
+    } else if (msg->last_hop == GLOBAL) {
         try {
-            rel_id = codes_mapping_get_lp_relative_id(last_sender_lpid,0,0);
-        }
-        catch (...) {
-            tw_error(TW_LOC, "\nRouter Receipt Verify: Codes Mapping Get LP Rel ID Failure - Global");
+            rel_id = codes_mapping_get_lp_relative_id(last_sender_lpid, 0, 0);
+        } catch (...) {
+            tw_error(TW_LOC,
+                     "\nRouter Receipt Verify: Codes Mapping Get LP Rel ID Failure - Global");
         }
         has_valid_connection = s->connMan.is_connected_to_by_type(rel_id, CONN_GLOBAL);
-    }
-    else
-    {
+    } else {
         tw_error(TW_LOC, "\nDFP Router Verify Valid Receipt: Last Hop invalidly defined");
     }
 
-    if (!has_valid_connection){
+    if (!has_valid_connection) {
         if (msg->last_hop == TERMINAL)
-            printf("ERROR: Router ID %d has no Connection to Terminal %d but received a message from it!",s->router_id, src_term_rel_id);
+            printf("ERROR: Router ID %d has no Connection to Terminal %d but received a message "
+                   "from it!",
+                   s->router_id, src_term_rel_id);
         else
-            printf("ERROR: Router ID %d has no Connection to Router %d but received a message from it!",s->router_id, rel_id);
+            printf("ERROR: Router ID %d has no Connection to Router %d but received a message from "
+                   "it!",
+                   s->router_id, rel_id);
     }
     assert(has_valid_connection);
 }
@@ -4686,17 +4597,17 @@ static void router_verify_valid_receipt(router_state *s, tw_bf *bf, terminal_plu
  * sending router. */
 /*When a packet is sent from the current router and a buffer slot becomes available, a credit is sent back to
  * schedule another packet event*/
-static void router_credit_send(router_state *s, terminal_plus_message *msg, tw_lp *lp, int sq, short* rng_counter)
-{
-    tw_event *buf_e;
+static void router_credit_send(router_state* s, terminal_plus_message* msg, tw_lp* lp, int sq,
+                               short* rng_counter) {
+    tw_event* buf_e;
     tw_stime ts;
-    terminal_plus_message *buf_msg;
+    terminal_plus_message* buf_msg;
 
     int dest = 0, type = R_BUFFER;
     int is_terminal = 0;
     double credit_delay;
 
-    const dragonfly_plus_param *p = s->params;
+    const dragonfly_plus_param* p = s->params;
 
     // Notify sender terminal about available buffer space
     if (msg->last_hop == TERMINAL) {
@@ -4704,27 +4615,24 @@ static void router_credit_send(router_state *s, terminal_plus_message *msg, tw_l
         type = T_BUFFER;
         is_terminal = 1;
         credit_delay = p->cn_credit_delay;
-    }
-    else if (msg->last_hop == GLOBAL) {
+    } else if (msg->last_hop == GLOBAL) {
         dest = msg->intm_lp_id;
         credit_delay = p->global_credit_delay;
-    }
-    else if (msg->last_hop == LOCAL) {
+    } else if (msg->last_hop == LOCAL) {
         dest = msg->intm_lp_id;
         credit_delay = p->local_credit_delay;
-    }
-    else
+    } else
         printf("\n Invalid message type");
 
     (*rng_counter)++;
     ts = g_tw_lookahead + credit_delay + tw_rand_unif(lp->rng);
 
     if (is_terminal) {
-        buf_e = model_net_method_event_new(dest, ts, lp, DRAGONFLY_PLUS, (void **) &buf_msg, NULL);
+        buf_e = model_net_method_event_new(dest, ts, lp, DRAGONFLY_PLUS, (void**)&buf_msg, NULL);
         buf_msg->magic = terminal_magic_num;
-    }
-    else {
-        buf_e = model_net_method_event_new(dest, ts, lp, DRAGONFLY_PLUS_ROUTER, (void **) &buf_msg, NULL);
+    } else {
+        buf_e =
+            model_net_method_event_new(dest, ts, lp, DRAGONFLY_PLUS_ROUTER, (void**)&buf_msg, NULL);
         buf_msg->magic = router_magic_num;
     }
 
@@ -4733,8 +4641,7 @@ static void router_credit_send(router_state *s, terminal_plus_message *msg, tw_l
     if (sq == -1) {
         buf_msg->vc_index = msg->vc_index;
         buf_msg->output_chan = msg->output_chan;
-    }
-    else {
+    } else {
         buf_msg->vc_index = msg->saved_vc;
         buf_msg->output_chan = msg->saved_channel;
     }
@@ -4746,46 +4653,51 @@ static void router_credit_send(router_state *s, terminal_plus_message *msg, tw_l
     return;
 }
 
-static void router_packet_receive_rc(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
+static void router_packet_receive_rc(router_state* s, tw_bf* bf, terminal_plus_message* msg,
+                                     tw_lp* lp) {
     router_rev_ecount++;
     router_ecount--;
 
     int output_port = msg->saved_vc;
     int output_chan = msg->saved_channel;
-    int dest_gid = msg->dfp_dest_terminal_id / (s->params->total_terminals / s->params->total_groups);
+    int dest_gid =
+        msg->dfp_dest_terminal_id / (s->params->total_terminals / s->params->total_groups);
     int inter_group_transmit = 0;
 
     //rc for msg app id counting
-    if(dest_gid != s->group_id)
+    if (dest_gid != s->group_id)
         inter_group_transmit = 1;
 
-    if(inter_group_transmit>0 && s->params->counting_bool>0 && s->dfp_router_type == SPINE && msg->last_received_time >= s->params->counting_start && msg->last_received_time <= s->params->counting_end) {
+    if (inter_group_transmit > 0 && s->params->counting_bool > 0 && s->dfp_router_type == SPINE &&
+        msg->last_received_time >= s->params->counting_start &&
+        msg->last_received_time <= s->params->counting_end) {
         s->total_packets_received--;
         tw_stime time_now = msg->last_received_time - s->params->counting_start;
 
-        int window = (int) floor(time_now/s->params->counting_interval);
+        int window = (int)floor(time_now / s->params->counting_interval);
         if (window >= s->params->counting_windows)
-            tw_error(TW_LOC, "Router %d, will access window %d, greater than max %d\n", s->router_id, window, s->params->counting_windows);
+            tw_error(TW_LOC, "Router %d, will access window %d, greater than max %d\n",
+                     s->router_id, window, s->params->counting_windows);
         //printf("msg app id counting rc\n");
         s->msg_counting[window][msg->app_id]--;
     }
-    for(int i = 0 ; i < msg->num_cll; i++)
+    for (int i = 0; i < msg->num_cll; i++)
         codes_local_latency_reverse(lp);
 
-    for(int i = 0; i < msg->num_rngs; i++)
+    for (int i = 0; i < msg->num_rngs; i++)
         tw_rand_reverse_unif(lp->rng);
 
-    if(bf->c1)
-      s->is_monitoring_bw = 0;
+    if (bf->c1)
+        s->is_monitoring_bw = 0;
 
     //do dfp routing reverse
     // int dest_router_id = dragonfly_plus_get_assigned_router_id(msg->dfp_dest_terminal_id, s->params);
     // do_dfp_routing_rc(s, bf, msg, lp, dest_router_id);
 
     if (bf->c2) {
-        terminal_plus_message_list *tail =
-            return_tail(s->pending_msgs[output_port], s->pending_msgs_tail[output_port], output_chan);
+        terminal_plus_message_list* tail =
+            return_tail(s->pending_msgs[output_port], s->pending_msgs_tail[output_port],
+                        output_chan);
         delete_terminal_plus_message_list(tail);
         s->vc_occupancy[output_port][output_chan] -= s->params->chunk_size;
         if (bf->c3) {
@@ -4794,12 +4706,12 @@ static void router_packet_receive_rc(router_state *s, tw_bf *bf, terminal_plus_m
     }
     if (bf->c4) {
         s->stalled_chunks[output_port]--;
-        if(bf->c22)
-        {
+        if (bf->c22) {
             s->last_buf_full[output_port] = msg->saved_busy_time;
         }
-        delete_terminal_plus_message_list(
-            return_tail(s->queued_msgs[output_port], s->queued_msgs_tail[output_port], output_chan));
+        delete_terminal_plus_message_list(return_tail(s->queued_msgs[output_port],
+                                                      s->queued_msgs_tail[output_port],
+                                                      output_chan));
         s->queued_count[output_port] -= s->params->chunk_size;
     }
 }
@@ -4807,8 +4719,8 @@ static void router_packet_receive_rc(router_state *s, tw_bf *bf, terminal_plus_m
 /* MM: This will need changes for the port selection and routing part. The
  * progressive adaptive routing would need modification as well. */
 /* Packet arrives at the router and a credit is sent back to the sending terminal/router */
-static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
+static void router_packet_receive(router_state* s, tw_bf* bf, terminal_plus_message* msg,
+                                  tw_lp* lp) {
     msg->num_cll = 0;
     msg->num_rngs = 0;
 
@@ -4820,48 +4732,51 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
     int num_qos_levels = s->params->num_qos_levels;
     int vcs_per_qos = s->params->num_vcs / num_qos_levels;
 
-    if(num_qos_levels > 1 && (s->is_monitoring_bw == 0))
-    {
+    if (num_qos_levels > 1 && (s->is_monitoring_bw == 0)) {
         bf->c1 = 1;
         msg->num_cll++;
         tw_stime bw_ts = bw_reset_window + codes_local_latency(lp);
-        terminal_plus_message * m;
-        tw_event *e = model_net_method_event_new(lp->gid, bw_ts, lp,
-                                                 DRAGONFLY_PLUS_ROUTER, (void **)&m, NULL);
+        terminal_plus_message* m;
+        tw_event* e =
+            model_net_method_event_new(lp->gid, bw_ts, lp, DRAGONFLY_PLUS_ROUTER, (void**)&m, NULL);
         m->type = R_BANDWIDTH;
         m->magic = router_magic_num;
         tw_event_send(e);
         s->is_monitoring_bw = 1;
     }
     int vcg = 0;
-    if(num_qos_levels > 1)
-      vcg = get_vcg_from_category(msg);
+    if (num_qos_levels > 1)
+        vcg = get_vcg_from_category(msg);
 
     // MSG COUNTING SPECIFIC -------
     // If spine router, count how many packets I have received & identify their app id
     msg->last_received_time = tw_now(lp);
 
-    int fdest_group_id = msg->dfp_dest_terminal_id / (s->params->total_terminals / s->params->total_groups);
+    int fdest_group_id =
+        msg->dfp_dest_terminal_id / (s->params->total_terminals / s->params->total_groups);
     int inter_group_transmit = 0;
-    if(fdest_group_id != s->group_id)
+    if (fdest_group_id != s->group_id)
         inter_group_transmit = 1;
 
     //printf("msg [%d ==> %d] of App %d: Received on router %d(type %d) in group %d, at time %.5f\n", msg->dfp_src_terminal_id, msg->dfp_dest_terminal_id, msg->app_id ,s->router_id, s->dfp_router_type, s->group_id, msg->last_received_time);
 
-    if(inter_group_transmit>0 && s->params->counting_bool>0 && s->dfp_router_type == SPINE && msg->last_received_time >= s->params->counting_start && msg->last_received_time <= s->params->counting_end) {
-
+    if (inter_group_transmit > 0 && s->params->counting_bool > 0 && s->dfp_router_type == SPINE &&
+        msg->last_received_time >= s->params->counting_start &&
+        msg->last_received_time <= s->params->counting_end) {
         s->total_packets_received++;
         tw_stime time_now = msg->last_received_time - s->params->counting_start;
-        int window = (int) floor(time_now/s->params->counting_interval);
+        int window = (int)floor(time_now / s->params->counting_interval);
         if (window >= s->params->counting_windows)
-            tw_error(TW_LOC, "Router %d, will access window %d, greater than max %d\n", s->router_id, window, s->params->counting_windows);
+            tw_error(TW_LOC, "Router %d, will access window %d, greater than max %d\n",
+                     s->router_id, window, s->params->counting_windows);
         s->msg_counting[window][msg->app_id]++;
     }
     //MSG COUNTING SPECIFIC END -------
 
     int next_stop = -1, output_port = -1, output_chan = -1, adap_chan = -1;
     int dfp_dest_terminal_id = msg->dfp_dest_terminal_id;
-    int dest_router_id = dragonfly_plus_get_assigned_router_id(s->params, msg->dfp_dest_terminal_id, s->plane_id);
+    int dest_router_id =
+        dragonfly_plus_get_assigned_router_id(s->params, msg->dfp_dest_terminal_id, s->plane_id);
     // int dest_router_id = codes_mapping_get_lp_relative_id(msg->dest_terminal_id, 0, 0) / s->params->num_cn;
     int local_grp_id = s->router_id / s->params->num_routers;
     int src_grp_id = msg->origin_router_id / s->params->num_routers;
@@ -4869,20 +4784,23 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
     int intm_router_id;
     short prev_path_type = 0, next_path_type = 0;
 
-    terminal_plus_message_list *cur_chunk =
-        (terminal_plus_message_list *) calloc(1, sizeof(terminal_plus_message_list));
+    terminal_plus_message_list* cur_chunk =
+        (terminal_plus_message_list*)calloc(1, sizeof(terminal_plus_message_list));
     init_terminal_plus_message_list(cur_chunk, msg);
 
     // packets start out as minimal when received from a terminal. The path type is changed off of minimal if/when the packet takes a nonminimal path during routing
-    if( cur_chunk->msg.last_hop == TERMINAL) {
+    if (cur_chunk->msg.last_hop == TERMINAL) {
         cur_chunk->msg.path_type = MINIMAL;
     }
 
     Connection next_stop_conn = do_dfp_routing(s, bf, &(cur_chunk->msg), lp, dest_router_id);
-    msg->num_rngs += (cur_chunk->msg).num_rngs; //make sure we're counting the rngs called during do_dfp_routing()
+    msg->num_rngs +=
+        (cur_chunk->msg)
+            .num_rngs; //make sure we're counting the rngs called during do_dfp_routing()
 
     if (s->connMan.is_any_connection_to(next_stop_conn.dest_gid) == false)
-        tw_error(TW_LOC, "Router %d does not have a Connection to chosen destination %d\n", s->router_id, next_stop_conn.dest_gid);
+        tw_error(TW_LOC, "Router %d does not have a Connection to chosen destination %d\n",
+                 s->router_id, next_stop_conn.dest_gid);
 
 
     output_port = next_stop_conn.port;
@@ -4890,10 +4808,11 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
     if (next_stop_conn.conn_type != CONN_TERMINAL) {
         int id = next_stop_conn.dest_gid;
         tw_lpid router_dest_id;
-        codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0, id / num_routers_per_mgrp, id % num_routers_per_mgrp, &router_dest_id);
+        codes_mapping_get_lp_id(lp_group_name, LP_CONFIG_NM_ROUT, s->anno, 0,
+                                id / num_routers_per_mgrp, id % num_routers_per_mgrp,
+                                &router_dest_id);
         next_stop = router_dest_id;
-    }
-    else {
+    } else {
         next_stop = cur_chunk->msg.dest_terminal_id;
     }
 
@@ -4904,13 +4823,11 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
     cur_chunk->msg.next_stop = next_stop;
 
     output_chan = 0;
-    if(cur_chunk->msg.dfp_upward_channel_flag == 1) {
+    if (cur_chunk->msg.dfp_upward_channel_flag == 1) {
         output_chan = 1;
-    }
-    else if (cur_chunk->msg.dfp_upward_channel_flag == 0) {
+    } else if (cur_chunk->msg.dfp_upward_channel_flag == 0) {
         output_chan = 0;
-    }
-    else
+    } else
         tw_error(TW_LOC, "upward channel flag has invalid value\n");
 
     assert(output_chan < vcs_per_qos);
@@ -4922,13 +4839,11 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
         max_vc_size = s->params->global_vc_size;
         cur_chunk->msg.my_g_hop++;
         cur_chunk->msg.my_hops_cur_group = 0;
-    }
-    else if (port_type == CONN_LOCAL) {
+    } else if (port_type == CONN_LOCAL) {
         max_vc_size = s->params->local_vc_size;
         cur_chunk->msg.my_l_hop++;
         cur_chunk->msg.my_hops_cur_group++;
-    }
-    else {
+    } else {
         assert(port_type == CONN_TERMINAL);
         max_vc_size = s->params->cn_vc_size;
     }
@@ -4942,39 +4857,44 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
     cur_chunk->msg.my_N_hop++;
 
     if (output_port >= s->params->radix)
-        tw_error(TW_LOC, "\n%d: Output port greater than router radix %d ",s->router_id, output_port);
+        tw_error(TW_LOC, "\n%d: Output port greater than router radix %d ", s->router_id,
+                 output_port);
 
     if (output_chan >= s->params->num_vcs || output_chan < 0)
-        printf(
-            "\n Packet %llu Output chan %d output port %d my rid %d dest rid %d path %d my gid %d dest gid "
-            "%d",
-            cur_chunk->msg.packet_ID, output_chan, output_port, s->router_id, dest_router_id,
-            cur_chunk->msg.path_type, src_grp_id, dest_grp_id);
+        printf("\n Packet %llu Output chan %d output port %d my rid %d dest rid %d path %d my gid "
+               "%d dest gid "
+               "%d",
+               cur_chunk->msg.packet_ID, output_chan, output_port, s->router_id, dest_router_id,
+               cur_chunk->msg.path_type, src_grp_id, dest_grp_id);
 
     assert(output_chan < s->params->num_vcs && output_chan >= 0);
 
-    if(cur_chunk->msg.packet_ID == LLU(TRACK_PKT) && cur_chunk->msg.src_terminal_id == T_ID)
-            printf("\n Packet %llu arrived at router %u next stop %d final stop %d local hops %d global hops %d", cur_chunk->msg.packet_ID, s->router_id, next_stop, dest_router_id, cur_chunk->msg.my_l_hop, cur_chunk->msg.my_g_hop);
+    if (cur_chunk->msg.packet_ID == LLU(TRACK_PKT) && cur_chunk->msg.src_terminal_id == T_ID)
+        printf("\n Packet %llu arrived at router %u next stop %d final stop %d local hops %d "
+               "global hops %d",
+               cur_chunk->msg.packet_ID, s->router_id, next_stop, dest_router_id,
+               cur_chunk->msg.my_l_hop, cur_chunk->msg.my_g_hop);
 
     if (msg->remote_event_size_bytes > 0) {
-        void *m_data_src = model_net_method_get_edata(DRAGONFLY_PLUS_ROUTER, msg);
-        cur_chunk->event_data = (char *) calloc(1, msg->remote_event_size_bytes);
+        void* m_data_src = model_net_method_get_edata(DRAGONFLY_PLUS_ROUTER, msg);
+        cur_chunk->event_data = (char*)calloc(1, msg->remote_event_size_bytes);
         memcpy(cur_chunk->event_data, m_data_src, msg->remote_event_size_bytes);
     }
 
     if (s->vc_occupancy[output_port][output_chan] + s->params->chunk_size <= max_vc_size) {
         bf->c2 = 1;
         router_credit_send(s, msg, lp, -1, &(msg->num_rngs));
-        append_to_terminal_plus_message_list(s->pending_msgs[output_port], s->pending_msgs_tail[output_port],
-                                             output_chan, cur_chunk);
+        append_to_terminal_plus_message_list(s->pending_msgs[output_port],
+                                             s->pending_msgs_tail[output_port], output_chan,
+                                             cur_chunk);
         s->vc_occupancy[output_port][output_chan] += s->params->chunk_size;
         if (s->in_send_loop[output_port] == 0) {
             bf->c3 = 1;
-            terminal_plus_message *m;
+            terminal_plus_message* m;
             msg->num_cll++;
             ts = codes_local_latency(lp);
-            tw_event *e =
-                model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_PLUS_ROUTER, (void **) &m, NULL);
+            tw_event* e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_PLUS_ROUTER,
+                                                     (void**)&m, NULL);
             m->rail_id = msg->rail_id;
             m->type = R_SEND;
             m->magic = router_magic_num;
@@ -4983,14 +4903,14 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
             tw_event_send(e);
             s->in_send_loop[output_port] = 1;
         }
-    }
-    else {
+    } else {
         bf->c4 = 1;
         s->stalled_chunks[output_port]++;
         cur_chunk->msg.saved_vc = msg->vc_index;
         cur_chunk->msg.saved_channel = msg->output_chan;
-        append_to_terminal_plus_message_list(s->queued_msgs[output_port], s->queued_msgs_tail[output_port],
-                                             output_chan, cur_chunk);
+        append_to_terminal_plus_message_list(s->queued_msgs[output_port],
+                                             s->queued_msgs_tail[output_port], output_chan,
+                                             cur_chunk);
         s->queued_count[output_port] += s->params->chunk_size;
 
         //THIS WAS REMOVED WHEN QOS WAS INSTITUTED - READDED 5/20/19
@@ -4998,8 +4918,8 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
         * that is empty then we check if last_buf_full is set or not. If already
         * set then we don't overwrite it. If two packets arrive next to each other
         * then the first person should be setting it. */
-        if(s->pending_msgs[output_port][output_chan] == NULL && s->last_buf_full[output_port] == 0.0)
-        {
+        if (s->pending_msgs[output_port][output_chan] == NULL &&
+            s->last_buf_full[output_port] == 0.0) {
             bf->c22 = 1;
             msg->saved_busy_time = s->last_buf_full[output_port];
             s->last_buf_full[output_port] = tw_now(lp);
@@ -5011,27 +4931,25 @@ static void router_packet_receive(router_state *s, tw_bf *bf, terminal_plus_mess
     return;
 }
 
-static void router_packet_send_rc(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
+static void router_packet_send_rc(router_state* s, tw_bf* bf, terminal_plus_message* msg,
+                                  tw_lp* lp) {
     router_ecount--;
     router_rev_ecount++;
 
     int num_qos_levels = s->params->num_qos_levels;
     int output_port = msg->saved_vc;
 
-    if(msg->qos_reset1)
-          s->qos_status[output_port][0] = Q_ACTIVE;
-     if(msg->qos_reset2)
-          s->qos_status[output_port][1] = Q_ACTIVE;
+    if (msg->qos_reset1)
+        s->qos_status[output_port][0] = Q_ACTIVE;
+    if (msg->qos_reset2)
+        s->qos_status[output_port][1] = Q_ACTIVE;
 
-    if(msg->last_saved_qos)
+    if (msg->last_saved_qos)
         s->last_qos_lvl[output_port] = msg->last_saved_qos;
 
-    if (bf->c1)
-    {
+    if (bf->c1) {
         s->in_send_loop[output_port] = 1;
-        if (bf->c2)
-        {
+        if (bf->c2) {
             s->last_buf_full[output_port] = msg->saved_busy_time;
         }
         return;
@@ -5044,15 +4962,14 @@ static void router_packet_send_rc(router_state *s, tw_bf *bf, terminal_plus_mess
         codes_local_latency_reverse(lp);
 
     int output_chan = msg->saved_channel;
-    if (bf->c8)
-    {
+    if (bf->c8) {
         s->busy_time[output_port] = msg->saved_rcv_time;
         s->busy_time_sample[output_port] = msg->saved_sample_time;
         s->ross_rsample.busy_time[output_port] = msg->saved_sample_time;
         s->last_buf_full[output_port] = msg->saved_busy_time;
     }
 
-    terminal_plus_message_list *cur_entry = (terminal_plus_message_list *)rc_stack_pop(s->st);
+    terminal_plus_message_list* cur_entry = (terminal_plus_message_list*)rc_stack_pop(s->st);
     assert(cur_entry);
 
     int vcg = 0;
@@ -5066,42 +4983,41 @@ static void router_packet_send_rc(router_state *s, tw_bf *bf, terminal_plus_mess
     s->qos_data[output_port][vcg] -= msg_size;
     s->next_output_available_time[output_port] = msg->saved_available_time;
 
-    if (bf->c11)
-    {
+    if (bf->c11) {
         s->link_traffic[output_port] -= cur_entry->msg.packet_size % s->params->chunk_size;
         s->link_traffic_sample[output_port] -= cur_entry->msg.packet_size % s->params->chunk_size;
-        s->ross_rsample.link_traffic_sample[output_port] -= cur_entry->msg.packet_size % s->params->chunk_size;
-        s->link_traffic_ross_sample[output_port] -= cur_entry->msg.packet_size % s->params->chunk_size;
+        s->ross_rsample.link_traffic_sample[output_port] -=
+            cur_entry->msg.packet_size % s->params->chunk_size;
+        s->link_traffic_ross_sample[output_port] -=
+            cur_entry->msg.packet_size % s->params->chunk_size;
     }
-    if (bf->c12)
-    {
+    if (bf->c12) {
         s->link_traffic[output_port] -= s->params->chunk_size;
         s->link_traffic_sample[output_port] -= s->params->chunk_size;
         s->ross_rsample.link_traffic_sample[output_port] -= s->params->chunk_size;
         s->link_traffic_ross_sample[output_port] -= s->params->chunk_size;
     }
 
-    prepend_to_terminal_plus_message_list(s->pending_msgs[output_port], s->pending_msgs_tail[output_port],
-                                          output_chan, cur_entry);
+    prepend_to_terminal_plus_message_list(s->pending_msgs[output_port],
+                                          s->pending_msgs_tail[output_port], output_chan,
+                                          cur_entry);
 
-    if (bf->c4)
-    {
+    if (bf->c4) {
         s->in_send_loop[output_port] = 1;
     }
 }
 
 /* MM: I think this mostly stays the same. */
 /* routes the current packet to the next stop */
-static void router_packet_send(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
+static void router_packet_send(router_state* s, tw_bf* bf, terminal_plus_message* msg, tw_lp* lp) {
     router_ecount++;
 
     tw_stime ts;
-    tw_event *e;
-    terminal_plus_message *m;
+    tw_event* e;
+    terminal_plus_message* m;
     int output_port = msg->vc_index;
 
-    terminal_plus_message_list *cur_entry = NULL;
+    terminal_plus_message_list* cur_entry = NULL;
 
     /* reset qos rc handler before incrementing it */
     msg->last_saved_qos = -1;
@@ -5111,16 +5027,18 @@ static void router_packet_send(router_state *s, tw_bf *bf, terminal_plus_message
     msg->num_rngs = 0;
 
     int num_qos_levels = s->params->num_qos_levels;
-    int output_chan = get_next_router_vcg(s, bf, msg, lp); // includes default output_chan setting functionality
+    int output_chan =
+        get_next_router_vcg(s, bf, msg, lp); // includes default output_chan setting functionality
 
     msg->saved_vc = output_port;
     msg->saved_channel = output_chan;
 
-    if (output_chan < 0)
-    {
+    if (output_chan < 0) {
         bf->c1 = 1;
         s->in_send_loop[output_port] = 0;
-        if (s->queued_count[output_port] && !s->last_buf_full[output_port]) // 10-31-19, not sure why this was added here with the qos stuff
+        if (s->queued_count[output_port] &&
+            !s->last_buf_full
+                 [output_port]) // 10-31-19, not sure why this was added here with the qos stuff
         {
             bf->c2 = 1;
             msg->saved_busy_time = s->last_buf_full[output_port];
@@ -5133,16 +5051,16 @@ static void router_packet_send(router_state *s, tw_bf *bf, terminal_plus_message
 
     assert(cur_entry != NULL);
 
-    if(s->last_buf_full[output_port]) //10-31-19, same here as above comment
+    if (s->last_buf_full[output_port]) //10-31-19, same here as above comment
     {
-      bf->c8 = 1;
-      msg->saved_rcv_time = s->busy_time[output_port];
-      msg->saved_busy_time = s->last_buf_full[output_port];
-      msg->saved_sample_time = s->busy_time_sample[output_port];
-      s->busy_time[output_port] += (tw_now(lp) - s->last_buf_full[output_port]);
-      s->busy_time_sample[output_port] += (tw_now(lp) - s->last_buf_full[output_port]);
-      s->ross_rsample.busy_time[output_port] += (tw_now(lp) - s->last_buf_full[output_port]);
-      s->last_buf_full[output_port] = 0.0;
+        bf->c8 = 1;
+        msg->saved_rcv_time = s->busy_time[output_port];
+        msg->saved_busy_time = s->last_buf_full[output_port];
+        msg->saved_sample_time = s->busy_time_sample[output_port];
+        s->busy_time[output_port] += (tw_now(lp) - s->last_buf_full[output_port]);
+        s->busy_time_sample[output_port] += (tw_now(lp) - s->last_buf_full[output_port]);
+        s->ross_rsample.busy_time[output_port] += (tw_now(lp) - s->last_buf_full[output_port]);
+        s->last_buf_full[output_port] = 0.0;
     }
 
     int vcg = 0;
@@ -5157,8 +5075,7 @@ static void router_packet_send(router_state *s, tw_bf *bf, terminal_plus_message
         to_terminal = 0;
         delay = s->params->local_delay;
         bandwidth = s->params->local_bandwidth;
-    }
-    else if (output_port < s->params->intra_grp_radix + s->params->num_global_connections) {
+    } else if (output_port < s->params->intra_grp_radix + s->params->num_global_connections) {
         to_terminal = 0;
         global = 1;
         delay = s->params->global_delay;
@@ -5174,29 +5091,30 @@ static void router_packet_send(router_state *s, tw_bf *bf, terminal_plus_message
     if (cur_entry->msg.packet_size == 0)
         bytetime = bytes_to_ns(s->params->credit_size, bandwidth);
 
-    if ((cur_entry->msg.packet_size < s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1))
+    if ((cur_entry->msg.packet_size < s->params->chunk_size) &&
+        (cur_entry->msg.chunk_id == num_chunks - 1))
         bytetime = bytes_to_ns(cur_entry->msg.packet_size % s->params->chunk_size, bandwidth);
 
     msg->num_rngs++;
     ts = g_tw_lookahead + tw_rand_unif(lp->rng) + bytetime + s->params->router_delay;
 
     msg->saved_available_time = s->next_output_available_time[output_port];
-    s->next_output_available_time[output_port] = maxd(s->next_output_available_time[output_port], tw_now(lp));
+    s->next_output_available_time[output_port] =
+        maxd(s->next_output_available_time[output_port], tw_now(lp));
     s->next_output_available_time[output_port] += ts;
 
     ts = s->next_output_available_time[output_port] - tw_now(lp);
     // dest can be a router or a terminal, so we must check
-    void *m_data;
+    void* m_data;
     if (to_terminal) {
         assert(cur_entry->msg.next_stop == cur_entry->msg.dest_terminal_id);
         e = model_net_method_event_new(cur_entry->msg.next_stop,
                                        s->next_output_available_time[output_port] - tw_now(lp), lp,
-                                       DRAGONFLY_PLUS, (void **) &m, &m_data);
-    }
-    else {
+                                       DRAGONFLY_PLUS, (void**)&m, &m_data);
+    } else {
         e = model_net_method_event_new(cur_entry->msg.next_stop,
                                        s->next_output_available_time[output_port] - tw_now(lp), lp,
-                                       DRAGONFLY_PLUS_ROUTER, (void **) &m, &m_data);
+                                       DRAGONFLY_PLUS_ROUTER, (void**)&m, &m_data);
     }
     memcpy(m, &cur_entry->msg, sizeof(terminal_plus_message));
     if (m->remote_event_size_bytes) {
@@ -5212,14 +5130,15 @@ static void router_packet_send(router_state *s, tw_bf *bf, terminal_plus_message
     m->magic = router_magic_num;
 
     int msg_size = s->params->chunk_size;
-    if ((cur_entry->msg.packet_size % s->params->chunk_size) && (cur_entry->msg.chunk_id == num_chunks - 1)) {
+    if ((cur_entry->msg.packet_size % s->params->chunk_size) &&
+        (cur_entry->msg.chunk_id == num_chunks - 1)) {
         bf->c11 = 1;
         s->link_traffic[output_port] += (cur_entry->msg.packet_size % s->params->chunk_size);
         s->link_traffic_sample[output_port] += (cur_entry->msg.packet_size % s->params->chunk_size);
-        s->ross_rsample.link_traffic_sample[output_port] += (cur_entry->msg.packet_size % s->params->chunk_size);
+        s->ross_rsample.link_traffic_sample[output_port] +=
+            (cur_entry->msg.packet_size % s->params->chunk_size);
         msg_size = cur_entry->msg.packet_size % s->params->chunk_size;
-    }
-    else {
+    } else {
         bf->c12 = 1;
         s->link_traffic[output_port] += s->params->chunk_size;
         s->link_traffic_sample[output_port] += s->params->chunk_size;
@@ -5235,15 +5154,15 @@ static void router_packet_send(router_state *s, tw_bf *bf, terminal_plus_message
     if (to_terminal) {
         m->type = T_ARRIVE;
         m->magic = terminal_magic_num;
-    }
-    else {
+    } else {
         /* The packet has to be sent to another router */
         m->magic = router_magic_num;
         m->type = R_ARRIVE;
     }
     tw_event_send(e);
 
-    cur_entry = return_head(s->pending_msgs[output_port], s->pending_msgs_tail[output_port], output_chan);
+    cur_entry =
+        return_head(s->pending_msgs[output_port], s->pending_msgs_tail[output_port], output_chan);
     rc_stack_push(lp, cur_entry, delete_terminal_plus_message_list, s->st);
 
     s->qos_data[output_port][vcg] += msg_size;
@@ -5252,19 +5171,18 @@ static void router_packet_send(router_state *s, tw_bf *bf, terminal_plus_message
 
     int next_output_chan = get_next_router_vcg(s, bf, msg, lp);
 
-    if(next_output_chan < 0)
-    {
-      bf->c4 = 1;
-      s->in_send_loop[output_port] = 0;
-      return;
+    if (next_output_chan < 0) {
+        bf->c4 = 1;
+        s->in_send_loop[output_port] = 0;
+        return;
     }
     cur_entry = s->pending_msgs[output_port][next_output_chan];
     assert(cur_entry != NULL);
 
-    terminal_plus_message *m_new;
+    terminal_plus_message* m_new;
     msg->num_rngs++;
     ts += g_tw_lookahead + tw_rand_unif(lp->rng);
-    e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_PLUS_ROUTER, (void **) &m_new, NULL);
+    e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_PLUS_ROUTER, (void**)&m_new, NULL);
     m_new->type = R_SEND;
     m_new->rail_id = msg->rail_id;
     m_new->magic = router_magic_num;
@@ -5274,17 +5192,17 @@ static void router_packet_send(router_state *s, tw_bf *bf, terminal_plus_message
     return;
 }
 
-static void router_buf_update_rc(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
+static void router_buf_update_rc(router_state* s, tw_bf* bf, terminal_plus_message* msg,
+                                 tw_lp* lp) {
     int indx = msg->vc_index;
     int output_chan = msg->output_chan;
     s->vc_occupancy[indx][output_chan] += s->params->chunk_size;
 
-    for(int i = 0; i < msg->num_rngs; i++)
+    for (int i = 0; i < msg->num_rngs; i++)
         tw_rand_reverse_unif(lp->rng);
 
-    for(int i = 0; i < msg->num_cll; i++)
-       codes_local_latency_reverse(lp);
+    for (int i = 0; i < msg->num_cll; i++)
+        codes_local_latency_reverse(lp);
 
     if (bf->c3) {
         s->busy_time[indx] = msg->saved_rcv_time;
@@ -5294,10 +5212,10 @@ static void router_buf_update_rc(router_state *s, tw_bf *bf, terminal_plus_messa
         s->last_buf_full[indx] = msg->saved_busy_time;
     }
     if (bf->c1) {
-        terminal_plus_message_list *head =
+        terminal_plus_message_list* head =
             return_tail(s->pending_msgs[indx], s->pending_msgs_tail[indx], output_chan);
-        prepend_to_terminal_plus_message_list(s->queued_msgs[indx], s->queued_msgs_tail[indx], output_chan,
-                                              head);
+        prepend_to_terminal_plus_message_list(s->queued_msgs[indx], s->queued_msgs_tail[indx],
+                                              output_chan, head);
         s->vc_occupancy[indx][output_chan] -= s->params->chunk_size;
         s->queued_count[indx] += s->params->chunk_size;
     }
@@ -5306,8 +5224,7 @@ static void router_buf_update_rc(router_state *s, tw_bf *bf, terminal_plus_messa
     }
 }
 /* Update the buffer space associated with this router LP */
-static void router_buf_update(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
+static void router_buf_update(router_state* s, tw_bf* bf, terminal_plus_message* msg, tw_lp* lp) {
     msg->num_cll = 0;
     msg->num_rngs = 0;
 
@@ -5331,20 +5248,21 @@ static void router_buf_update(router_state *s, tw_bf *bf, terminal_plus_message 
         bf->c1 = 1;
         assert(indx < s->params->radix);
         assert(output_chan < s->params->num_vcs);
-        terminal_plus_message_list *head =
+        terminal_plus_message_list* head =
             return_head(s->queued_msgs[indx], s->queued_msgs_tail[indx], output_chan);
         router_credit_send(s, &head->msg, lp, 1, &(msg->num_rngs));
-        append_to_terminal_plus_message_list(s->pending_msgs[indx], s->pending_msgs_tail[indx], output_chan,
-                                             head);
+        append_to_terminal_plus_message_list(s->pending_msgs[indx], s->pending_msgs_tail[indx],
+                                             output_chan, head);
         s->vc_occupancy[indx][output_chan] += s->params->chunk_size;
         s->queued_count[indx] -= s->params->chunk_size;
     }
     if (s->in_send_loop[indx] == 0 && s->pending_msgs[indx][output_chan] != NULL) {
         bf->c2 = 1;
-        terminal_plus_message *m;
+        terminal_plus_message* m;
         msg->num_cll++;
         tw_stime ts = codes_local_latency(lp);
-        tw_event *e = model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_PLUS_ROUTER, (void **) &m, NULL);
+        tw_event* e =
+            model_net_method_event_new(lp->gid, ts, lp, DRAGONFLY_PLUS_ROUTER, (void**)&m, NULL);
         m->type = R_SEND;
         m->rail_id = msg->rail_id;
         m->vc_index = indx;
@@ -5355,123 +5273,121 @@ static void router_buf_update(router_state *s, tw_bf *bf, terminal_plus_message 
     return;
 }
 
-void terminal_plus_event(terminal_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
+void terminal_plus_event(terminal_state* s, tw_bf* bf, terminal_plus_message* msg, tw_lp* lp) {
     s->fwd_events++;
     //*(int *)bf = (int)0;
     assert(msg->magic == terminal_magic_num);
 
     rc_stack_gc(lp, s->st);
     switch (msg->type) {
-        case T_GENERATE:
-            packet_generate(s, bf, msg, lp);
-            break;
+    case T_GENERATE:
+        packet_generate(s, bf, msg, lp);
+        break;
 
-        case T_ARRIVE:
-            packet_arrive(s, bf, msg, lp);
-            break;
+    case T_ARRIVE:
+        packet_arrive(s, bf, msg, lp);
+        break;
 
-        case T_SEND:
-            packet_send(s, bf, msg, lp);
-            break;
+    case T_SEND:
+        packet_send(s, bf, msg, lp);
+        break;
 
-        case T_BUFFER:
-            terminal_buf_update(s, bf, msg, lp);
-            break;
+    case T_BUFFER:
+        terminal_buf_update(s, bf, msg, lp);
+        break;
 
-        case T_BANDWIDTH:
-            issue_bw_monitor_event_rc(s, bf, msg, lp);
-            break;
+    case T_BANDWIDTH:
+        issue_bw_monitor_event_rc(s, bf, msg, lp);
+        break;
 
-        default:
-            printf("\n LP %d Terminal message type not supported %d ", (int) lp->gid, msg->type);
-            tw_error(TW_LOC, "Msg type not supported");
+    default:
+        printf("\n LP %d Terminal message type not supported %d ", (int)lp->gid, msg->type);
+        tw_error(TW_LOC, "Msg type not supported");
     }
 }
 
-void router_plus_event(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
+void router_plus_event(router_state* s, tw_bf* bf, terminal_plus_message* msg, tw_lp* lp) {
     s->fwd_events++;
     rc_stack_gc(lp, s->st);
 
     assert(msg->magic == router_magic_num);
     switch (msg->type) {
-        case R_SEND:  // Router has sent a packet to an intra-group router (local channel)
-            router_packet_send(s, bf, msg, lp);
-            break;
+    case R_SEND: // Router has sent a packet to an intra-group router (local channel)
+        router_packet_send(s, bf, msg, lp);
+        break;
 
-        case R_ARRIVE:  // Router has received a packet from an intra-group router (local channel)
-            router_packet_receive(s, bf, msg, lp);
-            break;
+    case R_ARRIVE: // Router has received a packet from an intra-group router (local channel)
+        router_packet_receive(s, bf, msg, lp);
+        break;
 
-        case R_BUFFER:
-            router_buf_update(s, bf, msg, lp);
-            break;
+    case R_BUFFER:
+        router_buf_update(s, bf, msg, lp);
+        break;
 
-        case R_BANDWIDTH:
-            issue_rtr_bw_monitor_event(s, bf, msg, lp);
-            break;
+    case R_BANDWIDTH:
+        issue_rtr_bw_monitor_event(s, bf, msg, lp);
+        break;
 
-        default:
-            printf(
-                "\n (%lf) [Router %d] Router Message type not supported %d dest "
-                "terminal id %d packet ID %d ",
-                tw_now(lp), (int) lp->gid, msg->type, (int) msg->dest_terminal_id, (int) msg->packet_ID);
-            tw_error(TW_LOC, "Msg type not supported");
-            break;
+    default:
+        printf("\n (%lf) [Router %d] Router Message type not supported %d dest "
+               "terminal id %d packet ID %d ",
+               tw_now(lp), (int)lp->gid, msg->type, (int)msg->dest_terminal_id,
+               (int)msg->packet_ID);
+        tw_error(TW_LOC, "Msg type not supported");
+        break;
     }
 }
 
 /* Reverse computation handler for a terminal event */
-void terminal_plus_rc_event_handler(terminal_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
+void terminal_plus_rc_event_handler(terminal_state* s, tw_bf* bf, terminal_plus_message* msg,
+                                    tw_lp* lp) {
     s->rev_events++;
     switch (msg->type) {
-        case T_GENERATE:
-            packet_generate_rc(s, bf, msg, lp);
-            break;
+    case T_GENERATE:
+        packet_generate_rc(s, bf, msg, lp);
+        break;
 
-        case T_SEND:
-            packet_send_rc(s, bf, msg, lp);
-            break;
+    case T_SEND:
+        packet_send_rc(s, bf, msg, lp);
+        break;
 
-        case T_ARRIVE:
-            packet_arrive_rc(s, bf, msg, lp);
-            break;
+    case T_ARRIVE:
+        packet_arrive_rc(s, bf, msg, lp);
+        break;
 
-        case T_BUFFER:
-            terminal_buf_update_rc(s, bf, msg, lp);
-            break;
+    case T_BUFFER:
+        terminal_buf_update_rc(s, bf, msg, lp);
+        break;
 
-        case T_BANDWIDTH:
-            issue_bw_monitor_event_rc(s, bf, msg, lp);
-            break;
+    case T_BANDWIDTH:
+        issue_bw_monitor_event_rc(s, bf, msg, lp);
+        break;
 
-        default:
-            tw_error(TW_LOC, "\n Invalid terminal event type %d ", msg->type);
+    default:
+        tw_error(TW_LOC, "\n Invalid terminal event type %d ", msg->type);
     }
 }
 
 /* Reverse computation handler for a router event */
-void router_plus_rc_event_handler(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
+void router_plus_rc_event_handler(router_state* s, tw_bf* bf, terminal_plus_message* msg,
+                                  tw_lp* lp) {
     s->rev_events++;
 
     switch (msg->type) {
-        case R_SEND:
-            router_packet_send_rc(s, bf, msg, lp);
-            break;
-        case R_ARRIVE:
-            router_packet_receive_rc(s, bf, msg, lp);
-            break;
+    case R_SEND:
+        router_packet_send_rc(s, bf, msg, lp);
+        break;
+    case R_ARRIVE:
+        router_packet_receive_rc(s, bf, msg, lp);
+        break;
 
-        case R_BUFFER:
-            router_buf_update_rc(s, bf, msg, lp);
-            break;
+    case R_BUFFER:
+        router_buf_update_rc(s, bf, msg, lp);
+        break;
 
-        case R_BANDWIDTH:
-            issue_rtr_bw_monitor_event_rc(s, bf, msg, lp);
-            break;
+    case R_BANDWIDTH:
+        issue_rtr_bw_monitor_event_rc(s, bf, msg, lp);
+        break;
     }
 }
 
@@ -5480,23 +5396,23 @@ extern "C" {
 tw_lptype dragonfly_plus_lps[] = {
     // Terminal handling functions
     {
-        (init_f) terminal_plus_init,
-        (pre_run_f) NULL,
-        (event_f) terminal_plus_event,
-        (revent_f) terminal_plus_rc_event_handler,
-        (commit_f) terminal_plus_commit,
-        (final_f) dragonfly_plus_terminal_final,
-        (map_f) codes_mapping,
+        (init_f)terminal_plus_init,
+        (pre_run_f)NULL,
+        (event_f)terminal_plus_event,
+        (revent_f)terminal_plus_rc_event_handler,
+        (commit_f)terminal_plus_commit,
+        (final_f)dragonfly_plus_terminal_final,
+        (map_f)codes_mapping,
         sizeof(terminal_state),
     },
     {
-        (init_f) router_plus_init,
-        (pre_run_f) NULL,
-        (event_f) router_plus_event,
-        (revent_f) router_plus_rc_event_handler,
-        (commit_f) router_plus_commit,
-        (final_f) dragonfly_plus_router_final,
-        (map_f) codes_mapping,
+        (init_f)router_plus_init,
+        (pre_run_f)NULL,
+        (event_f)router_plus_event,
+        (revent_f)router_plus_rc_event_handler,
+        (commit_f)router_plus_commit,
+        (final_f)dragonfly_plus_router_final,
+        (map_f)codes_mapping,
         sizeof(router_state),
     },
     {NULL, NULL, NULL, NULL, NULL, NULL, NULL, 0},
@@ -5504,22 +5420,18 @@ tw_lptype dragonfly_plus_lps[] = {
 }
 
 /* returns the dragonfly lp type for lp registration */
-static const tw_lptype *dragonfly_plus_get_cn_lp_type(void)
-{
+static const tw_lptype* dragonfly_plus_get_cn_lp_type(void) {
     return (&dragonfly_plus_lps[0]);
 }
-static const tw_lptype *router_plus_get_lp_type(void)
-{
+static const tw_lptype* router_plus_get_lp_type(void) {
     return (&dragonfly_plus_lps[1]);
 }
 
-static void dragonfly_plus_register(tw_lptype *base_type)
-{
+static void dragonfly_plus_register(tw_lptype* base_type) {
     lp_type_register(LP_CONFIG_NM_TERM, base_type);
 }
 
-static void router_plus_register(tw_lptype *base_type)
-{
+static void router_plus_register(tw_lptype* base_type) {
     lp_type_register(LP_CONFIG_NM_ROUT, base_type);
 }
 
@@ -5665,45 +5577,40 @@ static void router_plus_register(tw_lptype *base_type)
 //     tw_error(TW_LOC, "do_dfp_routing(): No route chosen!\n");
 // }
 
-static int get_min_hops_to_dest_from_conn(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, Connection conn)
-{
+static int get_min_hops_to_dest_from_conn(router_state* s, tw_bf* bf, terminal_plus_message* msg,
+                                          tw_lp* lp, Connection conn) {
     int my_type = s->dfp_router_type;
     int next_hops_type = dragonfly_plus_get_router_type(conn.dest_gid, s->params);
 
     int dfp_dest_terminal_id = msg->dfp_dest_terminal_id;
-    int fdest_router_id = dragonfly_plus_get_assigned_router_id(s->params, dfp_dest_terminal_id, msg->rail_id);
+    int fdest_router_id =
+        dragonfly_plus_get_assigned_router_id(s->params, dfp_dest_terminal_id, msg->rail_id);
     int fdest_group_id = fdest_router_id / s->params->num_routers;
 
-    if (msg->dfp_upward_channel_flag)
-    {
+    if (msg->dfp_upward_channel_flag) {
         if (my_type == SPINE)
             return 2; // Next Spine -> Leaf -> dest_term
         else
             return 3; // Next Spine -> Spine -> Leaf -> dest_term
     }
 
-    if (conn.dest_group_id == fdest_group_id)
-    {
+    if (conn.dest_group_id == fdest_group_id) {
         if (next_hops_type == SPINE)
             return 2; // Next Spine -> Leaf -> dest_term
-        else
-        {
+        else {
             assert(next_hops_type == LEAF);
             return 1; // Next Leaf -> dest_term
         }
-    }
-    else
-    { // next is not in final destination group
-        if (next_hops_type == SPINE)
-        {
-            vector<Connection> cons_to_dest_group = netMan.get_connection_manager_for_router(conn.dest_gid).get_connections_to_group(fdest_group_id);
+    } else { // next is not in final destination group
+        if (next_hops_type == SPINE) {
+            vector<Connection> cons_to_dest_group =
+                netMan.get_connection_manager_for_router(conn.dest_gid)
+                    .get_connections_to_group(fdest_group_id);
             if (cons_to_dest_group.size() == 0)
                 return 5; // Next Spine -> Leaf -> Spine -> Spine -> Leaf -> dest_term
             else
                 return 3; // Next Spine -> Spine -> Leaf -> dest_term
-        }
-        else
-        {
+        } else {
             assert(next_hops_type == LEAF);
             return 4; // Next Leaf -> Spine -> Spine -> Leaf -> dest_term
         }
@@ -5711,14 +5618,13 @@ static int get_min_hops_to_dest_from_conn(router_state *s, tw_bf *bf, terminal_p
 }
 
 // usded by FPAR, compare each port score with T, if muliples are <= T, choose a random one
-static Connection get_connection_compare_T(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, vector<Connection> conns, int threshold)
-{
+static Connection get_connection_compare_T(router_state* s, tw_bf* bf, terminal_plus_message* msg,
+                                           tw_lp* lp, vector<Connection> conns, int threshold) {
     assert(threshold >= 0 && threshold <= 100);
     int origin_group_id = msg->origin_router_id / s->params->num_routers;
     int my_group_id = s->router_id / s->params->num_routers;
 
-    if (conns.size() == 0)
-    {
+    if (conns.size() == 0) {
         Connection bad_conn;
         bad_conn.src_gid = -1;
         bad_conn.port = -1;
@@ -5732,30 +5638,24 @@ static Connection get_connection_compare_T(router_state *s, tw_bf *bf, terminal_
 
     vector<int> best_indexes;
 
-    if (scoring_preference == LOWER)
-    {
-        for (int i = 0; i < num_to_compare; i++)
-        {
+    if (scoring_preference == LOWER) {
+        for (int i = 0; i < num_to_compare; i++) {
             scores[i] = dfp_score_connection(s, bf, msg, lp, conns[i], C_MIN);
             if (scores[i] <= threshold)
                 best_indexes.push_back(i);
             // if(my_group_id==0 && s->dfp_router_type==SPINE && num_to_compare == 2) printf("\tCompare T: Router %d, to port: %d, score %d\n", s->router_id, conns[i].port, scores[i]);
         }
-        if (best_indexes.size() > 0)
-        {
+        if (best_indexes.size() > 0) {
             msg->num_rngs++;
             best_score_index = best_indexes[tw_rand_ulong(lp->rng, 0, best_indexes.size() - 1)];
-        }
-        else
-        {
+        } else {
             // no high priority queue < T
             Connection bad_conn2;
             bad_conn2.src_gid = -2;
             bad_conn2.port = -2;
             return bad_conn2;
         }
-    }
-    else
+    } else
         tw_error(TW_LOC, "Higher scoring preference currently not implemented for PFAR");
 
     // if(origin_group_id==0 && s->dfp_router_type==SPINE) printf("\t\tCompare T: Router %d, among size %lu, choose index: %d \n", s->router_id, best_indexes.size(), best_score_index);
@@ -5764,51 +5664,50 @@ static Connection get_connection_compare_T(router_state *s, tw_bf *bf, terminal_
 }
 
 // give the vector of all routers attached with global link(s) in current group, used by get_legal_nonminimal_stops
-static vector<Connection> get_router_with_global_links(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp)
-{
+static vector<Connection> get_router_with_global_links(router_state* s, tw_bf* bf,
+                                                       terminal_plus_message* msg, tw_lp* lp) {
     vector<Connection> spine_with_global_link;
     set<int> poss_router_id_set_to_group;
     int my_group_id = s->router_id / s->params->num_routers;
 
-    for (int desg = 0; desg < s->params->total_groups; desg++)
-    {
+    for (int desg = 0; desg < s->params->total_groups; desg++) {
         vector<int> global_connected_gids = s->connMan.get_router_gids_with_global_to_group(desg);
 
-        for (int i = 0; i < global_connected_gids.size(); i++)
-        {
+        for (int i = 0; i < global_connected_gids.size(); i++) {
             int poss_router_id = global_connected_gids[i];
             // printf("%d\n",poss_router_id);
-            if (poss_router_id_set_to_group.count(poss_router_id) == 0)
-            { // if we haven't added the connections from poss_router_id yet
-                vector<Connection> conns = s->connMan.get_connections_to_gid(poss_router_id, CONN_LOCAL);
+            if (poss_router_id_set_to_group.count(poss_router_id) ==
+                0) { // if we haven't added the connections from poss_router_id yet
+                vector<Connection> conns =
+                    s->connMan.get_connections_to_gid(poss_router_id, CONN_LOCAL);
                 poss_router_id_set_to_group.insert(poss_router_id);
-                spine_with_global_link.insert(spine_with_global_link.end(), conns.begin(), conns.end());
+                spine_with_global_link.insert(spine_with_global_link.end(), conns.begin(),
+                                              conns.end());
             }
         }
     }
     return spine_with_global_link;
 }
 
-static void dfp_select_intermediate_group(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id)
-{
+static void dfp_select_intermediate_group(router_state* s, tw_bf* bf, terminal_plus_message* msg,
+                                          tw_lp* lp, int fdest_router_id) {
     int fdest_group_id = fdest_router_id / s->params->num_routers;
     int origin_group_id = msg->origin_router_id / s->params->num_routers;
 
     // Has an intermediate group been chosen yet? (Should happen at first router)
-    if (msg->intm_grp_id == -1)
-    { // Intermediate group hasn't been chosen yet, choose one randomly and route toward it
+    if (msg->intm_grp_id ==
+        -1) { // Intermediate group hasn't been chosen yet, choose one randomly and route toward it
         assert(s->router_id == msg->origin_router_id);
         msg->num_rngs++;
         int rand_group_id;
         if (NONMIN_INCLUDE_SOURCE_DEST) // then any group is a valid intermediate group
-            rand_group_id = tw_rand_integer(lp->rng, s->params->num_groups * s->plane_id, (s->params->num_groups * (s->plane_id + 1)) - 1);
-        else
-        { // then we don't consider source or dest groups as valid intermediate groups
+            rand_group_id = tw_rand_integer(lp->rng, s->params->num_groups * s->plane_id,
+                                            (s->params->num_groups * (s->plane_id + 1)) - 1);
+        else { // then we don't consider source or dest groups as valid intermediate groups
             vector<int> group_list;
-            for (int i = s->params->num_groups * s->plane_id; i < s->params->num_groups * (s->plane_id + 1); i++)
-            {
-                if ((i != origin_group_id) && (i != fdest_group_id))
-                {
+            for (int i = s->params->num_groups * s->plane_id;
+                 i < s->params->num_groups * (s->plane_id + 1); i++) {
+                if ((i != origin_group_id) && (i != fdest_group_id)) {
                     group_list.push_back(i);
                 }
             }
@@ -5816,24 +5715,21 @@ static void dfp_select_intermediate_group(router_state *s, tw_bf *bf, terminal_p
             rand_group_id = group_list[rand_sel];
         }
         msg->intm_grp_id = rand_group_id;
-    }
-    else
-    { // the only time that it is re-set is when a router didn't have a direct Connection to the intermediate group but had no other options
+    } else { // the only time that it is re-set is when a router didn't have a direct Connection to the intermediate group but had no other options
         // so we need to pick an intm group that the current router DOES have a Connection to.
         assert(s->router_id != msg->origin_router_id);
 
         set<int> valid_intm_groups;
         vector<Connection> global_conns = s->connMan.get_connections_by_type(CONN_GLOBAL);
-        for (vector<Connection>::iterator it = global_conns.begin(); it != global_conns.end(); it++)
-        {
+        for (vector<Connection>::iterator it = global_conns.begin(); it != global_conns.end();
+             it++) {
             Connection conn = *it;
             if (NONMIN_INCLUDE_SOURCE_DEST) // then any group I connect to is valid
             {
                 valid_intm_groups.insert(conn.dest_group_id);
-            }
-            else
-            {
-                if ((conn.dest_group_id != fdest_group_id) && (conn.dest_group_id != origin_group_id))
+            } else {
+                if ((conn.dest_group_id != fdest_group_id) &&
+                    (conn.dest_group_id != origin_group_id))
                     valid_intm_groups.insert(conn.dest_group_id);
             }
         }
@@ -5848,29 +5744,28 @@ static void dfp_select_intermediate_group(router_state *s, tw_bf *bf, terminal_p
 
 // Note this has been updated to no longer be the converse of minimal stops. It now includes any next stops that can get to the intermediate group. This is now in line more with the 1D Dragonfly model.
 // previously nonminimal stops being the converse of minimal was the norm as recommended but it seems to not load balance appropriately.
-static vector<Connection> get_legal_nonminimal_stops(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id)
-{
+static vector<Connection> get_legal_nonminimal_stops(router_state* s, tw_bf* bf,
+                                                     terminal_plus_message* msg, tw_lp* lp,
+                                                     int fdest_router_id) {
     int my_router_id = s->router_id;
     int my_group_id = s->router_id / s->params->num_routers;
     int origin_group_id = msg->origin_router_id / s->params->num_routers;
     int fdest_group_id = fdest_router_id / s->params->num_routers;
-    bool in_intermediate_group = (my_group_id != origin_group_id) && (my_group_id != fdest_group_id);
+    bool in_intermediate_group =
+        (my_group_id != origin_group_id) && (my_group_id != fdest_group_id);
     int preset_intm_group_id = msg->intm_grp_id;
 
     vector<Connection> poss_next_nonmin_stops;
 
-    if (my_group_id == origin_group_id)
-    {
-        if (s->dfp_router_type == LEAF)
-        {
-            vector<Connection> conns_to_connecting_routers = s->connMan.get_routed_connections_to_group(preset_intm_group_id, true);
+    if (my_group_id == origin_group_id) {
+        if (s->dfp_router_type == LEAF) {
+            vector<Connection> conns_to_connecting_routers =
+                s->connMan.get_routed_connections_to_group(preset_intm_group_id, true);
             return conns_to_connecting_routers;
-        }
-        else if (s->dfp_router_type == SPINE)
-        {
-            vector<Connection> conns_to_group = s->connMan.get_connections_to_group(preset_intm_group_id);
-            if (conns_to_group.size() < 1)
-            {
+        } else if (s->dfp_router_type == SPINE) {
+            vector<Connection> conns_to_group =
+                s->connMan.get_connections_to_group(preset_intm_group_id);
+            if (conns_to_group.size() < 1) {
                 dfp_select_intermediate_group(s, bf, msg, lp, fdest_router_id);
                 conns_to_group = s->connMan.get_connections_to_group(msg->intm_grp_id);
                 return conns_to_group;
@@ -5878,50 +5773,48 @@ static vector<Connection> get_legal_nonminimal_stops(router_state *s, tw_bf *bf,
             return conns_to_group;
         }
     }
-    if (in_intermediate_group)
-    {
-        if (msg->dfp_upward_channel_flag == 1)
-        {
+    if (in_intermediate_group) {
+        if (msg->dfp_upward_channel_flag == 1) {
             return poss_next_nonmin_stops;
-        }
-        else if (s->dfp_router_type == LEAF)
-        { // if we're a leaf in an intermediate group then the routing alg should have flipped the dfp_upward channel already but lets return empty just in case
+        } else if (
+            s->dfp_router_type ==
+            LEAF) { // if we're a leaf in an intermediate group then the routing alg should have flipped the dfp_upward channel already but lets return empty just in case
             return poss_next_nonmin_stops;
-        }
-        else if (s->dfp_router_type == SPINE)
-        { // then possible_minimal_stops will be the list of connections
+        } else if (s->dfp_router_type ==
+                   SPINE) { // then possible_minimal_stops will be the list of connections
             assert(msg->dfp_upward_channel_flag == 0);
-            vector< Connection> conns_to_leaves = s->connMan.get_connections_by_type(CONN_LOCAL);
+            vector<Connection> conns_to_leaves = s->connMan.get_connections_by_type(CONN_LOCAL);
             return conns_to_leaves;
         }
     }
 
     else if (my_group_id == fdest_group_id) {
-        if (s->params->dest_spine_consider_nonmin == true || s->params->dest_spine_consider_global_nonmin == true) {
+        if (s->params->dest_spine_consider_nonmin == true ||
+            s->params->dest_spine_consider_global_nonmin == true) {
             if (s->dfp_router_type == SPINE) {
-                vector< Connection > poss_next_conns;
+                vector<Connection> poss_next_conns;
 
                 if (s->params->dest_spine_consider_nonmin == true) {
-                    vector< Connection > conns_to_leaves = s->connMan.get_connections_by_type(CONN_LOCAL);
-                    for (int i = 0; i < conns_to_leaves.size(); i++)
-                    {
+                    vector<Connection> conns_to_leaves =
+                        s->connMan.get_connections_by_type(CONN_LOCAL);
+                    for (int i = 0; i < conns_to_leaves.size(); i++) {
                         if (conns_to_leaves[i].dest_gid != fdest_router_id)
                             poss_next_conns.push_back(conns_to_leaves[i]);
                     }
                 }
                 if (s->params->dest_spine_consider_global_nonmin == true) {
-                    vector< Connection > conns_to_spines = s->connMan.get_connections_by_type(CONN_GLOBAL);
-                    for (int i = 0; i < conns_to_spines.size(); i++)
-                    {
-                        if (conns_to_spines[i].dest_group_id != fdest_group_id && conns_to_spines[i].dest_group_id != origin_group_id) {
+                    vector<Connection> conns_to_spines =
+                        s->connMan.get_connections_by_type(CONN_GLOBAL);
+                    for (int i = 0; i < conns_to_spines.size(); i++) {
+                        if (conns_to_spines[i].dest_group_id != fdest_group_id &&
+                            conns_to_spines[i].dest_group_id != origin_group_id) {
                             poss_next_conns.push_back(conns_to_spines[i]);
                         }
                     }
                 }
 
                 return poss_next_conns;
-            }
-            else {
+            } else {
                 assert(s->dfp_router_type == LEAF);
                 //empty because a leaf in the destination group has no legal nonminimal moves
                 return poss_next_nonmin_stops;
@@ -6024,8 +5917,9 @@ static vector<Connection> get_legal_nonminimal_stops(router_state *s, tw_bf *bf,
 //have a direct Connection to the destinatino group, then there wouldn't be any "legal minimal stops". The packet would have to continue to
 //some leaf in the group first. THIS DOES NOT INCLUDE REROUTING. The only time an intermediate leaf can send to an intermediate spine is if
 //dfp_upward_channel_flag is 0.
-static vector< Connection > get_legal_minimal_stops(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id)
-{
+static vector<Connection> get_legal_minimal_stops(router_state* s, tw_bf* bf,
+                                                  terminal_plus_message* msg, tw_lp* lp,
+                                                  int fdest_router_id) {
     int my_router_id = s->router_id;
     int my_group_id = s->router_id / s->params->num_routers;
     int origin_group_id = msg->origin_router_id / s->params->num_routers;
@@ -6033,55 +5927,55 @@ static vector< Connection > get_legal_minimal_stops(router_state *s, tw_bf *bf, 
 
     if (my_group_id != fdest_group_id) { //then we're in the source or the intermediate group.
         if (s->dfp_router_type == LEAF) {
-            vector<Connection> poss_conns_to_next_group = s->connMan.get_routed_connections_to_group(fdest_group_id, true);
+            vector<Connection> poss_conns_to_next_group =
+                s->connMan.get_routed_connections_to_group(fdest_group_id, true);
             return poss_conns_to_next_group;
-        }
-        else if (s->dfp_router_type == SPINE) {
+        } else if (s->dfp_router_type == SPINE) {
             return s->connMan.get_connections_to_group(fdest_group_id);
         }
-    }
-    else {
+    } else {
         assert(my_group_id == fdest_group_id);
         if (s->dfp_router_type == SPINE) {
-            vector< Connection > possible_next_conns = s->connMan.get_connections_to_gid(fdest_router_id, CONN_LOCAL);
+            vector<Connection> possible_next_conns =
+                s->connMan.get_connections_to_gid(fdest_router_id, CONN_LOCAL);
             return possible_next_conns;
-        }
-        else {
+        } else {
             assert(s->dfp_router_type == LEAF);
 
-            if (my_router_id != fdest_router_id) { //then we're also the source group and we need to send to any spine in our group
+            if (my_router_id !=
+                fdest_router_id) { //then we're also the source group and we need to send to any spine in our group
                 assert(my_group_id == origin_group_id);
-                if(netMan.is_link_failures_enabled()) {
+                if (netMan.is_link_failures_enabled()) {
                     vector<Connection> conns = s->connMan.get_connections_by_type(CONN_LOCAL);
                     vector<Connection> good_conns;
-                    for(int i = 0; i < conns.size(); i++)
-                    {
+                    for (int i = 0; i < conns.size(); i++) {
                         int next_src_gid = conns[i].dest_gid;
-                        if(netMan.get_connection_manager_for_router(next_src_gid).is_any_connection_to(fdest_router_id))
+                        if (netMan.get_connection_manager_for_router(next_src_gid)
+                                .is_any_connection_to(fdest_router_id))
                             good_conns.push_back(conns[i]);
                     }
                     return good_conns;
-                }
-                else
+                } else
                     return s->connMan.get_connections_by_type(CONN_LOCAL);
-            }
-            else { //then we're the dest router
+            } else { //then we're the dest router
                 assert(my_router_id == fdest_router_id);
-                vector< Connection > empty;
+                vector<Connection> empty;
                 return empty;
             }
         }
     }
-    vector< Connection > empty;
+    vector<Connection> empty;
     return empty;
 }
 
 //TODO make whether there is random or not a configurable setting.
-static Connection dfp_minimal_routing(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id)
-{
-    vector< Connection > poss_next_stops = get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
+static Connection dfp_minimal_routing(router_state* s, tw_bf* bf, terminal_plus_message* msg,
+                                      tw_lp* lp, int fdest_router_id) {
+    vector<Connection> poss_next_stops = get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
     if (poss_next_stops.size() < 1)
-        tw_error(TW_LOC, "%d group %d: MINIMAL DEAD END to %d in group %d - (s%d -> d%d)\n", s->router_id, s->group_id, fdest_router_id, fdest_router_id / s->params->num_routers, msg->origin_router_id, fdest_router_id);
+        tw_error(TW_LOC, "%d group %d: MINIMAL DEAD END to %d in group %d - (s%d -> d%d)\n",
+                 s->router_id, s->group_id, fdest_router_id,
+                 fdest_router_id / s->params->num_routers, msg->origin_router_id, fdest_router_id);
 
     // int rand_sel = tw_rand_integer(lp->rng, 0, poss_next_stops.size() -1 );
     // return poss_next_stops[rand_sel];
@@ -6090,25 +5984,29 @@ static Connection dfp_minimal_routing(router_state *s, tw_bf *bf, terminal_plus_
     Connection best_min_conn;
     if (conn_type == CONN_GLOBAL) {
         msg->num_rngs++;
-        int rand_sel = tw_rand_integer(lp->rng, 0, poss_next_stops.size() -1);
+        int rand_sel = tw_rand_integer(lp->rng, 0, poss_next_stops.size() - 1);
         return poss_next_stops[rand_sel];
-    }
-    else
-        best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops); //gets absolute best
+    } else
+        best_min_conn =
+            get_absolute_best_connection_from_conns(s, bf, msg, lp,
+                                                    poss_next_stops); //gets absolute best
     return best_min_conn;
 }
 
-static Connection dfp_nonminimal_leaf_routing(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id)
-{
+static Connection dfp_nonminimal_leaf_routing(router_state* s, tw_bf* bf,
+                                              terminal_plus_message* msg, tw_lp* lp,
+                                              int fdest_router_id) {
     int my_router_id = s->router_id;
     int my_group_id = s->router_id / s->params->num_routers;
     int fdest_group_id = fdest_router_id / s->params->num_routers;
     int origin_group_id = msg->origin_router_id / s->params->num_routers;
-    bool in_intermediate_group = (my_group_id != origin_group_id) && (my_group_id != fdest_group_id);
+    bool in_intermediate_group =
+        (my_group_id != origin_group_id) && (my_group_id != fdest_group_id);
 
     bool route_to_fdest = false;
 
-    if (msg->dfp_upward_channel_flag == 1) //we only route to minimal if this flag is true, otherwise we keep routing nonminimally
+    if (msg->dfp_upward_channel_flag ==
+        1) //we only route to minimal if this flag is true, otherwise we keep routing nonminimally
         route_to_fdest = true;
 
     else if (s->dfp_router_type == LEAF) {
@@ -6118,15 +6016,15 @@ static Connection dfp_nonminimal_leaf_routing(router_state *s, tw_bf *bf, termin
         }
     }
 
-    vector< Connection > poss_next_stops;
+    vector<Connection> poss_next_stops;
     if (route_to_fdest) {
         poss_next_stops = get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
         if (poss_next_stops.size() < 1)
             tw_error(TW_LOC, "Dead end when finding stops to fdest router");
-    }
-    else {
+    } else {
         msg->path_type = NON_MINIMAL;
-        poss_next_stops =  get_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);;
+        poss_next_stops = get_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
+        ;
         if (poss_next_stops.size() < 1)
             tw_error(TW_LOC, "Dead end when finding stops to intermediate router");
     }
@@ -6135,9 +6033,11 @@ static Connection dfp_nonminimal_leaf_routing(router_state *s, tw_bf *bf, termin
 
     Connection best_conn;
     if (conn_type == CONN_GLOBAL)
-        best_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_next_stops); //pick 2 randomly and pick best from those
+        best_conn = get_best_connection_from_conns(
+            s, bf, msg, lp, poss_next_stops); //pick 2 randomly and pick best from those
     else
-        best_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops); //pick absolute best from poss_next_stops
+        best_conn = get_absolute_best_connection_from_conns(
+            s, bf, msg, lp, poss_next_stops); //pick absolute best from poss_next_stops
 
     if (best_conn.port == -1)
         tw_error(TW_LOC, "Get best Connection returned a bad Connection");
@@ -6146,13 +6046,14 @@ static Connection dfp_nonminimal_leaf_routing(router_state *s, tw_bf *bf, termin
 }
 
 
-static Connection dfp_prog_adaptive_routing(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id)
-{
+static Connection dfp_prog_adaptive_routing(router_state* s, tw_bf* bf, terminal_plus_message* msg,
+                                            tw_lp* lp, int fdest_router_id) {
     int my_router_id = s->router_id;
     int my_group_id = s->router_id / s->params->num_routers;
     int fdest_group_id = fdest_router_id / s->params->num_routers;
     int origin_group_id = msg->origin_router_id / s->params->num_routers;
-    bool in_intermediate_group = (my_group_id != origin_group_id) && (my_group_id != fdest_group_id);
+    bool in_intermediate_group =
+        (my_group_id != origin_group_id) && (my_group_id != fdest_group_id);
     bool outside_source_group = (my_group_id != origin_group_id);
     int adaptive_threshold = s->params->adaptive_threshold;
     bool next_hop_is_global = false;
@@ -6160,10 +6061,12 @@ static Connection dfp_prog_adaptive_routing(router_state *s, tw_bf *bf, terminal
     //The check for dest group local routing has already been completed at this point
 
     Connection nextStopConn;
-    vector< Connection > poss_min_next_stops = get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
-    vector< Connection > poss_intm_next_stops = get_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
+    vector<Connection> poss_min_next_stops =
+        get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
+    vector<Connection> poss_intm_next_stops =
+        get_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
 
-    if ( (poss_min_next_stops.size() == 0) && (poss_intm_next_stops.size() == 0))
+    if ((poss_min_next_stops.size() == 0) && (poss_intm_next_stops.size() == 0))
         tw_error(TW_LOC, "No possible next stops!!!");
 
     Connection best_min_conn, best_intm_conn;
@@ -6178,12 +6081,14 @@ static Connection dfp_prog_adaptive_routing(router_state *s, tw_bf *bf, terminal
     if (conn_type_of_mins == CONN_GLOBAL)
         best_min_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_min_next_stops);
     else
-        best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_min_next_stops);
+        best_min_conn =
+            get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_min_next_stops);
 
     if (conn_type_of_intms == CONN_GLOBAL)
         best_intm_conn = get_best_connection_from_conns(s, bf, msg, lp, poss_intm_next_stops);
     else
-        best_intm_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_intm_next_stops);
+        best_intm_conn =
+            get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_intm_next_stops);
 
     //if the best is intermediate, encode the intermediate router id in the message, set path type to non minimal
     int min_score = dfp_score_connection(s, bf, msg, lp, best_min_conn, C_MIN);
@@ -6192,33 +6097,35 @@ static Connection dfp_prog_adaptive_routing(router_state *s, tw_bf *bf, terminal
     bool route_to_fdest = false;
     if (msg->dfp_upward_channel_flag == 1) { //then we need to route to fdest, no questions asked.
         route_to_fdest = true;
-    }
-    else {
+    } else {
         if (scoring_preference == LOWER) {
             if (min_score <= adaptive_threshold) {
                 route_to_fdest = true;
-            }
-            else if (min_score <= intm_score) {
+            } else if (min_score <= intm_score) {
                 route_to_fdest = true;
             }
-        }
-        else { //HIGHER is better
+        } else { //HIGHER is better
             if (adaptive_threshold > 0)
-                tw_error(TW_LOC, "Adaptive threshold not compatible with HIGHER score preference yet\n"); //TODO fix this
+                tw_error(TW_LOC, "Adaptive threshold not compatible with HIGHER score preference "
+                                 "yet\n"); //TODO fix this
             if (min_score >= intm_score) {
                 route_to_fdest = true;
             }
         }
     }
 
-    if (msg->dfp_upward_channel_flag == 0) { //if the flag is 1, then only minimal hops are considered
-        if (s->params->source_leaf_consider_nonmin == false) { //then we aren't supposed to let the source leaves consider any routes that wouldn't also be minimal
+    if (msg->dfp_upward_channel_flag ==
+        0) { //if the flag is 1, then only minimal hops are considered
+        if (s->params->source_leaf_consider_nonmin ==
+            false) { //then we aren't supposed to let the source leaves consider any routes that wouldn't also be minimal
             if (my_group_id == origin_group_id) {
                 if (s->dfp_router_type == LEAF)
-                    route_to_fdest = true; //we aren't supposed to consider nonmin routes as the source leaf with given config
+                    route_to_fdest =
+                        true; //we aren't supposed to consider nonmin routes as the source leaf with given config
             }
         }
-        if (s->params->int_spine_consider_min == false) { //then we aren't supposed to let spines in intermediate group route to minimal even if possible
+        if (s->params->int_spine_consider_min ==
+            false) { //then we aren't supposed to let spines in intermediate group route to minimal even if possible
             if (in_intermediate_group) {
                 if (s->dfp_router_type == SPINE) {
                     route_to_fdest = false;
@@ -6226,7 +6133,8 @@ static Connection dfp_prog_adaptive_routing(router_state *s, tw_bf *bf, terminal
             }
         }
         if (my_group_id == fdest_group_id && s->dfp_router_type == SPINE) {
-            if (s->params->dest_spine_consider_nonmin == false && s->params->dest_spine_consider_global_nonmin == false)
+            if (s->params->dest_spine_consider_nonmin == false &&
+                s->params->dest_spine_consider_global_nonmin == false)
                 route_to_fdest = true;
         }
     }
@@ -6236,15 +6144,17 @@ static Connection dfp_prog_adaptive_routing(router_state *s, tw_bf *bf, terminal
     if (!route_to_fdest && (poss_intm_next_stops.size() == 0))
         route_to_fdest = true;
 
-    if (route_to_fdest){
+    if (route_to_fdest) {
         if (in_intermediate_group == true)
-            msg->dfp_upward_channel_flag = 1; //if we're in an intermediate group and take a turn toward the dest group, we flip the flag!
-        if ( (my_group_id == fdest_group_id) && (s->dfp_router_type == LEAF) && (my_router_id != fdest_router_id) )
-            msg->dfp_upward_channel_flag = 1; //if we're a dest leaf but not the fdest leaf we must route using vl 1
+            msg->dfp_upward_channel_flag =
+                1; //if we're in an intermediate group and take a turn toward the dest group, we flip the flag!
+        if ((my_group_id == fdest_group_id) && (s->dfp_router_type == LEAF) &&
+            (my_router_id != fdest_router_id))
+            msg->dfp_upward_channel_flag =
+                1; //if we're a dest leaf but not the fdest leaf we must route using vl 1
 
         nextStopConn = best_min_conn;
-    }
-    else {
+    } else {
         nextStopConn = best_intm_conn;
         msg->path_type = NON_MINIMAL;
     }
@@ -6258,14 +6168,16 @@ static Connection dfp_prog_adaptive_routing(router_state *s, tw_bf *bf, terminal
 
 // Fully Progressive Adaptive Routing (FPAR)
 // Shpiner, Alexander, et al. "Dragonfly+: Low cost topology for scaling datacenters." HiPINEB 2017
-static Connection dfp_fully_prog_adaptive_routing(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id)
-{
+static Connection dfp_fully_prog_adaptive_routing(router_state* s, tw_bf* bf,
+                                                  terminal_plus_message* msg, tw_lp* lp,
+                                                  int fdest_router_id) {
     int my_router_id = s->router_id;
     int my_group_id = s->router_id / s->params->num_routers;
     int fdest_group_id = fdest_router_id / s->params->num_routers;
     int origin_group_id = msg->origin_router_id / s->params->num_routers;
     bool in_src_group = (my_group_id == origin_group_id);
-    bool in_intermediate_group = (my_group_id != origin_group_id) && (my_group_id != fdest_group_id);
+    bool in_intermediate_group =
+        (my_group_id != origin_group_id) && (my_group_id != fdest_group_id);
     bool in_dest_group = (my_group_id == fdest_group_id);
     bool outside_source_group = (my_group_id != origin_group_id);
     int adaptive_threshold = s->params->adaptive_threshold;
@@ -6274,16 +6186,21 @@ static Connection dfp_fully_prog_adaptive_routing(router_state *s, tw_bf *bf, te
     // 1) should use ALPHA scoring, for now
     // 2) threshold within [0-100]
     if (scoring != ALPHA)
-        tw_error(TW_LOC, "Using FPAR as routing: currently only works with ALPHA scoring, consider setting route_scoring_metric to alpha in modelnet config file\n");
-    if (adaptive_threshold<0 || adaptive_threshold>100)
-        tw_error(TW_LOC, "Using FPAR as routing: adaptive threshold is a percentage of router buffer size, consider setting adaptive_threshold an int value between [0--100] in modelnet config file\n");
+        tw_error(TW_LOC, "Using FPAR as routing: currently only works with ALPHA scoring, consider "
+                         "setting route_scoring_metric to alpha in modelnet config file\n");
+    if (adaptive_threshold < 0 || adaptive_threshold > 100)
+        tw_error(TW_LOC, "Using FPAR as routing: adaptive threshold is a percentage of router "
+                         "buffer size, consider setting adaptive_threshold an int value between "
+                         "[0--100] in modelnet config file\n");
 
     // The check for dest group local routing has already been completed at this point
     Connection nextStopConn;
-    vector< Connection > poss_min_next_stops = get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
-    vector< Connection > poss_intm_next_stops = get_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
+    vector<Connection> poss_min_next_stops =
+        get_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
+    vector<Connection> poss_intm_next_stops =
+        get_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
 
-    if ( (poss_min_next_stops.size() == 0) && (poss_intm_next_stops.size() == 0))
+    if ((poss_min_next_stops.size() == 0) && (poss_intm_next_stops.size() == 0))
         tw_error(TW_LOC, "No possible next stops on router %d", my_router_id);
 
     Connection best_min_conn, best_intm_conn;
@@ -6296,19 +6213,21 @@ static Connection dfp_fully_prog_adaptive_routing(router_state *s, tw_bf *bf, te
     best_min_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_min_next_stops);
     best_intm_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_intm_next_stops);
 
-    high_priority_conn = get_connection_compare_T(s, bf, msg, lp, poss_min_next_stops, adaptive_threshold);
-    low_priority_conn = get_connection_compare_T(s, bf, msg, lp, poss_intm_next_stops, adaptive_threshold);
+    high_priority_conn =
+        get_connection_compare_T(s, bf, msg, lp, poss_min_next_stops, adaptive_threshold);
+    low_priority_conn =
+        get_connection_compare_T(s, bf, msg, lp, poss_intm_next_stops, adaptive_threshold);
 
-    int minimally_forwarded = 3;  // 0 -- no <=> intermediate path, 1 -- yes <=> min path, >1 report error
+    int minimally_forwarded =
+        3; // 0 -- no <=> intermediate path, 1 -- yes <=> min path, >1 report error
 
-    if ( (poss_min_next_stops.size() > 0) && (poss_intm_next_stops.size() > 0)) {
+    if ((poss_min_next_stops.size() > 0) && (poss_intm_next_stops.size() > 0)) {
         if (high_priority_conn.port == -2) {
-            if(low_priority_conn.port == -2) {
+            if (low_priority_conn.port == -2) {
                 assert(best_min_conn.port >= 0);
                 nextStopConn = best_min_conn;
                 minimally_forwarded = 1;
-            }
-            else{
+            } else {
                 nextStopConn = low_priority_conn;
                 minimally_forwarded = 0;
             }
@@ -6316,17 +6235,15 @@ static Connection dfp_fully_prog_adaptive_routing(router_state *s, tw_bf *bf, te
             nextStopConn = high_priority_conn;
             minimally_forwarded = 1;
         }
-    }
-    else if ( poss_min_next_stops.size() > 0 ) {
+    } else if (poss_min_next_stops.size() > 0) {
         nextStopConn = best_min_conn;
         minimally_forwarded = 1;
-    }
-    else if ( poss_intm_next_stops.size() > 0 ) {
+    } else if (poss_intm_next_stops.size() > 0) {
         nextStopConn = best_intm_conn;
         minimally_forwarded = 0;
-    }
-    else {
-        tw_error(TW_LOC, "DFP Prog Adaptive Routing: router %d cannot find any forwarding path\n", s->router_id);
+    } else {
+        tw_error(TW_LOC, "DFP Prog Adaptive Routing: router %d cannot find any forwarding path\n",
+                 s->router_id);
     }
     assert(minimally_forwarded < 2);
 
@@ -6349,7 +6266,8 @@ static Connection dfp_fully_prog_adaptive_routing(router_state *s, tw_bf *bf, te
             //printf("In FPAR, non-min LEAF routing: [MSG: %d => %d ]: router %d, type %d, group %d, nextStopgid %d, nextStop_group_id %d\n", msg->dfp_src_terminal_id, msg->dfp_dest_terminal_id, s->router_id, s->dfp_router_type, my_group_id, nextStopConn.dest_gid, nextStopConn.dest_group_id);
 
         } else if (in_dest_group) {
-            tw_error(TW_LOC, "Routing in Dest group on Leaf is taking cared by do_dfp_routing funciton");
+            tw_error(TW_LOC,
+                     "Routing in Dest group on Leaf is taking cared by do_dfp_routing funciton");
 
         } else
             tw_error(TW_LOC, "Msg not in any group type");
@@ -6365,24 +6283,32 @@ static Connection dfp_fully_prog_adaptive_routing(router_state *s, tw_bf *bf, te
             }
 
         } else if (in_intermediate_group) {
-
-            if(msg->path_type != NON_MINIMAL) {
-                printf("Error In FPAR: [MSG: %d => %d ]: router %d, type %d, group %d, nextStopgid %d, nextStop_group_id %d\n", msg->dfp_src_terminal_id, msg->dfp_dest_terminal_id, s->router_id, s->dfp_router_type, my_group_id, nextStopConn.dest_gid, nextStopConn.dest_group_id);
+            if (msg->path_type != NON_MINIMAL) {
+                printf("Error In FPAR: [MSG: %d => %d ]: router %d, type %d, group %d, nextStopgid "
+                       "%d, nextStop_group_id %d\n",
+                       msg->dfp_src_terminal_id, msg->dfp_dest_terminal_id, s->router_id,
+                       s->dfp_router_type, my_group_id, nextStopConn.dest_gid,
+                       nextStopConn.dest_group_id);
             }
 
-            if(msg->dfp_upward_channel_flag != 0) {
-                nextStopConn=best_min_conn;
+            if (msg->dfp_upward_channel_flag != 0) {
+                nextStopConn = best_min_conn;
             }
         } else if (in_dest_group) {
-            tw_error(TW_LOC, "Routing in Dest group on Spine is taking cared by do_dfp_routing funciton");
+            tw_error(TW_LOC,
+                     "Routing in Dest group on Spine is taking cared by do_dfp_routing funciton");
         } else
             tw_error(TW_LOC, "Msg not in any group type");
 
     } else
         tw_error(TW_LOC, "FPAR unkown router type");
 
-    if (nextStopConn.port < 0){
-        tw_error(TW_LOC, "DFP Prog Adaptive Routing: No valid next hop was chosen\n packetId %llu [MSG: %d (T_ID %u) => %d ] on router %d, upward %d? \n", msg->packet_ID, msg->dfp_src_terminal_id, msg->src_terminal_id, msg->dfp_dest_terminal_id, s->router_id, msg->dfp_upward_channel_flag);
+    if (nextStopConn.port < 0) {
+        tw_error(TW_LOC,
+                 "DFP Prog Adaptive Routing: No valid next hop was chosen\n packetId %llu [MSG: %d "
+                 "(T_ID %u) => %d ] on router %d, upward %d? \n",
+                 msg->packet_ID, msg->dfp_src_terminal_id, msg->src_terminal_id,
+                 msg->dfp_dest_terminal_id, s->router_id, msg->dfp_upward_channel_flag);
     }
     return nextStopConn;
 }
@@ -6390,29 +6316,36 @@ static Connection dfp_fully_prog_adaptive_routing(router_state *s, tw_bf *bf, te
 //SMART ROUTING: Smart routing is my term for failure aware routing. Leverages the network manager's ability to filter out invalid connections and to return only valid paths between endpoints.
 //It's significantly slower in runtime, typically, and is very experimental at this point. Use at own risk.
 
-static bool is_accessible_by_source_and_fdest(router_state *s, terminal_plus_message *msg, int poss_intm_gid, int fdest_router_id)
-{
+static bool is_accessible_by_source_and_fdest(router_state* s, terminal_plus_message* msg,
+                                              int poss_intm_gid, int fdest_router_id) {
     try {
-        bool memo_result = _accessibility_map.at(make_tuple(s->router_id, poss_intm_gid, fdest_router_id));
+        bool memo_result =
+            _accessibility_map.at(make_tuple(s->router_id, poss_intm_gid, fdest_router_id));
         return memo_result;
-    }
-    catch (exception e) {
-
+    } catch (exception e) {
     }
 
-    bool is_accessible_by_source = netMan.get_valid_next_hops_conns(s->router_id, poss_intm_gid, (max_hops_per_group-(msg->my_hops_cur_group)), (max_global_hops_minimal-msg->my_g_hop)).size();
-    bool is_accessible_by_dest = netMan.get_valid_next_hops_conns(poss_intm_gid, fdest_router_id, 1, 1).size(); //there will have been one local hop and one global hop
+    bool is_accessible_by_source =
+        netMan
+            .get_valid_next_hops_conns(s->router_id, poss_intm_gid,
+                                       (max_hops_per_group - (msg->my_hops_cur_group)),
+                                       (max_global_hops_minimal - msg->my_g_hop))
+            .size();
+    bool is_accessible_by_dest =
+        netMan.get_valid_next_hops_conns(poss_intm_gid, fdest_router_id, 1, 1)
+            .size(); //there will have been one local hop and one global hop
     bool result = is_accessible_by_source && is_accessible_by_dest;
 
-    _accessibility_map[(make_tuple(s->router_id,poss_intm_gid,fdest_router_id))] = result;
-    _accessibility_map[(make_tuple(fdest_router_id,poss_intm_gid,s->router_id))] = result;
+    _accessibility_map[(make_tuple(s->router_id, poss_intm_gid, fdest_router_id))] = result;
+    _accessibility_map[(make_tuple(fdest_router_id, poss_intm_gid, s->router_id))] = result;
 
     return result;
 }
 
 //Note: this isn't currently used as it incurs a severe runtime cost. Intermediate routers are decided by the route itself which forces 2 global hops for nonminimal routes - ensuring that there is an intermediate group.
-static void dfp_smart_pick_intermediate_router(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id)
-{
+static void dfp_smart_pick_intermediate_router(router_state* s, tw_bf* bf,
+                                               terminal_plus_message* msg, tw_lp* lp,
+                                               int fdest_router_id) {
     int my_router_id = s->router_id;
     int my_group_id = s->group_id;
     int fdest_group_id = fdest_router_id / s->params->num_routers;
@@ -6422,51 +6355,55 @@ static void dfp_smart_pick_intermediate_router(router_state *s, tw_bf *bf, termi
 
     int plane_id = s->plane_id;
     int rpp = s->params->num_routers_per_plane;
-    for(int i = plane_id * rpp; i < (plane_id * rpp)+rpp; i++)
-    {
+    for (int i = plane_id * rpp; i < (plane_id * rpp) + rpp; i++) {
         router_type type = router_type_map[i];
-        if (type == LEAF)
-        {
+        if (type == LEAF) {
             int intm_grp_id = i / s->params->num_routers;
-            if (intm_grp_id != origin_group_id && intm_grp_id != fdest_group_id)
-            {
-                if(is_accessible_by_source_and_fdest(s, msg, i, fdest_router_id))
+            if (intm_grp_id != origin_group_id && intm_grp_id != fdest_group_id) {
+                if (is_accessible_by_source_and_fdest(s, msg, i, fdest_router_id))
                     possible_leaf_gids.push_back(i);
             }
         }
     }
-    if(possible_leaf_gids.size() == 0)
-    {
+    if (possible_leaf_gids.size() == 0) {
         msg->intm_rtr_id = -2; //we CANT reach any leaf routers
         return;
     }
     //pick one at random
     msg->num_rngs++;
-    msg->intm_rtr_id = possible_leaf_gids[tw_rand_integer(lp->rng,0,possible_leaf_gids.size()-1)];
+    msg->intm_rtr_id =
+        possible_leaf_gids[tw_rand_integer(lp->rng, 0, possible_leaf_gids.size() - 1)];
 }
 
-static set< Connection> get_smart_legal_minimal_stops(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id, int max_global_hops_in_path)
-{
+static set<Connection> get_smart_legal_minimal_stops(router_state* s, tw_bf* bf,
+                                                     terminal_plus_message* msg, tw_lp* lp,
+                                                     int fdest_router_id,
+                                                     int max_global_hops_in_path) {
     set<Connection> possible_next_dests;
 
-    if(s->group_id == fdest_router_id / s->params->num_routers)
-    {
-        possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), 0);
-    }
-    else {
-        possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_in_path-msg->my_g_hop));
+    if (s->group_id == fdest_router_id / s->params->num_routers) {
+        possible_next_dests =
+            netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id,
+                                             (max_hops_per_group - msg->my_hops_cur_group), 0);
+    } else {
+        possible_next_dests =
+            netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id,
+                                             (max_hops_per_group - msg->my_hops_cur_group),
+                                             (max_global_hops_in_path - msg->my_g_hop));
     }
 
     return possible_next_dests;
 }
 //when using this function, you should assume that the self router is NOT the destination. That should be handled elsewhere.
-static set< Connection> get_smart_legal_minimal_stops(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id)
-{
+static set<Connection> get_smart_legal_minimal_stops(router_state* s, tw_bf* bf,
+                                                     terminal_plus_message* msg, tw_lp* lp,
+                                                     int fdest_router_id) {
     return get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id, max_global_hops_minimal);
 }
 
-static set<Connection> get_smart_legal_nonminimal_stops(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id)
-{
+static set<Connection> get_smart_legal_nonminimal_stops(router_state* s, tw_bf* bf,
+                                                        terminal_plus_message* msg, tw_lp* lp,
+                                                        int fdest_router_id) {
     int my_router_id = s->router_id;
     int my_group_id = s->group_id;
     int fdest_group_id = fdest_router_id / s->params->num_routers;
@@ -6475,25 +6412,29 @@ static set<Connection> get_smart_legal_nonminimal_stops(router_state *s, tw_bf *
     bool in_intermediate_group = (my_group_id != fdest_group_id && my_group_id != origin_group_id);
 
     set<Connection> possible_next_dests;
-    if(s->group_id == fdest_router_id / s->params->num_routers)
-    {
-        possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), 0);
-            if (possible_next_dests.size() == 0)
-                possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_nonminimal-msg->my_g_hop));
-    }
-    else {
-        possible_next_dests = netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id, (max_hops_per_group-msg->my_hops_cur_group), (max_global_hops_nonminimal-msg->my_g_hop));
+    if (s->group_id == fdest_router_id / s->params->num_routers) {
+        possible_next_dests =
+            netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id,
+                                             (max_hops_per_group - msg->my_hops_cur_group), 0);
+        if (possible_next_dests.size() == 0)
+            possible_next_dests =
+                netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id,
+                                                 (max_hops_per_group - msg->my_hops_cur_group),
+                                                 (max_global_hops_nonminimal - msg->my_g_hop));
+    } else {
+        possible_next_dests =
+            netMan.get_valid_next_hops_conns(s->router_id, fdest_router_id,
+                                             (max_hops_per_group - msg->my_hops_cur_group),
+                                             (max_global_hops_nonminimal - msg->my_g_hop));
 
         //if we havent hit a leaf router yet, we aren't supposed to send along a global link to the dest group if we are in the intermediate group
-        if (msg->dfp_upward_channel_flag == 0 && s->dfp_router_type == SPINE && in_intermediate_group)
-        {
+        if (msg->dfp_upward_channel_flag == 0 && s->dfp_router_type == SPINE &&
+            in_intermediate_group) {
             set<Connection>::iterator it = possible_next_dests.begin();
-            while(it != possible_next_dests.end())
-            {
+            while (it != possible_next_dests.end()) {
                 if (it->conn_type == CONN_GLOBAL)
                     it = possible_next_dests.erase(it);
-                else
-                {
+                else {
                     it++;
                 }
             }
@@ -6504,42 +6445,44 @@ static set<Connection> get_smart_legal_nonminimal_stops(router_state *s, tw_bf *
 }
 
 //TODO make it so that you can configure whether there is any level of adaptive routing within the minimal routing scheme
-static Connection dfp_smart_minimal_routing(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id)
-{
+static Connection dfp_smart_minimal_routing(router_state* s, tw_bf* bf, terminal_plus_message* msg,
+                                            tw_lp* lp, int fdest_router_id) {
     int my_router_id = s->router_id;
     int my_group_id = s->group_id;
     int fdest_group_id = fdest_router_id / s->params->num_routers;
     int origin_group_id = msg->origin_router_id / s->params->num_routers;
 
-    if(s->router_id == fdest_router_id)
-    {
-        vector< Connection > poss_next_stops = s->connMan.get_connections_to_gid(msg->dfp_dest_terminal_id, CONN_TERMINAL);
-            if (poss_next_stops.size() < 1)
-                tw_error(TW_LOC, "Destination Router %d: No Connection to destination terminal %d\n", s->router_id, msg->dfp_dest_terminal_id); //shouldn't happen unless math was wrong
-        Connection best_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
+    if (s->router_id == fdest_router_id) {
+        vector<Connection> poss_next_stops =
+            s->connMan.get_connections_to_gid(msg->dfp_dest_terminal_id, CONN_TERMINAL);
+        if (poss_next_stops.size() < 1)
+            tw_error(TW_LOC, "Destination Router %d: No Connection to destination terminal %d\n",
+                     s->router_id,
+                     msg->dfp_dest_terminal_id); //shouldn't happen unless math was wrong
+        Connection best_conn =
+            get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
         return best_conn;
     }
     //do i have a direct Connection to fdest by any chance?
     vector<Connection> direct_conns;
-    if(my_group_id != fdest_group_id)
-        direct_conns = s->connMan.get_connections_to_gid(fdest_router_id,CONN_GLOBAL);
+    if (my_group_id != fdest_group_id)
+        direct_conns = s->connMan.get_connections_to_gid(fdest_router_id, CONN_GLOBAL);
     else
-        direct_conns = s->connMan.get_connections_to_gid(fdest_router_id,CONN_LOCAL);
+        direct_conns = s->connMan.get_connections_to_gid(fdest_router_id, CONN_LOCAL);
     if (direct_conns.size() > 0) {
-        return get_absolute_best_connection_from_conns(s,bf,msg,lp,direct_conns);
+        return get_absolute_best_connection_from_conns(s, bf, msg, lp, direct_conns);
         // msg->num_rngs++;
         // int offset = tw_rand_integer(lp->rng,0,direct_conns.size()-1);
         // return direct_conns[offset];
-    }
-    else
-    {
-        set<Connection> possible_conns = get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
+    } else {
+        set<Connection> possible_conns =
+            get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
 
         if (possible_conns.size() < 1)
             tw_error(TW_LOC, "Smart Routing: Pathfinder messed up\n");
 
 
-        return get_absolute_best_connection_from_conn_set(s,bf,msg,lp,possible_conns);
+        return get_absolute_best_connection_from_conn_set(s, bf, msg, lp, possible_conns);
         // msg->num_rngs++;
         // int offset = tw_rand_integer(lp->rng,0,possible_conns.size()-1);
         // set<Connection>::iterator it = possible_conns.begin();
@@ -6548,8 +6491,9 @@ static Connection dfp_smart_minimal_routing(router_state *s, tw_bf *bf, terminal
     }
 }
 
-static Connection dfp_smart_nonminimal_routing(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id)
-{
+static Connection dfp_smart_nonminimal_routing(router_state* s, tw_bf* bf,
+                                               terminal_plus_message* msg, tw_lp* lp,
+                                               int fdest_router_id) {
     int my_router_id = s->router_id;
     int my_group_id = s->group_id;
     int fdest_group_id = fdest_router_id / s->params->num_routers;
@@ -6557,29 +6501,34 @@ static Connection dfp_smart_nonminimal_routing(router_state *s, tw_bf *bf, termi
 
     bool in_intermediate_group = (my_group_id != origin_group_id && my_group_id != fdest_group_id);
 
-    if(s->router_id == fdest_router_id)
-    {
-        vector< Connection > poss_next_stops = s->connMan.get_connections_to_gid(msg->dfp_dest_terminal_id, CONN_TERMINAL);
-            if (poss_next_stops.size() < 1)
-                tw_error(TW_LOC, "Destination Router %d: No Connection to destination terminal %d\n", s->router_id, msg->dfp_dest_terminal_id); //shouldn't happen unless math was wrong
-        Connection best_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
+    if (s->router_id == fdest_router_id) {
+        vector<Connection> poss_next_stops =
+            s->connMan.get_connections_to_gid(msg->dfp_dest_terminal_id, CONN_TERMINAL);
+        if (poss_next_stops.size() < 1)
+            tw_error(TW_LOC, "Destination Router %d: No Connection to destination terminal %d\n",
+                     s->router_id,
+                     msg->dfp_dest_terminal_id); //shouldn't happen unless math was wrong
+        Connection best_conn =
+            get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
         return best_conn;
     }
 
-    if(in_intermediate_group && s->dfp_router_type == LEAF)
+    if (in_intermediate_group && s->dfp_router_type == LEAF)
         msg->dfp_upward_channel_flag = 1;
 
-    if (in_intermediate_group)
-    {
-        msg->path_type = NON_MINIMAL; //become nonminimal the moment that we're not in the source or dest group
+    if (in_intermediate_group) {
+        msg->path_type =
+            NON_MINIMAL; //become nonminimal the moment that we're not in the source or dest group
     }
 
-    set<Connection> possible_conns = get_smart_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
+    set<Connection> possible_conns =
+        get_smart_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
 
     if (possible_conns.size() < 1)
         tw_error(TW_LOC, "Smart Routing: Pathfinder messed up\n");
 
-    Connection best_conn = get_absolute_best_connection_from_conn_set(s, bf, msg, lp, possible_conns);
+    Connection best_conn =
+        get_absolute_best_connection_from_conn_set(s, bf, msg, lp, possible_conns);
     return best_conn;
 
 
@@ -6593,8 +6542,9 @@ static Connection dfp_smart_nonminimal_routing(router_state *s, tw_bf *bf, termi
 }
 
 
-static Connection dfp_smart_prog_adaptive_routing(router_state *s, tw_bf *bf, terminal_plus_message *msg, tw_lp *lp, int fdest_router_id)
-{
+static Connection dfp_smart_prog_adaptive_routing(router_state* s, tw_bf* bf,
+                                                  terminal_plus_message* msg, tw_lp* lp,
+                                                  int fdest_router_id) {
     int my_router_id = s->router_id;
     int my_group_id = s->group_id;
     int fdest_group_id = fdest_router_id / s->params->num_routers;
@@ -6604,45 +6554,58 @@ static Connection dfp_smart_prog_adaptive_routing(router_state *s, tw_bf *bf, te
 
     if (my_router_id == fdest_router_id) // we're the destination, send to connected terminal
     {
-        if(s->router_id == fdest_router_id)
-        {
-            vector< Connection > poss_next_stops = s->connMan.get_connections_to_gid(msg->dfp_dest_terminal_id, CONN_TERMINAL);
-                if (poss_next_stops.size() < 1)
-                    tw_error(TW_LOC, "Destination Router %d: No Connection to destination terminal %d\n", s->router_id, msg->dfp_dest_terminal_id); //shouldn't happen unless math was wrong
-            Connection best_conn = get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
+        if (s->router_id == fdest_router_id) {
+            vector<Connection> poss_next_stops =
+                s->connMan.get_connections_to_gid(msg->dfp_dest_terminal_id, CONN_TERMINAL);
+            if (poss_next_stops.size() < 1)
+                tw_error(TW_LOC,
+                         "Destination Router %d: No Connection to destination terminal %d\n",
+                         s->router_id,
+                         msg->dfp_dest_terminal_id); //shouldn't happen unless math was wrong
+            Connection best_conn =
+                get_absolute_best_connection_from_conns(s, bf, msg, lp, poss_next_stops);
             return best_conn;
         }
     }
 
-    if (my_group_id != origin_group_id && my_group_id != fdest_group_id)
-    {
-        msg->path_type = NON_MINIMAL; //become nonminimal the moment that we're not in the source or dest group
+    if (my_group_id != origin_group_id && my_group_id != fdest_group_id) {
+        msg->path_type =
+            NON_MINIMAL; //become nonminimal the moment that we're not in the source or dest group
     }
-    if(in_intermediate_group && s->dfp_router_type == LEAF)
+    if (in_intermediate_group && s->dfp_router_type == LEAF)
         msg->dfp_upward_channel_flag = 1;
 
     if (msg->dfp_upward_channel_flag == 1) //then we route minimally the rest of the way
     {
-        set<Connection> poss_min_next_stops = get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id, max_global_hops_nonminimal); //there will be a total of max_global_hops_nonminimal in this path
+        set<Connection> poss_min_next_stops = get_smart_legal_minimal_stops(
+            s, bf, msg, lp, fdest_router_id,
+            max_global_hops_nonminimal); //there will be a total of max_global_hops_nonminimal in this path
         return get_absolute_best_connection_from_conn_set(s, bf, msg, lp, poss_min_next_stops);
-    }
-    else
-    {
-        if(msg->path_type == NON_MINIMAL) //then we have no choice but to route to the intm router id
+    } else {
+        if (msg->path_type ==
+            NON_MINIMAL) //then we have no choice but to route to the intm router id
         {
-            set<Connection> poss_next_stops = get_smart_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
+            set<Connection> poss_next_stops =
+                get_smart_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
             if (poss_next_stops.size() < 1)
                 tw_error(TW_LOC, "Smart Prog Adaptive Routing: intm can't reach intm rtr");
-            Connection best_conn = dfp_get_best_from_k_connection_set(s,bf,msg,lp,poss_next_stops,s->params->global_k_picks);
+            Connection best_conn =
+                dfp_get_best_from_k_connection_set(s, bf, msg, lp, poss_next_stops,
+                                                   s->params->global_k_picks);
             return best_conn;
-        }
-        else {
+        } else {
             if (my_group_id == origin_group_id) {
-                set<Connection> poss_min_next_stops = get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
-                set<Connection> poss_non_min_next_stops = get_smart_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
+                set<Connection> poss_min_next_stops =
+                    get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
+                set<Connection> poss_non_min_next_stops =
+                    get_smart_legal_nonminimal_stops(s, bf, msg, lp, fdest_router_id);
 
-                Connection best_min_conn = dfp_get_best_from_k_connection_set(s,bf,msg,lp,poss_min_next_stops,s->params->global_k_picks);
-                Connection best_nonmin_conn = dfp_get_best_from_k_connection_set(s,bf,msg,lp,poss_non_min_next_stops,s->params->global_k_picks);
+                Connection best_min_conn =
+                    dfp_get_best_from_k_connection_set(s, bf, msg, lp, poss_min_next_stops,
+                                                       s->params->global_k_picks);
+                Connection best_nonmin_conn =
+                    dfp_get_best_from_k_connection_set(s, bf, msg, lp, poss_non_min_next_stops,
+                                                       s->params->global_k_picks);
 
                 int min_score = dfp_score_connection(s, bf, msg, lp, best_min_conn, C_MIN);
                 int nonmin_score = dfp_score_connection(s, bf, msg, lp, best_nonmin_conn, C_NONMIN);
@@ -6655,10 +6618,12 @@ static Connection dfp_smart_prog_adaptive_routing(router_state *s, tw_bf *bf, te
                     msg->path_type = NON_MINIMAL;
                     return best_nonmin_conn;
                 }
-            } else
-            {
-                set<Connection> poss_min_next_stops = get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
-                Connection best_min_conn = dfp_get_best_from_k_connection_set(s,bf,msg,lp,poss_min_next_stops, s->params->global_k_picks);
+            } else {
+                set<Connection> poss_min_next_stops =
+                    get_smart_legal_minimal_stops(s, bf, msg, lp, fdest_router_id);
+                Connection best_min_conn =
+                    dfp_get_best_from_k_connection_set(s, bf, msg, lp, poss_min_next_stops,
+                                                       s->params->global_k_picks);
                 return best_min_conn;
             }
         }
@@ -6683,7 +6648,7 @@ struct model_net_method dragonfly_plus_method = {
     NULL,
     NULL, //(event_f)dragonfly_plus_sample_fn,
     NULL, //(revent_f)dragonfly_plus_sample_rc_fn,
-    (init_f) dragonfly_plus_sample_init,
+    (init_f)dragonfly_plus_sample_init,
     NULL, //(final_f)dragonfly_plus_sample_fin,
     dfly_plus_register_model_types,
     dfly_plus_get_model_types,
@@ -6692,7 +6657,7 @@ struct model_net_method dragonfly_plus_method = {
 
 struct model_net_method dragonfly_plus_router_method = {
     0,
-    NULL,  // handled by dragonfly_configure
+    NULL, // handled by dragonfly_configure
     router_plus_register,
     NULL,
     NULL,
@@ -6700,12 +6665,12 @@ struct model_net_method dragonfly_plus_router_method = {
     NULL,
     router_plus_get_lp_type,
     dragonfly_plus_get_msg_sz,
-    NULL,  // not yet supported
+    NULL, // not yet supported
     NULL,
     NULL,
     NULL, //(event_f)dragonfly_plus_rsample_fn,
     NULL, //(revent_f)dragonfly_plus_rsample_rc_fn,
-    (init_f) dragonfly_plus_rsample_init,
+    (init_f)dragonfly_plus_rsample_init,
     NULL, //(final_f)dragonfly_plus_rsample_fin,
     dfly_plus_router_register_model_types,
     dfly_plus_router_get_model_types,

@@ -5,8 +5,7 @@
  */
 
 #include "lp_template.h"
-int main()
-{
+int main() {
     /* won't actually be called - just here to make linker happy */
     template_init();
     return 0;

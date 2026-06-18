@@ -38,8 +38,7 @@ static int offset = 2;
 typedef struct svr_msg svr_msg;
 typedef struct svr_state svr_state;
 
-struct pingpong_stat
-{
+struct pingpong_stat {
     int msg_sz;
     tw_stime start_time;
     tw_stime end_time;
@@ -47,100 +46,61 @@ struct pingpong_stat
 struct pingpong_stat stat_array[25];
 
 /* types of events that will constitute triton requests */
-enum svr_event
-{
-    PING = 1,        /* request event */
-    PONG,        /* ack event */
+enum svr_event {
+    PING = 1, /* request event */
+    PONG,     /* ack event */
 };
 
-struct svr_state
-{
+struct svr_state {
     int pingpongs_completed;
     int svr_idx;
 };
 
-struct svr_msg
-{
+struct svr_msg {
     enum svr_event svr_event_type;
-    tw_lpid src;          /* source of this request or ack */
+    tw_lpid src; /* source of this request or ack */
     model_net_event_return ret;
     int size;
-    int sent_size;        /* for rc */
+    int sent_size; /* for rc */
 };
 
-static void svr_init(
-    svr_state * ns,
-    tw_lp * lp);
-static void svr_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp);
-static void svr_rev_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp);
-static void svr_finalize(
-    svr_state * ns,
-    tw_lp * lp);
+static void svr_init(svr_state* ns, tw_lp* lp);
+static void svr_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp);
+static void svr_rev_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp);
+static void svr_finalize(svr_state* ns, tw_lp* lp);
 
 tw_lptype svr_lp = {
-    (init_f) svr_init,
-    (pre_run_f) NULL,
-    (event_f) svr_event,
-    (revent_f) svr_rev_event,
-    (commit_f) NULL,
-    (final_f)  svr_finalize,
-    (map_f) codes_mapping,
-    sizeof(svr_state),
+    (init_f)svr_init, (pre_run_f)NULL,       (event_f)svr_event,   (revent_f)svr_rev_event,
+    (commit_f)NULL,   (final_f)svr_finalize, (map_f)codes_mapping, sizeof(svr_state),
 };
 
 extern const tw_lptype* svr_get_lp_type();
 static void svr_add_lp_type();
 static tw_stime ns_to_s(tw_stime ns);
 static tw_stime s_to_ns(tw_stime ns);
-static void handle_pong_event(
-    svr_state * ns,
-    svr_msg * m,
-    tw_lp * lp);
-static void handle_ping_event(
-    svr_state * ns,
-    svr_msg * m,
-    tw_lp * lp);
-static void handle_pong_rev_event(
-    svr_state * ns,
-    svr_msg * m,
-    tw_lp * lp);
-static void handle_ping_rev_event(
-    svr_msg * m,
-    tw_lp * lp);
+static void handle_pong_event(svr_state* ns, svr_msg* m, tw_lp* lp);
+static void handle_ping_event(svr_state* ns, svr_msg* m, tw_lp* lp);
+static void handle_pong_rev_event(svr_state* ns, svr_msg* m, tw_lp* lp);
+static void handle_ping_rev_event(svr_msg* m, tw_lp* lp);
 
-const tw_optdef app_opt [] =
-{
-	TWOPT_GROUP("Model net point to point ping pong benchmark" ),
-	TWOPT_END()
-};
+const tw_optdef app_opt[] = {TWOPT_GROUP("Model net point to point ping pong benchmark"),
+                             TWOPT_END()};
 
-int main(
-    int argc,
-    char **argv)
-{
+int main(int argc, char** argv) {
     int nprocs;
     int rank;
     int num_nets;
-    int *net_ids;
-    g_tw_ts_end = s_to_ns(60*60*24*365); /* one year, in nsecs */
+    int* net_ids;
+    g_tw_ts_end = s_to_ns(60 * 60 * 24 * 365); /* one year, in nsecs */
     lp_io_handle handle;
 
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
 
-    if(argc < 2)
-    {
-	    printf("\n Usage: mpirun <args> --sync=2/3 -- mapping_file_name.conf\n");
-	    MPI_Finalize();
-	    return 0;
+    if (argc < 2) {
+        printf("\n Usage: mpirun <args> --sync=2/3 -- mapping_file_name.conf\n");
+        MPI_Finalize();
+        return 0;
     }
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
@@ -152,52 +112,42 @@ int main(
     codes_mapping_setup();
 
     net_ids = model_net_configure(&num_nets);
-    assert(num_nets==1);
+    assert(num_nets == 1);
     net_id = *net_ids;
     free(net_ids);
-    num_servers = codes_mapping_get_lp_count("MODELNET_GRP", 0, "nw-lp",
-            NULL, 1);
+    num_servers = codes_mapping_get_lp_count("MODELNET_GRP", 0, "nw-lp", NULL, 1);
     assert(num_servers == 2);
-    if(net_id == DRAGONFLY)
-    {
-	  num_routers = codes_mapping_get_lp_count("MODELNET_GRP", 0,
-                  "dragonfly_router", NULL, 1);
-	  offset = 1;
+    if (net_id == DRAGONFLY) {
+        num_routers = codes_mapping_get_lp_count("MODELNET_GRP", 0, "dragonfly_router", NULL, 1);
+        offset = 1;
     }
 
-    if(lp_io_prepare("modelnet-p2p-bw", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD) < 0)
-    {
-        return(-1);
+    if (lp_io_prepare("modelnet-p2p-bw", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD) < 0) {
+        return (-1);
     }
 
     tw_run();
     model_net_report_stats(net_id);
 
-    if(lp_io_flush(handle, MPI_COMM_WORLD) < 0)
-    {
-        return(-1);
+    if (lp_io_flush(handle, MPI_COMM_WORLD) < 0) {
+        return (-1);
     }
 
     tw_end();
     return 0;
 }
 
-const tw_lptype* svr_get_lp_type()
-{
-	    return(&svr_lp);
+const tw_lptype* svr_get_lp_type() {
+    return (&svr_lp);
 }
 
-static void svr_add_lp_type()
-{
-  lp_type_register("nw-lp", svr_get_lp_type());
+static void svr_add_lp_type() {
+    lp_type_register("nw-lp", svr_get_lp_type());
 }
 
-static void svr_init(
-    svr_state * ns,
-    tw_lp * lp)
-{
-    tw_event *e;
-    svr_msg *m;
+static void svr_init(svr_state* ns, tw_lp* lp) {
+    tw_event* e;
+    svr_msg* m;
     tw_stime kickoff_time;
     char grp_name[MAX_NAME_LENGTH];
     char lp_type_name[MAX_NAME_LENGTH];
@@ -207,20 +157,19 @@ static void svr_init(
     memset(ns, 0, sizeof(*ns));
 
     /* find my own server index */
-    codes_mapping_get_lp_info(lp->gid, grp_name, &grp_id,
-            lp_type_name, &lp_type_id, NULL, &grp_rep_id, &off);
+    codes_mapping_get_lp_info(lp->gid, grp_name, &grp_id, lp_type_name, &lp_type_id, NULL,
+                              &grp_rep_id, &off);
     ns->svr_idx = grp_rep_id;
 
     /* first server sends a dummy event to itself that will kick off the real
      * simulation
      */
-    if(ns->svr_idx == 0)
-    {
+    if (ns->svr_idx == 0) {
         /* initialize statistics; measured only at first server */
         ns->pingpongs_completed = -1;
         stat_array[0].msg_sz = MIN_SZ;
-        for(i=1; i<NUM_SZS; i++)
-            stat_array[i].msg_sz = stat_array[i-1].msg_sz * 2;
+        for (i = 1; i < NUM_SZS; i++)
+            stat_array[i].msg_sz = stat_array[i - 1].msg_sz * 2;
 
         /* skew each kickoff event slightly to help avoid event ties later on */
         kickoff_time = g_tw_lookahead + tw_rand_unif(lp->rng);
@@ -234,70 +183,54 @@ static void svr_init(
     return;
 }
 
-static void svr_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp)
-{
+static void svr_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp) {
     (void)b;
-   switch (m->svr_event_type)
-    {
-        case PING:
-            handle_ping_event(ns, m, lp);
-            break;
-        case PONG:
-            handle_pong_event(ns, m, lp);
-            break;
-        default:
-	    printf("\n Invalid message type %d ", m->svr_event_type);
-            assert(0);
+    switch (m->svr_event_type) {
+    case PING:
+        handle_ping_event(ns, m, lp);
+        break;
+    case PONG:
+        handle_pong_event(ns, m, lp);
+        break;
+    default:
+        printf("\n Invalid message type %d ", m->svr_event_type);
+        assert(0);
         break;
     }
 }
 
-static void svr_rev_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp)
-{
+static void svr_rev_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp) {
     (void)ns;
     (void)b;
-    switch (m->svr_event_type)
-    {
-        case PING:
-            handle_ping_rev_event(m, lp);
-            break;
-        case PONG:
-            handle_pong_rev_event(ns, m, lp);
-            break;
-        default:
-            assert(0);
-            break;
+    switch (m->svr_event_type) {
+    case PING:
+        handle_ping_rev_event(m, lp);
+        break;
+    case PONG:
+        handle_pong_rev_event(ns, m, lp);
+        break;
+    default:
+        assert(0);
+        break;
     }
 
     return;
 }
 
-static void svr_finalize(
-    svr_state * ns,
-    tw_lp * lp)
-{
+static void svr_finalize(svr_state* ns, tw_lp* lp) {
     (void)lp;
     int i;
     double avg_time_us;
     double rate_b_s;
     double elapsed_s;
 
-    if(ns->svr_idx != 0)
+    if (ns->svr_idx != 0)
         return;
 
     printf("#p0\tp1\tdist\tlen\tave time (us)\trate\n");
-    for(i=0; i<NUM_SZS; i++)
-    {
+    for (i = 0; i < NUM_SZS; i++) {
         avg_time_us = stat_array[i].end_time - stat_array[i].start_time;
-        avg_time_us /= 1000.0; /* ns to us */
+        avg_time_us /= 1000.0;                /* ns to us */
         avg_time_us /= (double)NUM_PINGPONGS; /* avg */
         avg_time_us /= 2.0; /* divide by 2, to replicate scaling factor as in mpptest */
 
@@ -312,32 +245,23 @@ static void svr_finalize(
 }
 
 /* convert ns to seconds */
-static tw_stime ns_to_s(tw_stime ns)
-{
-    return(ns / (1000.0 * 1000.0 * 1000.0));
+static tw_stime ns_to_s(tw_stime ns) {
+    return (ns / (1000.0 * 1000.0 * 1000.0));
 }
 
 /* convert seconds to ns */
-static tw_stime s_to_ns(tw_stime ns)
-{
-    return(ns * (1000.0 * 1000.0 * 1000.0));
+static tw_stime s_to_ns(tw_stime ns) {
+    return (ns * (1000.0 * 1000.0 * 1000.0));
 }
 
 /* reverse handler for ping event */
-static void handle_ping_rev_event(
-    svr_msg * m,
-    tw_lp * lp)
-{
+static void handle_ping_rev_event(svr_msg* m, tw_lp* lp) {
     model_net_event_rc2(lp, &m->ret);
     return;
 }
 
 /* reverse handler for pong */
-static void handle_pong_rev_event(
-    svr_state * ns,
-    svr_msg * m,
-    tw_lp * lp)
-{
+static void handle_pong_rev_event(svr_state* ns, svr_msg* m, tw_lp* lp) {
     ns->pingpongs_completed--;
     model_net_event_rc2(lp, &m->ret);
 
@@ -350,11 +274,7 @@ static void handle_pong_rev_event(
 }
 
 /* handle recving pong */
-static void handle_pong_event(
-    svr_state * ns,
-    svr_msg * m,
-    tw_lp * lp)
-{
+static void handle_pong_event(svr_state* ns, svr_msg* m, tw_lp* lp) {
     svr_msg m_remote;
     int msg_sz_idx;
     tw_lpid peer_gid;
@@ -367,23 +287,20 @@ static void handle_pong_event(
     /* which message size are we on now? */
     msg_sz_idx = ns->pingpongs_completed / NUM_PINGPONGS;
 
-    if(ns->pingpongs_completed % NUM_PINGPONGS == 0)
-    {
+    if (ns->pingpongs_completed % NUM_PINGPONGS == 0) {
         /* finished one msg size range; record time */
-        if(msg_sz_idx < NUM_SZS)
+        if (msg_sz_idx < NUM_SZS)
             stat_array[msg_sz_idx].start_time = tw_now(lp);
-        if(msg_sz_idx > 0)
-            stat_array[msg_sz_idx-1].end_time = tw_now(lp);
+        if (msg_sz_idx > 0)
+            stat_array[msg_sz_idx - 1].end_time = tw_now(lp);
     }
 
-    if(msg_sz_idx >= NUM_SZS)
-    {
+    if (msg_sz_idx >= NUM_SZS) {
         /* done */
         return;
     }
 
-    codes_mapping_get_lp_id("MODELNET_GRP", "nw-lp", NULL, 1, 1,
-        0, &peer_gid);
+    codes_mapping_get_lp_id("MODELNET_GRP", "nw-lp", NULL, 1, 1, 0, &peer_gid);
 
     m_remote.svr_event_type = PING;
     m_remote.src = lp->gid;
@@ -391,17 +308,14 @@ static void handle_pong_event(
 
     /* send next ping */
     m->sent_size = m_remote.size;
-    m->ret = model_net_event(net_id, "ping", peer_gid, stat_array[msg_sz_idx].msg_sz, 0.0, sizeof(m_remote), &m_remote, 0, NULL, lp);
+    m->ret = model_net_event(net_id, "ping", peer_gid, stat_array[msg_sz_idx].msg_sz, 0.0,
+                             sizeof(m_remote), &m_remote, 0, NULL, lp);
 
     return;
 }
 
 /* handle receiving ping */
-static void handle_ping_event(
-    svr_state * ns,
-    svr_msg * m,
-    tw_lp * lp)
-{
+static void handle_ping_event(svr_state* ns, svr_msg* m, tw_lp* lp) {
     svr_msg m_remote;
 
     assert(ns->svr_idx == 1);
@@ -412,7 +326,8 @@ static void handle_ping_event(
 
     /* send pong msg back to sender */
     m->sent_size = m_remote.size;
-    m->ret = model_net_event(net_id, "pong", m->src, m->size, 0.0, sizeof(m_remote), &m_remote, 0, NULL, lp);
+    m->ret = model_net_event(net_id, "pong", m->src, m->size, 0.0, sizeof(m_remote), &m_remote, 0,
+                             NULL, lp);
     return;
 }
 

@@ -14,7 +14,7 @@ extern "C" {
 
 #include <mpi.h>
 
-int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv );
+int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv);
 
 #ifdef __cplusplus
 }

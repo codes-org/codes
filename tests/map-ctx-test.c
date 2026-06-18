@@ -10,59 +10,56 @@
 #include <codes/configuration.h>
 #include <codes/codes.h>
 
-#define ERR(_fmt, ...) \
-    do { \
-        fprintf(stderr, "Error at %s:%d: " _fmt "\n", __FILE__, __LINE__, \
-                ##__VA_ARGS__); \
-        return 1; \
+#define ERR(_fmt, ...)                                                                             \
+    do {                                                                                           \
+        fprintf(stderr, "Error at %s:%d: " _fmt "\n", __FILE__, __LINE__, ##__VA_ARGS__);          \
+        return 1;                                                                                  \
     } while (0)
 
 /* NOTE: hard-coded against configuration file */
-int main(int argc, char *argv[])
-{
+int main(int argc, char* argv[]) {
     MPI_Init(&argc, &argv);
     int rc = configuration_load(argv[1], MPI_COMM_WORLD, &config);
     if (rc != 0)
         ERR("unable to load configuration file %s", argv[1]);
 
-    struct codes_mctx direct, group_ratio, group_rratio, group_modulo,
-                      group_rmodulo, group_direct, group_modulo_anno,
-                      group_rmodulo_anno, group_direct_anno;
+    struct codes_mctx direct, group_ratio, group_rratio, group_modulo, group_rmodulo, group_direct,
+        group_modulo_anno, group_rmodulo_anno, group_direct_anno;
 
-    direct              = codes_mctx_set_global_direct(12ul);
-    group_ratio         = codes_mctx_set_group_ratio(NULL, true);
-    group_rratio        = codes_mctx_set_group_ratio_reverse(NULL, true);
-    group_modulo        = codes_mctx_set_group_modulo(NULL, true);
-    group_rmodulo       = codes_mctx_set_group_modulo_reverse(NULL, true);
-    group_direct        = codes_mctx_set_group_direct(1, NULL, true);
-    group_modulo_anno   = codes_mctx_set_group_modulo("baz", false);
-    group_rmodulo_anno  = codes_mctx_set_group_modulo_reverse("baz", false);
-    group_direct_anno   = codes_mctx_set_group_direct(1, "baz", false);
+    direct = codes_mctx_set_global_direct(12ul);
+    group_ratio = codes_mctx_set_group_ratio(NULL, true);
+    group_rratio = codes_mctx_set_group_ratio_reverse(NULL, true);
+    group_modulo = codes_mctx_set_group_modulo(NULL, true);
+    group_rmodulo = codes_mctx_set_group_modulo_reverse(NULL, true);
+    group_direct = codes_mctx_set_group_direct(1, NULL, true);
+    group_modulo_anno = codes_mctx_set_group_modulo("baz", false);
+    group_rmodulo_anno = codes_mctx_set_group_modulo_reverse("baz", false);
+    group_direct_anno = codes_mctx_set_group_direct(1, "baz", false);
 
     tw_lpid in, out;
     tw_lpid rtn_id;
-    char const * out_anno;
-    char const * rtn_anno;
+    char const* out_anno;
+    char const* rtn_anno;
 
-#define CHECK(_type_str) \
-    do { \
-        if (rtn_id != out) { \
-            ERR("%s mapping failed: in:%llu, expected:%llu, out:%llu", \
-                    _type_str, LLU(in), LLU(rtn_id), LLU(out)); \
-        } \
-    } while(0)
+#define CHECK(_type_str)                                                                           \
+    do {                                                                                           \
+        if (rtn_id != out) {                                                                       \
+            ERR("%s mapping failed: in:%llu, expected:%llu, out:%llu", _type_str, LLU(in),         \
+                LLU(rtn_id), LLU(out));                                                            \
+        }                                                                                          \
+    } while (0)
 
-#define CHECK_ANNO(_type_str) \
-    do { \
-        if (!((out_anno && rtn_anno && strcmp(out_anno, rtn_anno) == 0) || \
-                (!out_anno && !rtn_anno))) { \
-            ERR("%s anno mapping failed: in:%llu, expected:%s, out:%s", \
-                    _type_str, LLU(in), rtn_anno, out_anno); \
-        } \
+#define CHECK_ANNO(_type_str)                                                                      \
+    do {                                                                                           \
+        if (!((out_anno && rtn_anno && strcmp(out_anno, rtn_anno) == 0) ||                         \
+              (!out_anno && !rtn_anno))) {                                                         \
+            ERR("%s anno mapping failed: in:%llu, expected:%s, out:%s", _type_str, LLU(in),        \
+                rtn_anno, out_anno);                                                               \
+        }                                                                                          \
     } while (0)
 
 
-    in  = 0ul;
+    in = 0ul;
     out = 12ul;
     out_anno = NULL;
     rtn_id = codes_mctx_to_lpid(&direct, NULL, 0);

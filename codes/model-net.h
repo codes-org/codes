@@ -31,18 +31,19 @@ extern "C" {
 
 // simple deprecation attribute hacking
 #if !defined(DEPRECATED)
-#  if defined(__GNUC__) || defined(__GNUG__) || defined(__clang__)
-#    define DEPRECATED __attribute__((deprecated))
-#  else
-#    define DEPRECATED
-#  endif
+#if defined(__GNUC__) || defined(__GNUG__) || defined(__clang__)
+#define DEPRECATED __attribute__((deprecated))
+#else
+#define DEPRECATED
+#endif
 #endif
 
 /* Global declarations for configurations that might want to be passed via
  * command line in addition to configuration file. Needed a globally accessible
  * place for these
 */
-extern char g_nm_link_failure_filepath[]; //filepath to link failure file for use by models that use NetworkManager
+extern char g_nm_link_failure_filepath
+    []; //filepath to link failure file for use by models that use NetworkManager
 
 
 /* HACK: there is currently no scheduling fidelity across multiple
@@ -54,13 +55,15 @@ extern char g_nm_link_failure_filepath[]; //filepath to link failure file for us
  */
 extern int mn_in_sequence;
 extern tw_stime mn_msg_offset;
-#define MN_START_SEQ() do {\
-    mn_in_sequence = 1; \
-    mn_msg_offset = 0.0; \
-} while (0)
-#define MN_END_SEQ() do {\
-    mn_in_sequence = 0;\
-} while (0)
+#define MN_START_SEQ()                                                                             \
+    do {                                                                                           \
+        mn_in_sequence = 1;                                                                        \
+        mn_msg_offset = 0.0;                                                                       \
+    } while (0)
+#define MN_END_SEQ()                                                                               \
+    do {                                                                                           \
+        mn_in_sequence = 0;                                                                        \
+    } while (0)
 
 
 typedef struct mn_stats mn_stats;
@@ -68,32 +71,33 @@ typedef struct mn_stats mn_stats;
 // use the X-macro to get types and names rolled up into one structure
 // format: { enum vals, config name, internal lp name, lp method struct}
 // last value is sentinel
-#define NETWORK_DEF \
-    X(SIMPLENET, "modelnet_simplenet", "simplenet", &simplenet_method)\
-    X(SIMPLEP2P, "modelnet_simplep2p", "simplep2p", &simplep2p_method)\
-    X(TORUS,     "modelnet_torus",     "torus",     &torus_method)\
-    X(SLIMFLY,   "modelnet_slimfly",   "slimfly",   &slimfly_method)\
-    X(SLIMFLY_ROUTER, "modelnet_slimfly_router", "slimfly_router", &slimfly_router_method)\
-    X(FATTREE,   "modelnet_fattree",   "fattree",   &fattree_method)\
-    X(DRAGONFLY, "modelnet_dragonfly", "dragonfly", &dragonfly_method)\
-    X(DRAGONFLY_ROUTER, "modelnet_dragonfly_router", "dragonfly_router", &dragonfly_router_method)\
-    X(DRAGONFLY_CUSTOM, "modelnet_dragonfly_custom", "dragonfly_custom", &dragonfly_custom_method)\
-    X(DRAGONFLY_CUSTOM_ROUTER, "modelnet_dragonfly_custom_router", "dragonfly_custom_router", &dragonfly_custom_router_method)\
-    X(LOGGP,     "modelnet_loggp",     "loggp",     &loggp_method)\
-    X(EXPRESS_MESH, "modelnet_express_mesh", "express_mesh", &express_mesh_method)\
-    X(EXPRESS_MESH_ROUTER, "modelnet_express_mesh_router", "express_mesh_router", &express_mesh_router_method)\
-    X(DRAGONFLY_PLUS, "modelnet_dragonfly_plus", "dragonfly_plus", &dragonfly_plus_method)\
-    X(DRAGONFLY_PLUS_ROUTER, "modelnet_dragonfly_plus_router", "dragonfly_plus_router", &dragonfly_plus_router_method)\
-    X(DRAGONFLY_DALLY, "modelnet_dragonfly_dally", "dragonfly_dally", &dragonfly_dally_method)\
-    X(DRAGONFLY_DALLY_ROUTER, "modelnet_dragonfly_dally_router", "dragonfly_dally_router", &dragonfly_dally_router_method)\
-    X(CONGESTION_CONTROLLER, "congestion_controller", "congestion_controller", NULL)\
-    X(MAX_NETS,  NULL,                 NULL,        NULL)
+#define NETWORK_DEF                                                                                \
+    X(SIMPLENET, "modelnet_simplenet", "simplenet", &simplenet_method)                             \
+    X(SIMPLEP2P, "modelnet_simplep2p", "simplep2p", &simplep2p_method)                             \
+    X(TORUS, "modelnet_torus", "torus", &torus_method)                                             \
+    X(SLIMFLY, "modelnet_slimfly", "slimfly", &slimfly_method)                                     \
+    X(SLIMFLY_ROUTER, "modelnet_slimfly_router", "slimfly_router", &slimfly_router_method)         \
+    X(FATTREE, "modelnet_fattree", "fattree", &fattree_method)                                     \
+    X(DRAGONFLY, "modelnet_dragonfly", "dragonfly", &dragonfly_method)                             \
+    X(DRAGONFLY_ROUTER, "modelnet_dragonfly_router", "dragonfly_router", &dragonfly_router_method) \
+    X(DRAGONFLY_CUSTOM, "modelnet_dragonfly_custom", "dragonfly_custom", &dragonfly_custom_method) \
+    X(DRAGONFLY_CUSTOM_ROUTER, "modelnet_dragonfly_custom_router", "dragonfly_custom_router",      \
+      &dragonfly_custom_router_method)                                                             \
+    X(LOGGP, "modelnet_loggp", "loggp", &loggp_method)                                             \
+    X(EXPRESS_MESH, "modelnet_express_mesh", "express_mesh", &express_mesh_method)                 \
+    X(EXPRESS_MESH_ROUTER, "modelnet_express_mesh_router", "express_mesh_router",                  \
+      &express_mesh_router_method)                                                                 \
+    X(DRAGONFLY_PLUS, "modelnet_dragonfly_plus", "dragonfly_plus", &dragonfly_plus_method)         \
+    X(DRAGONFLY_PLUS_ROUTER, "modelnet_dragonfly_plus_router", "dragonfly_plus_router",            \
+      &dragonfly_plus_router_method)                                                               \
+    X(DRAGONFLY_DALLY, "modelnet_dragonfly_dally", "dragonfly_dally", &dragonfly_dally_method)     \
+    X(DRAGONFLY_DALLY_ROUTER, "modelnet_dragonfly_dally_router", "dragonfly_dally_router",         \
+      &dragonfly_dally_router_method)                                                              \
+    X(CONGESTION_CONTROLLER, "congestion_controller", "congestion_controller", NULL)               \
+    X(MAX_NETS, NULL, NULL, NULL)
 
-#define X(a,b,c,d) a,
-enum NETWORKS
-{
-    NETWORK_DEF
-};
+#define X(a, b, c, d) a,
+enum NETWORKS { NETWORK_DEF };
 #undef X
 
 // message parameter types
@@ -108,9 +112,7 @@ enum msg_param_type {
 };
 
 // MN_MSG_PARAM_MSG_START_TIME parameter types (only one for the time being)
-enum msg_param_start_time {
-    MN_MSG_PARAM_START_TIME_VAL
-};
+enum msg_param_start_time { MN_MSG_PARAM_START_TIME_VAL };
 
 // return type for model_net_*event calls, to be passed into RC
 // currently is just an int, but in the future may indicate whether lp-io was
@@ -119,15 +121,15 @@ typedef int model_net_event_return;
 
 // network identifiers (both the config lp names and the model-net internal
 // names)
-extern char * model_net_lp_config_names[];
-extern char * model_net_method_names[];
+extern char* model_net_lp_config_names[];
+extern char* model_net_method_names[];
 
 // request structure that gets passed around (by the model-net implementation,
 // not the user)
 typedef struct model_net_request {
-    tw_lpid  final_dest_lp;
-    tw_lpid  dest_mn_lp; // destination modelnet lp
-    tw_lpid  src_lp;
+    tw_lpid final_dest_lp;
+    tw_lpid dest_mn_lp; // destination modelnet lp
+    tw_lpid src_lp;
     // time the source event was called
     tw_stime msg_start_time;
     // time the event was created
@@ -138,21 +140,20 @@ typedef struct model_net_request {
     // unique message id set, *at the modelnet LP*, for each message the
     // modelnet LP processes
     uint64_t msg_id;
-    int      net_id;
-    int      is_pull;
-    int      queue_offset;
-    int      remote_event_size;
-    int      self_event_size;
-    char     category[CATEGORY_NAME_MAX];
+    int net_id;
+    int is_pull;
+    int queue_offset;
+    int remote_event_size;
+    int self_event_size;
+    char category[CATEGORY_NAME_MAX];
 
     //Xin: passing app id to routers
-    int     app_id;
+    int app_id;
 
 } model_net_request;
 
 /* data structure for tracking network statistics */
-struct mn_stats
-{
+struct mn_stats {
     char category[CATEGORY_NAME_MAX];
     long send_count;
     long send_bytes;
@@ -163,11 +164,11 @@ struct mn_stats
     long max_event_size;
 };
 
-bool check_model_net_request(model_net_request const * before, model_net_request const * after);
-void print_model_net_request(FILE * out, char const * prefix, model_net_request * item);
+bool check_model_net_request(model_net_request const* before, model_net_request const* after);
+void print_model_net_request(FILE* out, char const* prefix, model_net_request* item);
 
-bool check_mn_stats(struct mn_stats const * before, struct mn_stats const * after);
-void print_mn_stats(FILE * out, char const * prefix, struct mn_stats * item);
+bool check_mn_stats(struct mn_stats const* before, struct mn_stats const* after);
+void print_mn_stats(FILE* out, char const* prefix, struct mn_stats* item);
 
 /* Registers all model-net LPs in ROSS. Should be called after
  * configuration_load, but before codes_mapping_setup */
@@ -180,7 +181,7 @@ void model_net_register();
  *
  * return - the set of network IDs, indexed in the order given by the
  * modelnet_order configuration parameter */
-int* model_net_configure(int *id_count);
+int* model_net_configure(int* id_count);
 
 /* Sets up a sampling loop for model net events. The sampling data provided by
  * each modelnet lp is model-defined. This is a PE-wide setting. Data is sent
@@ -194,25 +195,17 @@ int model_net_sampling_enabled(void);
  * returns an array of the network ids, indexed in the order given by the
  * modelnet_order configuration parameter
  * OUTPUT id_count - the output number of networks */
-int* model_net_set_params(int *id_count);
+int* model_net_set_params(int* id_count);
 
 /* utility function to get the modelnet ID post-setup */
-int model_net_get_id(char *net_name);
+int model_net_get_id(char* net_name);
 
 /* This event does a collective operation call for model-net */
-void model_net_event_collective(
-    int net_id,
-    char const * category,
-    int message_size,
-    int remote_event_size,
-    void const * remote_event,
-    tw_lp *sender);
+void model_net_event_collective(int net_id, char const* category, int message_size,
+                                int remote_event_size, void const* remote_event, tw_lp* sender);
 
 /* reverse event of the collective operation call */
-void model_net_event_collective_rc(
-        int net_id,
-        int message_size,
-        tw_lp *sender);
+void model_net_event_collective_rc(int net_id, int message_size, tw_lp* sender);
 
 /* allocate and transmit a new event that will pass through model_net to
  * arrive at its destination:
@@ -254,17 +247,10 @@ void model_net_event_collective_rc(
  * when calculating *both* sender and receiver modelnet LPs
  */
 // first argument becomes the network ID
-model_net_event_return model_net_event(
-    int net_id,
-    char const * category,
-    tw_lpid final_dest_lp,
-    uint64_t message_size,
-    tw_stime offset,
-    int remote_event_size,
-    void const * remote_event,
-    int self_event_size,
-    void const * self_event,
-    tw_lp *sender);
+model_net_event_return model_net_event(int net_id, char const* category, tw_lpid final_dest_lp,
+                                       uint64_t message_size, tw_stime offset,
+                                       int remote_event_size, void const* remote_event,
+                                       int self_event_size, void const* self_event, tw_lp* sender);
 /*
  * See model_net_event for a general description.
  *
@@ -273,37 +259,25 @@ model_net_event_return model_net_event(
  * annotation is not consulted here. The corresponding CODES map context is
  * CODES_MCTX_GROUP_MODULO with the supplied annotation arguments.
  */
-model_net_event_return model_net_event_annotated(
-        int net_id,
-        char const * annotation,
-        char const * category,
-        tw_lpid final_dest_lp,
-        uint64_t message_size,
-        tw_stime offset,
-        int remote_event_size,
-        void const * remote_event,
-        int self_event_size,
-        void const * self_event,
-        tw_lp *sender);
+model_net_event_return model_net_event_annotated(int net_id, char const* annotation,
+                                                 char const* category, tw_lpid final_dest_lp,
+                                                 uint64_t message_size, tw_stime offset,
+                                                 int remote_event_size, void const* remote_event,
+                                                 int self_event_size, void const* self_event,
+                                                 tw_lp* sender);
 /*
  * See model_net_event for a general description.
  *
  * This variant uses CODES map contexts to calculate the sender and receiver
  * modelnet LPs
  */
-model_net_event_return model_net_event_mctx(
-        int net_id,
-        struct codes_mctx const * send_map_ctx,
-        struct codes_mctx const * recv_map_ctx,
-        char const * category,
-        tw_lpid final_dest_lp,
-        uint64_t message_size,
-        tw_stime offset,
-        int remote_event_size,
-        void const * remote_event,
-        int self_event_size,
-        void const * self_event,
-        tw_lp *sender);
+model_net_event_return model_net_event_mctx(int net_id, struct codes_mctx const* send_map_ctx,
+                                            struct codes_mctx const* recv_map_ctx,
+                                            char const* category, tw_lpid final_dest_lp,
+                                            uint64_t message_size, tw_stime offset,
+                                            int remote_event_size, void const* remote_event,
+                                            int self_event_size, void const* self_event,
+                                            tw_lp* sender);
 
 
 /* model_net_find_local_device()
@@ -312,17 +286,12 @@ model_net_event_return model_net_event_mctx(
  * default CODES mapping context if ignore_annotations is true, and
  * CODES_MCTX_GROUP_MODULO with the supplied annotation parameters otherwise
  */
-tw_lpid model_net_find_local_device(
-        int          net_id,
-        const char * annotation,
-        int          ignore_annotations,
-        tw_lpid      sender_gid);
+tw_lpid model_net_find_local_device(int net_id, const char* annotation, int ignore_annotations,
+                                    tw_lpid sender_gid);
 
 /* same as ^, except use the supplied mapping context */
-tw_lpid model_net_find_local_device_mctx(
-        int net_id,
-        struct codes_mctx const * map_ctx,
-        tw_lpid sender_gid);
+tw_lpid model_net_find_local_device_mctx(int net_id, struct codes_mctx const* map_ctx,
+                                         tw_lpid sender_gid);
 
 int model_net_get_msg_sz(int net_id);
 
@@ -337,17 +306,12 @@ int model_net_get_msg_sz(int net_id);
  * reverse computation; add as needed
  */
 DEPRECATED
-void model_net_event_rc(
-    int net_id,
-    tw_lp *sender,
-    uint64_t message_size);
+void model_net_event_rc(int net_id, tw_lp* sender, uint64_t message_size);
 
 /* This function replaces model_net_event_rc, and will replace the name later
  * on. The num_rng_calls argument is the return value of model_net_*event*
  * calls */
-void model_net_event_rc2(
-        tw_lp *sender,
-        model_net_event_return const * ret);
+void model_net_event_rc2(tw_lp* sender, model_net_event_return const* ret);
 
 /* Issue a 'pull' from the memory of the destination LP, without
  * requiring the destination LP to do event processing. This is meant as a
@@ -361,41 +325,24 @@ void model_net_event_rc2(
  * - self_event_size, self_event are applied at the requester upon receipt of
  *   the payload from the dest
  */
-model_net_event_return model_net_pull_event(
-        int net_id,
-        char const *category,
-        tw_lpid final_dest_lp,
-        uint64_t message_size,
-        tw_stime offset,
-        int self_event_size,
-        void const *self_event,
-        tw_lp *sender);
-model_net_event_return model_net_pull_event_annotated(
-        int net_id,
-        char const * annotation,
-        char const *category,
-        tw_lpid final_dest_lp,
-        uint64_t message_size,
-        tw_stime offset,
-        int self_event_size,
-        void const *self_event,
-        tw_lp *sender);
-model_net_event_return model_net_pull_event_mctx(
-        int net_id,
-        struct codes_mctx const * send_map_ctx,
-        struct codes_mctx const * recv_map_ctx,
-        char const *category,
-        tw_lpid final_dest_lp,
-        uint64_t message_size,
-        tw_stime offset,
-        int self_event_size,
-        void const *self_event,
-        tw_lp *sender);
+model_net_event_return model_net_pull_event(int net_id, char const* category, tw_lpid final_dest_lp,
+                                            uint64_t message_size, tw_stime offset,
+                                            int self_event_size, void const* self_event,
+                                            tw_lp* sender);
+model_net_event_return model_net_pull_event_annotated(int net_id, char const* annotation,
+                                                      char const* category, tw_lpid final_dest_lp,
+                                                      uint64_t message_size, tw_stime offset,
+                                                      int self_event_size, void const* self_event,
+                                                      tw_lp* sender);
+model_net_event_return model_net_pull_event_mctx(int net_id, struct codes_mctx const* send_map_ctx,
+                                                 struct codes_mctx const* recv_map_ctx,
+                                                 char const* category, tw_lpid final_dest_lp,
+                                                 uint64_t message_size, tw_stime offset,
+                                                 int self_event_size, void const* self_event,
+                                                 tw_lp* sender);
 
 DEPRECATED
-void model_net_pull_event_rc(
-        int net_id,
-        tw_lp *sender);
+void model_net_pull_event_rc(int net_id, tw_lp* sender);
 
 /*
  * Set message-specific parameters
@@ -414,10 +361,7 @@ void model_net_pull_event_rc(
  * on the intended event, and may possibly be consumed by another, unrelated
  * event.
  */
-void model_net_set_msg_param(
-        enum msg_param_type type,
-        int sub_type,
-        const void * params);
+void model_net_set_msg_param(enum msg_param_type type, int sub_type, const void* params);
 
 /* returns pointer to LP information for simplenet module */
 const tw_lptype* model_net_get_lp_type(int net_id);
@@ -438,7 +382,7 @@ void model_net_write_stats(tw_lpid lpid, mn_stats* stat);
 void model_net_print_stats(tw_lpid lpid, mn_stats mn_stats_array[]);
 
 /* find model-net statistics */
-mn_stats* model_net_find_stats(char const * category, mn_stats mn_stats_array[]);
+mn_stats* model_net_find_stats(char const* category, mn_stats mn_stats_array[]);
 
 #ifdef ENABLE_CORTEX
 /* structure that gives access to the topology functions */

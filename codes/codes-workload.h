@@ -35,8 +35,7 @@ typedef struct dumpi_trace_params dumpi_trace_params;
 typedef struct checkpoint_wrkld_params checkpoint_wrkld_params;
 typedef struct online_comm_params online_comm_params;
 
-struct iomock_params
-{
+struct iomock_params {
     uint64_t file_id;
     int use_uniq_file_ids;
     int is_write;
@@ -47,8 +46,7 @@ struct iomock_params
     int rank_table_size;
 };
 
-struct iolang_params
-{
+struct iolang_params {
     /* the rank count is defined in the workload config file */
     int num_cns;
     /* flag - use path to find kernel files relative to the metafile */
@@ -58,26 +56,24 @@ struct iolang_params
     char io_kernel_path[MAX_NAME_LENGTH_WKLD];
 };
 
-struct darshan_params
-{
+struct darshan_params {
     char log_file_path[MAX_NAME_LENGTH_WKLD];
     int app_cnt;
 };
 
-struct recorder_params
-{
+struct recorder_params {
     char trace_dir_path[MAX_NAME_LENGTH_WKLD];
     int64_t nprocs;
 };
 
 struct dumpi_trace_params {
-   char file_name[MAX_NAME_LENGTH_WKLD];
-   int num_net_traces;
-   int nprocs;
+    char file_name[MAX_NAME_LENGTH_WKLD];
+    int num_net_traces;
+    int nprocs;
 #ifdef ENABLE_CORTEX_PYTHON
-   char cortex_script[MAX_NAME_LENGTH_WKLD];
-   char cortex_class[MAX_NAME_LENGTH_WKLD];
-   char cortex_gen[MAX_NAME_LENGTH_WKLD];
+    char cortex_script[MAX_NAME_LENGTH_WKLD];
+    char cortex_class[MAX_NAME_LENGTH_WKLD];
+    char cortex_gen[MAX_NAME_LENGTH_WKLD];
 #endif
 };
 
@@ -86,18 +82,16 @@ struct online_comm_params {
     char file_path[MAX_NAME_LENGTH_WKLD];
     int nprocs;
 };
-struct checkpoint_wrkld_params
-{
-    int nprocs; /* number of workload processes */
-    double checkpoint_sz; /* size of checkpoint, in TiB */
+struct checkpoint_wrkld_params {
+    int nprocs;              /* number of workload processes */
+    double checkpoint_sz;    /* size of checkpoint, in TiB */
     double checkpoint_wr_bw; /* checkpoint write b/w, in GiB/s */
-    int total_checkpoints; /* total number of checkpoint phases */
-    double mtti; /* mean time to interrupt, in hours */
+    int total_checkpoints;   /* total number of checkpoint phases */
+    double mtti;             /* mean time to interrupt, in hours */
 };
 
 /* supported I/O operations */
-enum codes_workload_op_type
-{
+enum codes_workload_op_type {
     /* terminator; there are no more operations for this rank */
     CODES_WK_END = 1,
     /* sleep/delay to simulate computation or other activity */
@@ -155,7 +149,7 @@ enum codes_workload_op_type
 
     /* for workloads that have events not yet handled
      * (eg the workload language) */
-    CODES_WK_IGNORE, 
+    CODES_WK_IGNORE,
 
     /* extended IO workload operations: MPI */
 
@@ -179,8 +173,7 @@ enum codes_workload_op_type
 };
 
 /* I/O operation paramaters */
-struct codes_workload_op
-{
+struct codes_workload_op {
     /* TODO: do we need different "classes" of operations to differentiate
      * between different APIs?
      */
@@ -194,51 +187,50 @@ struct codes_workload_op
 
     int64_t sequence_id;
     /* parameters for each operation type */
-    union
-    {
+    union {
         struct {
             double seconds;
-	    double nsecs;
+            double nsecs;
         } delay;
         struct {
-            int count;  /* num ranks in barrier, -1 means "all" */
-            int root;   /* root rank */
+            int count; /* num ranks in barrier, -1 means "all" */
+            int root;  /* root rank */
         } barrier;
         struct {
-            uint64_t file_id;      /* integer identifier for the file */
+            uint64_t file_id; /* integer identifier for the file */
             int create_flag;  /* file must be created, not just opened */
         } open;
         struct {
-            uint64_t file_id;  /* file to operate on */
-            off_t offset; /* offset and size */
+            uint64_t file_id; /* file to operate on */
+            off_t offset;     /* offset and size */
             size_t size;
         } write;
         struct {
-            uint64_t file_id;  /* file to operate on */
-            off_t offset; /* offset and size */
+            uint64_t file_id; /* file to operate on */
+            off_t offset;     /* offset and size */
             size_t size;
         } read;
         struct {
-            uint64_t file_id;  /* file to operate on */
+            uint64_t file_id; /* file to operate on */
         } close;
         struct {
             /* TODO: not sure why source rank is here */
-            int source_rank;/* source rank of MPI send message */
-            int dest_rank; /* dest rank of MPI send message */
+            int source_rank;   /* source rank of MPI send message */
+            int dest_rank;     /* dest rank of MPI send message */
             int64_t num_bytes; /* number of bytes to be transferred over the network */
             int16_t data_type; /* MPI data type to be matched with the recv */
-            int count; /* number of elements to be received */
-            int tag; /* tag of the message */
+            int count;         /* number of elements to be received */
+            int tag;           /* tag of the message */
             unsigned int req_id;
         } send;
         struct {
             /* TODO: not sure why source rank is here */
-            int source_rank;/* source rank of MPI recv message */
-            int dest_rank;/* dest rank of MPI recv message */
+            int source_rank;   /* source rank of MPI recv message */
+            int dest_rank;     /* dest rank of MPI recv message */
             int64_t num_bytes; /* number of bytes to be transferred over the network */
             int16_t data_type; /* MPI data type to be matched with the send */
-            int count; /* number of elements to be sent */
-            int tag; /* tag of the message */
+            int count;         /* number of elements to be sent */
+            int tag;           /* tag of the message */
             unsigned int req_id;
         } recv;
         /* TODO: non-stub for other collectives */
@@ -252,40 +244,34 @@ struct codes_workload_op
         struct {
             uint32_t req_id;
         } wait;
-        struct
-        {
+        struct {
             uint32_t req_id;
-        }
-        free;
-    }u;
+        } free;
+    } u;
 };
 
 // helper macro for implementations - call this if multi-app support not
 // available
-#define APP_ID_UNSUPPORTED(id, name) \
-    if (id != 0) \
-        tw_error(TW_LOC,\
-                "APP IDs not supported for %s generator, 0 required", name);
+#define APP_ID_UNSUPPORTED(id, name)                                                               \
+    if (id != 0)                                                                                   \
+        tw_error(TW_LOC, "APP IDs not supported for %s generator, 0 required", name);
 
 /* read workload configuration from a CODES configuration file and return the
  * workload name and parameters, which can then be passed to
  * codes_workload_load */
-typedef struct
-{
-    char const * type;
-    void * params;
+typedef struct {
+    char const* type;
+    void* params;
 } codes_workload_config_return;
 
 // NOTE: some workloads (iolang, checkpoint) require information about the
 // total number of ranks to correctly process traces/config files, etc. Other
 // workload generators (darshan) ignore it
-codes_workload_config_return codes_workload_read_config(
-        ConfigHandle * handle,
-        char const * section_name,
-        char const * annotation,
-        int num_ranks);
+codes_workload_config_return codes_workload_read_config(ConfigHandle* handle,
+                                                        char const* section_name,
+                                                        char const* annotation, int num_ranks);
 
-void codes_workload_free_config_return(codes_workload_config_return *c);
+void codes_workload_free_config_return(codes_workload_config_return* c);
 
 /* load and initialize workload of of type "type" with parameters specified by
  * "params".  The rank is the caller's relative rank within the collection
@@ -300,84 +286,57 @@ void codes_workload_free_config_return(codes_workload_config_return *c);
  * Returns and identifier that can be used to retrieve operations later.
  * Returns -1 on failure.
  */
-int codes_workload_load(
-        const char* type,
-        const void* params,
-        int app_id,
-        int rank);
+int codes_workload_load(const char* type, const void* params, int app_id, int rank);
 
 /* Retrieves the next I/O operation to execute.  the wkld_id is the
  * identifier returned by the init() function.  The op argument is a pointer
  * to a structure to be filled in with I/O operation information.
  */
-void codes_workload_get_next(
-        int wkld_id,
-        int app_id,
-        int rank,
-        struct codes_workload_op *op);
+void codes_workload_get_next(int wkld_id, int app_id, int rank, struct codes_workload_op* op);
 
 /* Reverse of the above function. */
-void codes_workload_get_next_rc(
-        int wkld_id,
-        int app_id,
-        int rank,
-        const struct codes_workload_op *op);
+void codes_workload_get_next_rc(int wkld_id, int app_id, int rank,
+                                const struct codes_workload_op* op);
 
 /* Another version of reverse handler. */
-void codes_workload_get_next_rc2(
-                int wkld_id,
-                int app_id,
-                int rank);
+void codes_workload_get_next_rc2(int wkld_id, int app_id, int rank);
 
 /* Retrieve the number of ranks contained in a workload */
-int codes_workload_get_rank_cnt(
-        const char* type,
-        const char* params,
-        int app_id);
+int codes_workload_get_rank_cnt(const char* type, const char* params, int app_id);
 
 /* Finalize the workload */
-int codes_workload_finalize(
-        const char* type,
-        const char* params,
-        int app_id, 
-        int rank);
+int codes_workload_finalize(const char* type, const char* params, int app_id, int rank);
 
 /* for debugging/logging: print an individual operation to the specified file */
-void codes_workload_print_op(
-        FILE *f,
-        struct codes_workload_op *op,
-        int app_id,
-        int rank);
+void codes_workload_print_op(FILE* f, struct codes_workload_op* op, int app_id, int rank);
 
-int codes_workload_get_time(const char *type,
-		const char * params,
-		int app_id,
-		int rank, double *read_time, double *write_time, int64_t *read_bytes, int64_t *written_bytes);
+int codes_workload_get_time(const char* type, const char* params, int app_id, int rank,
+                            double* read_time, double* write_time, int64_t* read_bytes,
+                            int64_t* written_bytes);
 
 // Returns the final iteration (positive) after which the workload will stop. If the result is -1, then there is nothing to do
 int codes_workload_get_final_iteration(int wkld_id, int app_id, int rank);
 
 /* implementation structure */
-struct codes_workload_method
-{
-    char *method_name; /* name of the generator */
-    void * (*codes_workload_read_config) (
-            ConfigHandle *handle, char const * section_name,
-            char const * annotation, int num_ranks);
+struct codes_workload_method {
+    char* method_name; /* name of the generator */
+    void* (*codes_workload_read_config)(ConfigHandle* handle, char const* section_name,
+                                        char const* annotation, int num_ranks);
     int (*codes_workload_load)(const void* params, int app_id, int rank);
-    void (*codes_workload_get_next)(int app_id, int rank, struct codes_workload_op *op);
+    void (*codes_workload_get_next)(int app_id, int rank, struct codes_workload_op* op);
     void (*codes_workload_get_next_rc2)(int app_id, int rank);
     int (*codes_workload_get_rank_cnt)(const char* params, int app_id);
     int (*codes_workload_finalize)(const char* params, int app_id, int rank);
     /* added for get all read or write time */
-    int (*codes_workload_get_time)(const char * params, int app_id, int rank, double *read_time, double *write_time, int64_t *read_bytes, int64_t *written_bytes);
+    int (*codes_workload_get_time)(const char* params, int app_id, int rank, double* read_time,
+                                   double* write_time, int64_t* read_bytes, int64_t* written_bytes);
     int (*codes_workload_get_final_iteration)(int app_id, int rank);
 };
 
 
 /* dynamically add to the workload implementation table. Must be done BEFORE
  * calls to codes_workload_read_config or codes_workload_load */
-void codes_workload_add_method(struct codes_workload_method const * method);
+void codes_workload_add_method(struct codes_workload_method const* method);
 
 /* NOTE: there is deliberately no finalize function; we don't have any
  * reliable way to tell when a workload is truly done and will not
@@ -386,8 +345,8 @@ void codes_workload_add_method(struct codes_workload_method const * method);
  */
 
 /* Printing event :) */
-void fprint_codes_workload_op(FILE * out, char const * prefix, struct codes_workload_op * op);
-char const * const op_type_string(enum codes_workload_op_type op_type);
+void fprint_codes_workload_op(FILE* out, char const* prefix, struct codes_workload_op* op);
+char const* const op_type_string(enum codes_workload_op_type op_type);
 
 #ifdef __cplusplus
 }

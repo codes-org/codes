@@ -4,25 +4,22 @@
 #define MAX_PATH_VAL 999
 #define DEST -999
 
-void add_as_if_set_int(int value, vector<int>& vec)
-{
+void add_as_if_set_int(int value, vector<int>& vec) {
     vector<int>::iterator it;
     it = std::find(vec.begin(), vec.end(), value);
     if (it == vec.end()) //then it's not in the vector yet - else do nothing
         vec.push_back(value);
 }
 
-int isNotVisited(int x, vector<int>& path) 
-{ 
-    int size = path.size(); 
-    for (int i = 0; i < size; i++)  
-        if (path[i] == x)  
-            return 0;  
-    return 1; 
-} 
+int isNotVisited(int x, vector<int>& path) {
+    int size = path.size();
+    for (int i = 0; i < size; i++)
+        if (path[i] == x)
+            return 0;
+    return 1;
+}
 
-DragonflyNetworkManager::DragonflyNetworkManager()
-{
+DragonflyNetworkManager::DragonflyNetworkManager() {
     _total_routers = 0;
     _num_routers_per_group = 0;
     _total_groups = 0;
@@ -32,8 +29,11 @@ DragonflyNetworkManager::DragonflyNetworkManager()
     _is_solidified = false;
 }
 
-DragonflyNetworkManager::DragonflyNetworkManager(int total_routers, int total_terminals, int num_routers_per_group, int num_lc_per_router, int num_gc_per_router, int num_cn_conns_per_router, int num_rails, int num_planes, int max_local_hops, int max_global_hops)
-{
+DragonflyNetworkManager::DragonflyNetworkManager(int total_routers, int total_terminals,
+                                                 int num_routers_per_group, int num_lc_per_router,
+                                                 int num_gc_per_router, int num_cn_conns_per_router,
+                                                 int num_rails, int num_planes, int max_local_hops,
+                                                 int max_global_hops) {
     _total_routers = total_routers;
     _total_terminals = total_terminals;
     _total_groups = total_routers / num_routers_per_group;
@@ -56,26 +56,31 @@ DragonflyNetworkManager::DragonflyNetworkManager(int total_routers, int total_te
 
 
     if (total_routers % num_routers_per_group != 0)
-        tw_error(TW_LOC, "NetworkManager: total routers \% num routers per group is not evenly divisible, non-uniform groups\n");
+        tw_error(TW_LOC, "NetworkManager: total routers \% num routers per group is not evenly "
+                         "divisible, non-uniform groups\n");
 
 
-    for(int i = 0; i < _total_routers; i++)
-    {
+    for (int i = 0; i < _total_routers; i++) {
         int src_id_global = i;
         int src_id_local = i % _num_routers_per_group;
         int src_group = i / _num_routers_per_group;
 
-        DragonflyConnectionManager conn_man = DragonflyConnectionManager(src_id_local, src_id_global, src_group, _num_lc_pr, _num_gc_pr, _num_cn_pr, 0, _num_routers_per_group, _num_groups_per_plane, _total_planes, MAN_ROUTER);
+        DragonflyConnectionManager conn_man =
+            DragonflyConnectionManager(src_id_local, src_id_global, src_group, _num_lc_pr,
+                                       _num_gc_pr, _num_cn_pr, 0, _num_routers_per_group,
+                                       _num_groups_per_plane, _total_planes, MAN_ROUTER);
         _connection_manager_list.push_back(conn_man);
     }
 
-    for(int i = 0; i < _total_terminals; i++)
-    {
+    for (int i = 0; i < _total_terminals; i++) {
         int src_id_global = i;
         int src_id_local = src_id_global % num_cn_conns_per_router;
         int src_group = -1;
 
-        DragonflyConnectionManager conn_man = DragonflyConnectionManager(src_id_local, src_id_global, src_group, 0, 0, 0, num_rails, _num_routers_per_group, _num_groups_per_plane, _total_planes, MAN_TERMINAL);
+        DragonflyConnectionManager conn_man =
+            DragonflyConnectionManager(src_id_local, src_id_global, src_group, 0, 0, 0, num_rails,
+                                       _num_routers_per_group, _num_groups_per_plane, _total_planes,
+                                       MAN_TERMINAL);
         _terminal_connection_manager_list.push_back(conn_man);
     }
 
@@ -83,10 +88,10 @@ DragonflyNetworkManager::DragonflyNetworkManager(int total_routers, int total_te
 }
 
 
-void DragonflyNetworkManager::add_link(Link_Info link)
-{
-    Connection *conn = (Connection*)malloc(sizeof(Connection));
-    conn->port = -1; //will be set by the Connection Manager of the router (src_gid) and defined in add_cons_to_connectoin_managers
+void DragonflyNetworkManager::add_link(Link_Info link) {
+    Connection* conn = (Connection*)malloc(sizeof(Connection));
+    conn->port =
+        -1; //will be set by the Connection Manager of the router (src_gid) and defined in add_cons_to_connectoin_managers
     conn->src_lid = (link.src_gid) % _num_routers_per_group;
     conn->src_gid = link.src_gid;
     conn->src_group_id = link.src_gid / _num_routers_per_group;
@@ -97,14 +102,12 @@ void DragonflyNetworkManager::add_link(Link_Info link)
     conn->rail_or_planar_id = link.rail_id;
     conn->is_failed = false;
 
-    if (link.conn_type != CONN_TERMINAL)
-    {
+    if (link.conn_type != CONN_TERMINAL) {
         _num_router_conns++;
 
-        vector<Connection*> existing_conns_from_src =  _router_connections_map[link.src_gid];
+        vector<Connection*> existing_conns_from_src = _router_connections_map[link.src_gid];
         int num_conns = 0;
-        for(int i = 0; i < existing_conns_from_src.size(); i++)
-        {
+        for (int i = 0; i < existing_conns_from_src.size(); i++) {
             if (existing_conns_from_src[i]->dest_gid == conn->dest_gid)
                 num_conns++;
         }
@@ -114,28 +117,27 @@ void DragonflyNetworkManager::add_link(Link_Info link)
         _router_connections_map[link.src_gid].push_back(conn);
 
         //put into useful maps
-        _router_to_router_connection_map[make_pair(conn->src_gid,conn->dest_gid)].push_back(conn);
+        _router_to_router_connection_map[make_pair(conn->src_gid, conn->dest_gid)].push_back(conn);
 
-        if (conn->conn_type == CONN_GLOBAL)
-        {
-            _global_group_connection_map[make_pair(conn->src_group_id, conn->dest_group_id)].push_back(conn);
+        if (conn->conn_type == CONN_GLOBAL) {
+            _global_group_connection_map[make_pair(conn->src_group_id, conn->dest_group_id)]
+                .push_back(conn);
             _router_to_router_global_conn_map[link.src_gid].push_back(conn);
         }
-        if (conn->conn_type == CONN_LOCAL)
-        {
+        if (conn->conn_type == CONN_LOCAL) {
             _router_to_router_local_conn_map[link.src_gid].push_back(conn);
         }
 
-        _router_to_group_connection_map[make_pair(conn->src_gid, conn->dest_group_id)].push_back(conn);
-    }
-    else //CONN TERMINAL
+        _router_to_group_connection_map[make_pair(conn->src_gid, conn->dest_group_id)].push_back(
+            conn);
+    } else //CONN TERMINAL
     {
         _num_router_terminal_conns++;
 
-        vector<Connection*> existing_conns_from_src = _router_terminal_connections_map[link.src_gid];
+        vector<Connection*> existing_conns_from_src =
+            _router_terminal_connections_map[link.src_gid];
         int num_conns = 0;
-        for(int i = 0; i < existing_conns_from_src.size(); i++)
-        {
+        for (int i = 0; i < existing_conns_from_src.size(); i++) {
             if (existing_conns_from_src[i]->dest_gid == conn->dest_gid)
                 num_conns++;
         }
@@ -147,13 +149,14 @@ void DragonflyNetworkManager::add_link(Link_Info link)
         _router_terminal_connections_map[link.src_gid].push_back(conn);
 
         //put into useful maps
-        _router_to_terminal_connection_map[make_pair(conn->src_gid,conn->dest_gid)].push_back(conn);
+        _router_to_terminal_connection_map[make_pair(conn->src_gid, conn->dest_gid)].push_back(
+            conn);
         _router_ids_with_terminals.insert(conn->src_gid);
 
         _num_terminal_router_conns++;
         //Terminals don't have their own interconnection mapping file that has both links so we need to create a
         //new connection for the terminal connection manager too that goes from the terminal to the router.
-        Connection *term_conn = (Connection*)malloc(sizeof(Connection));
+        Connection* term_conn = (Connection*)malloc(sizeof(Connection));
         term_conn->port = conn->rail_or_planar_id;
         term_conn->src_lid = conn->dest_lid;
         term_conn->src_gid = conn->dest_gid;
@@ -166,39 +169,35 @@ void DragonflyNetworkManager::add_link(Link_Info link)
         term_conn->is_failed = false;
 
         _terminal_router_connections_map[term_conn->src_gid].push_back(term_conn);
-        _terminal_to_router_connection_map[make_pair(term_conn->src_gid, term_conn->dest_gid)].push_back(term_conn);
+        _terminal_to_router_connection_map[make_pair(term_conn->src_gid, term_conn->dest_gid)]
+            .push_back(term_conn);
     }
 }
 
 
-void DragonflyNetworkManager::calculate_floyd_warshall_shortest_paths()
-{
-    if(!g_tw_mynode)
+void DragonflyNetworkManager::calculate_floyd_warshall_shortest_paths() {
+    if (!g_tw_mynode)
         printf("\nNetwork Manager: Performing Shortest Path Calculations...\n");
 
     _shortest_path_vals = (int**)calloc(_total_routers, sizeof(int*));
     _next = (int**)calloc(_total_routers, sizeof(int*));
-    int** costMat = (int**)malloc(_total_routers* sizeof(int*));
-    int** dist = (int**)malloc(_total_routers* sizeof(int*));
-    for(int i = 0; i < _total_routers; i++)
-    {
+    int** costMat = (int**)malloc(_total_routers * sizeof(int*));
+    int** dist = (int**)malloc(_total_routers * sizeof(int*));
+    for (int i = 0; i < _total_routers; i++) {
         _shortest_path_vals[i] = (int*)calloc(_total_routers, sizeof(int));
         _next[i] = (int*)calloc(_total_routers, sizeof(int));
         costMat[i] = (int*)calloc(_total_routers, sizeof(int));
         dist[i] = (int*)calloc(_total_routers, sizeof(int));
-        for(int j = 0; j < _total_routers; j++)
-        {
-            _shortest_path_nexts[make_pair(i,j)] = vector<int>();
+        for (int j = 0; j < _total_routers; j++) {
+            _shortest_path_nexts[make_pair(i, j)] = vector<int>();
         }
     }
 
 
     //set up cost matrix
     // int costMat[_total_routers][_total_routers];
-    for(int i = 0; i < _total_routers; i++)
-    {
-        for(int j = 0; j <_total_routers; j++)
-        {
+    for (int i = 0; i < _total_routers; i++) {
+        for (int j = 0; j < _total_routers; j++) {
             int plane_id = j / (_total_routers / _total_planes);
             int src_gid = i;
             int dest_gid = j;
@@ -215,45 +214,37 @@ void DragonflyNetworkManager::calculate_floyd_warshall_shortest_paths()
     }
 
     // int dist[_total_routers][_total_routers];
-    for(int i = 0; i < _total_routers; i++)
-    {
-        for(int j = 0; j < _total_routers; j++)
-        {
+    for (int i = 0; i < _total_routers; i++) {
+        for (int j = 0; j < _total_routers; j++) {
             dist[i][j] = costMat[i][j];
-            if(dist[i][j] == 1)
-            {
+            if (dist[i][j] == 1) {
                 _next[i][j] = j;
-                _shortest_path_nexts[make_pair(i,j)].push_back(j);
+                _shortest_path_nexts[make_pair(i, j)].push_back(j);
             }
         }
     }
-    for(int i = 0; i < _total_routers; i++)
-    {
+    for (int i = 0; i < _total_routers; i++) {
         dist[i][i] = 0;
         _next[i][i] = i;
-        _shortest_path_nexts[make_pair(i,i)].push_back(i);
+        _shortest_path_nexts[make_pair(i, i)].push_back(i);
     }
 
     int rpp = _total_routers / _total_planes;
-    for(int p = 0; p < _total_planes; p++) //we don't need to attempt to calculate distances between planes
+    for (int p = 0; p < _total_planes;
+         p++) //we don't need to attempt to calculate distances between planes
     {
-        for(int k = p*rpp; k < rpp + p*rpp; k++)
-        {
-            for(int i = p*rpp; i < rpp + p*rpp; i++)
-            {
-                for(int j = p*rpp; j < rpp + p*rpp; j++)
-                {
-                    if(dist[i][j] > dist[i][k] + dist[k][j])
-                    {
+        for (int k = p * rpp; k < rpp + p * rpp; k++) {
+            for (int i = p * rpp; i < rpp + p * rpp; i++) {
+                for (int j = p * rpp; j < rpp + p * rpp; j++) {
+                    if (dist[i][j] > dist[i][k] + dist[k][j]) {
                         dist[i][j] = dist[i][k] + dist[k][j];
-                        _shortest_path_nexts[make_pair(i,j)].clear();
-                        _shortest_path_nexts[make_pair(i,j)].push_back(_next[i][k]);
+                        _shortest_path_nexts[make_pair(i, j)].clear();
+                        _shortest_path_nexts[make_pair(i, j)].push_back(_next[i][k]);
                         _next[i][j] = _next[i][k];
 
-                    }
-                    else if (dist[i][k] + dist[k][j] == dist[i][j] && dist[i][j] != MAX_PATH_VAL && k != j && k != i)
-                    {
-                        _shortest_path_nexts[make_pair(i,j)].push_back(k);
+                    } else if (dist[i][k] + dist[k][j] == dist[i][j] &&
+                               dist[i][j] != MAX_PATH_VAL && k != j && k != i) {
+                        _shortest_path_nexts[make_pair(i, j)].push_back(k);
                     }
                 }
             }
@@ -261,19 +252,15 @@ void DragonflyNetworkManager::calculate_floyd_warshall_shortest_paths()
     }
 
 
-    for(int i = 0; i <_total_routers; i++)
-    {
-        for(int j = 0; j < _total_routers; j++)
-        {
-
+    for (int i = 0; i < _total_routers; i++) {
+        for (int j = 0; j < _total_routers; j++) {
             _shortest_path_vals[i][j] = dist[i][j];
             // printf("%d ",_shortest_path_vals[i][j]);
         }
         // printf("\n");
     }
 
-    for(int i = 0; i < _total_routers; i++)
-    {
+    for (int i = 0; i < _total_routers; i++) {
         free(dist[i]);
         free(costMat[i]);
     }
@@ -281,118 +268,111 @@ void DragonflyNetworkManager::calculate_floyd_warshall_shortest_paths()
     free(costMat);
 }
 
-int DragonflyNetworkManager::get_shortest_dist_between_routers(int src_gid, int dest_gid)
-{
+int DragonflyNetworkManager::get_shortest_dist_between_routers(int src_gid, int dest_gid) {
     return _shortest_path_vals[src_gid][dest_gid];
 }
 
-vector<int> DragonflyNetworkManager::get_shortest_nexts(int src_gid, int dest_gid)
-{
-    if(_shortest_path_nexts[make_pair(src_gid,dest_gid)][0] == dest_gid)
-    {
+vector<int> DragonflyNetworkManager::get_shortest_nexts(int src_gid, int dest_gid) {
+    if (_shortest_path_nexts[make_pair(src_gid, dest_gid)][0] == dest_gid) {
         vector<int> dest;
         dest.push_back(dest_gid);
         return dest;
-    }
-    else {
-        return _shortest_path_nexts[make_pair(src_gid,dest_gid)];
+    } else {
+        return _shortest_path_nexts[make_pair(src_gid, dest_gid)];
     }
 }
 
-void DragonflyNetworkManager::enable_link_failures()
-{
+void DragonflyNetworkManager::enable_link_failures() {
     _link_failures_enabled = true;
 }
 
-bool DragonflyNetworkManager::is_link_failures_enabled()
-{
+bool DragonflyNetworkManager::is_link_failures_enabled() {
     return _link_failures_enabled;
 }
 
-DragonflyConnectionManager& DragonflyNetworkManager::get_connection_manager_for_router(int router_gid)
-{
+DragonflyConnectionManager&
+DragonflyNetworkManager::get_connection_manager_for_router(int router_gid) {
     return _connection_manager_list[router_gid];
 }
 
-DragonflyConnectionManager& DragonflyNetworkManager::get_connection_manager_for_terminal(int terminal_gid)
-{
+DragonflyConnectionManager&
+DragonflyNetworkManager::get_connection_manager_for_terminal(int terminal_gid) {
     return _terminal_connection_manager_list[terminal_gid];
 }
 
-int DragonflyNetworkManager::get_max_local_hops()
-{
+int DragonflyNetworkManager::get_max_local_hops() {
     return _max_local_hops_per_group;
 }
 
-int DragonflyNetworkManager::get_max_global_hops()
-{
+int DragonflyNetworkManager::get_max_global_hops() {
     return _max_global_hops;
 }
 
-void DragonflyNetworkManager::add_link_failure_info(Link_Info link)
-{
-    if(_link_failures_enabled == false)
-        tw_error(TW_LOC,"Network Manager: attempting to add link failure info but link failure has not been enabled via NetworkManager.allow_link_failures()\n");
+void DragonflyNetworkManager::add_link_failure_info(Link_Info link) {
+    if (_link_failures_enabled == false)
+        tw_error(TW_LOC, "Network Manager: attempting to add link failure info but link failure "
+                         "has not been enabled via NetworkManager.allow_link_failures()\n");
 
-    if (link.conn_type != CONN_TERMINAL)
-    {
+    if (link.conn_type != CONN_TERMINAL) {
         _router_link_failure_lists[link.src_gid].push_back(link);
         _num_failed_router_conns++;
-    }
-    else
-    {
+    } else {
         _router_terminal_link_failure_lists[link.src_gid].push_back(link);
         _num_failed_router_terminal_conns++;
     }
 }
 
-int DragonflyNetworkManager::get_failed_count_from_vector(vector<Connection*> conns)
-{
+int DragonflyNetworkManager::get_failed_count_from_vector(vector<Connection*> conns) {
     int count = 0;
     vector<Connection*>::iterator it = conns.begin();
-    for(; it != conns.end(); it++)
-    {
+    for (; it != conns.end(); it++) {
         if ((*it)->is_failed)
             count++;
     }
     return count;
 }
 
-void DragonflyNetworkManager::fail_connection(Link_Info link)
-{
-    if(_link_failures_enabled == false)
-        tw_error(TW_LOC,"Network Manager: attempting to fail link but link failure has not been enabled via NetworkManager.allow_link_failures()\n");
+void DragonflyNetworkManager::fail_connection(Link_Info link) {
+    if (_link_failures_enabled == false)
+        tw_error(TW_LOC, "Network Manager: attempting to fail link but link failure has not been "
+                         "enabled via NetworkManager.allow_link_failures()\n");
 
-    if (link.conn_type != CONN_TERMINAL)
-    {
-        vector<Connection*> conns_to_gid = _router_to_router_connection_map[make_pair(link.src_gid,link.dest_gid)];
+    if (link.conn_type != CONN_TERMINAL) {
+        vector<Connection*> conns_to_gid =
+            _router_to_router_connection_map[make_pair(link.src_gid, link.dest_gid)];
         int num_failed_already = get_failed_count_from_vector(conns_to_gid);
         if (num_failed_already == conns_to_gid.size())
-            tw_error(TW_LOC, "Attempting to fail more links from router GID %d to router GID %d than exist; Link Type %d; Already Failed %d\n", link.src_gid, link.dest_gid, link.conn_type, num_failed_already);
+            tw_error(TW_LOC,
+                     "Attempting to fail more links from router GID %d to router GID %d than "
+                     "exist; Link Type %d; Already Failed %d\n",
+                     link.src_gid, link.dest_gid, link.conn_type, num_failed_already);
 
-        vector<Connection*>:: iterator it = _router_to_router_connection_map[make_pair(link.src_gid,link.dest_gid)].begin();
-        for(; it != _router_to_router_connection_map[make_pair(link.src_gid,link.dest_gid)].end(); it++)
-        {
-            if(!(*it)->is_failed)
-            {
+        vector<Connection*>::iterator it =
+            _router_to_router_connection_map[make_pair(link.src_gid, link.dest_gid)].begin();
+        for (; it != _router_to_router_connection_map[make_pair(link.src_gid, link.dest_gid)].end();
+             it++) {
+            if (!(*it)->is_failed) {
                 (*it)->is_failed = 1;
                 break;
             }
         }
-    }
-    else
-    {
-        vector<Connection*> conns_to_term_gid = _router_to_terminal_connection_map[make_pair(link.src_gid,link.dest_gid)];
+    } else {
+        vector<Connection*> conns_to_term_gid =
+            _router_to_terminal_connection_map[make_pair(link.src_gid, link.dest_gid)];
         int num_failed_already = get_failed_count_from_vector(conns_to_term_gid);
         if (num_failed_already == conns_to_term_gid.size())
-            tw_error(TW_LOC, "Attempting to fail more links from router GID %d to Terminal GID %d than exist. Already Failed %d\n", link.src_gid, link.dest_gid, num_failed_already);
+            tw_error(TW_LOC,
+                     "Attempting to fail more links from router GID %d to Terminal GID %d than "
+                     "exist. Already Failed %d\n",
+                     link.src_gid, link.dest_gid, num_failed_already);
 
         int failed_rail = 0;
-        vector<Connection*>:: iterator it = _router_to_terminal_connection_map[make_pair(link.src_gid,link.dest_gid)].begin();
-        for(; it != _router_to_terminal_connection_map[make_pair(link.src_gid,link.dest_gid)].end(); it++)
-        {
-            if(!(*it)->is_failed)
-            {
+        vector<Connection*>::iterator it =
+            _router_to_terminal_connection_map[make_pair(link.src_gid, link.dest_gid)].begin();
+        for (;
+             it != _router_to_terminal_connection_map[make_pair(link.src_gid, link.dest_gid)].end();
+             it++) {
+            if (!(*it)->is_failed) {
                 (*it)->is_failed = 1;
                 failed_rail = (*it)->rail_or_planar_id;
                 break;
@@ -402,12 +382,11 @@ void DragonflyNetworkManager::fail_connection(Link_Info link)
         //we also need to fail the corresponding injection link
         int router_id = link.src_gid;
         int term_id = link.dest_gid;
-        
-        it =_terminal_to_router_connection_map[make_pair(term_id,router_id)].begin();
-        for(; it != _terminal_to_router_connection_map[make_pair(term_id,router_id)].end(); it++)
-        {
-            if((*it)->rail_or_planar_id == failed_rail)
-            {
+
+        it = _terminal_to_router_connection_map[make_pair(term_id, router_id)].begin();
+        for (; it != _terminal_to_router_connection_map[make_pair(term_id, router_id)].end();
+             it++) {
+            if ((*it)->rail_or_planar_id == failed_rail) {
                 (*it)->is_failed = 1;
                 break;
             }
@@ -416,220 +395,203 @@ void DragonflyNetworkManager::fail_connection(Link_Info link)
 }
 
 
-set<Connection> DragonflyNetworkManager::get_valid_next_hops_conns(int src_gid, int dest_gid, int max_local, int exact_global)
-{
-    set<Connection>valid_nexts;
-    if((src_gid / (_total_routers/_total_planes)) != (dest_gid / (_total_routers/_total_planes)))
-    {
+set<Connection> DragonflyNetworkManager::get_valid_next_hops_conns(int src_gid, int dest_gid,
+                                                                   int max_local,
+                                                                   int exact_global) {
+    set<Connection> valid_nexts;
+    if ((src_gid / (_total_routers / _total_planes)) !=
+        (dest_gid / (_total_routers / _total_planes))) {
         return valid_nexts; //different planes have no valid path between them
     }
 
-    if(src_gid == dest_gid && exact_global == 0) {
+    if (src_gid == dest_gid && exact_global == 0) {
         Connection dest_conn;
         dest_conn.dest_gid == DEST;
         valid_nexts.insert(dest_conn);
         return valid_nexts;
     }
-    if(max_local >= 0 && exact_global >=0)
-    {
+    if (max_local >= 0 && exact_global >= 0) {
         try {
-            valid_nexts = _valid_next_conn_map.at(make_tuple(src_gid,dest_gid,max_local,exact_global));
+            valid_nexts =
+                _valid_next_conn_map.at(make_tuple(src_gid, dest_gid, max_local, exact_global));
             return valid_nexts;
         } catch (exception e) {
             // printf("<%d,%d,%d,%d>nonmemo'd\n",src_gid, dest_gid, max_local, exact_global);
-        
+
             vector<Connection*> local_conns_from_src = _router_to_router_local_conn_map[src_gid];
             vector<Connection*> global_conns_from_src = _router_to_router_global_conn_map[src_gid];
 
-            if (max_local > 0)
-            {
-                for(int i = 0; i < local_conns_from_src.size(); i++)
-                {
-                    if (local_conns_from_src[i]->is_failed == false)
-                    {
+            if (max_local > 0) {
+                for (int i = 0; i < local_conns_from_src.size(); i++) {
+                    if (local_conns_from_src[i]->is_failed == false) {
                         set<Connection> ret_valid;
-                            ret_valid = get_valid_next_hops_conns(local_conns_from_src[i]->dest_gid, dest_gid, max_local-1, exact_global); 
-                        if (ret_valid.size() > 0)
-                        {
+                        ret_valid =
+                            get_valid_next_hops_conns(local_conns_from_src[i]->dest_gid, dest_gid,
+                                                      max_local - 1, exact_global);
+                        if (ret_valid.size() > 0) {
                             valid_nexts.insert(*local_conns_from_src[i]);
                         }
                     }
                 }
             }
-            if (exact_global > 0)
-            {
-                for(int i = 0; i < global_conns_from_src.size(); i++)
-                {
-                    if (global_conns_from_src[i]->is_failed == false)
-                    {              
+            if (exact_global > 0) {
+                for (int i = 0; i < global_conns_from_src.size(); i++) {
+                    if (global_conns_from_src[i]->is_failed == false) {
                         set<Connection> ret_valid;
-                            ret_valid = get_valid_next_hops_conns(global_conns_from_src[i]->dest_gid, dest_gid, _max_local_hops_per_group, exact_global-1); 
-                        if (ret_valid.size() > 0)
-                        {
+                        ret_valid =
+                            get_valid_next_hops_conns(global_conns_from_src[i]->dest_gid, dest_gid,
+                                                      _max_local_hops_per_group, exact_global - 1);
+                        if (ret_valid.size() > 0) {
                             valid_nexts.insert(*global_conns_from_src[i]);
                         }
                     }
                 }
             }
-            _valid_next_conn_map[make_tuple(src_gid,dest_gid,max_local,exact_global)].insert(valid_nexts.begin(),valid_nexts.end());
+            _valid_next_conn_map[make_tuple(src_gid, dest_gid, max_local, exact_global)].insert(
+                valid_nexts.begin(), valid_nexts.end());
         }
     }
     return valid_nexts;
 }
 
-void DragonflyNetworkManager::add_conns_to_connection_managers()
-{
-    for(int i = 0; i < _total_routers; i++)
-    {
+void DragonflyNetworkManager::add_conns_to_connection_managers() {
+    for (int i = 0; i < _total_routers; i++) {
         vector<Connection*> conn_vec = _router_connections_map[i];
-        for(int j = 0; j < conn_vec.size(); j++)
-        {
+        for (int j = 0; j < conn_vec.size(); j++) {
             int port_no = _connection_manager_list[i].add_connection(*conn_vec[j]);
             conn_vec[j]->port = port_no;
         }
     }
 
-    for(int i = 0; i < _total_routers; i++)
-    {
+    for (int i = 0; i < _total_routers; i++) {
         vector<Connection*> conn_vec = _router_terminal_connections_map[i];
-        for(int j = 0; j < conn_vec.size(); j++)
-        {
+        for (int j = 0; j < conn_vec.size(); j++) {
             int port_no = _connection_manager_list[i].add_connection(*conn_vec[j]);
             conn_vec[j]->port = port_no;
         }
     }
 
-    for(int i = 0; i < _total_terminals; i++)
-    {
+    for (int i = 0; i < _total_terminals; i++) {
         vector<Connection*> conn_vec = _terminal_router_connections_map[i];
-        for(int j = 0; j < conn_vec.size(); j++)
-        {
+        for (int j = 0; j < conn_vec.size(); j++) {
             _terminal_connection_manager_list[i].add_connection(*conn_vec[j]);
         }
     }
 
-    for(int i = 0; i < _total_routers; i++)
-    {
+    for (int i = 0; i < _total_routers; i++) {
         int src_grp_id = i / _num_routers_per_group;
 
-        map< int, vector< Connection > > map_for_this_router_to_groups;
-        for(int j = 0; j < _total_groups; j++)
-        {
+        map<int, vector<Connection>> map_for_this_router_to_groups;
+        for (int j = 0; j < _total_groups; j++) {
             int dest_grp_id = j;
-            pair<int,int> group_pair = make_pair(src_grp_id, dest_grp_id);
+            pair<int, int> group_pair = make_pair(src_grp_id, dest_grp_id);
             vector<Connection> derefd_vec;
-            for(vector<Connection*>::iterator it = _global_group_connection_map[group_pair].begin(); it!= _global_group_connection_map[group_pair].end(); it++)
-            {
+            for (vector<Connection*>::iterator it =
+                     _global_group_connection_map[group_pair].begin();
+                 it != _global_group_connection_map[group_pair].end(); it++) {
                 derefd_vec.push_back(*(*it));
             }
             map_for_this_router_to_groups[dest_grp_id] = derefd_vec;
         }
         _connection_manager_list[i].set_routed_connections_to_groups(map_for_this_router_to_groups);
-        _connection_manager_list[i].add_group_group_connection_information(_global_group_connection_map);
-
+        _connection_manager_list[i].add_group_group_connection_information(
+            _global_group_connection_map);
     }
 }
 
 
-void DragonflyNetworkManager::solidify_network()
-{
-
+void DragonflyNetworkManager::solidify_network() {
     adjacency_matrix = (int***)calloc(_total_planes, sizeof(int**));
     adjacency_matrix_nofail = (int***)calloc(_total_planes, sizeof(int**));
 
-    for(int i = 0; i < _total_planes; i++)
-    {
+    for (int i = 0; i < _total_planes; i++) {
         adjacency_matrix[i] = (int**)calloc(_total_routers, sizeof(int*));
         adjacency_matrix_nofail[i] = (int**)calloc(_total_routers, sizeof(int*));
-        for(int j = 0; j < _total_routers; j++)
-        {
-            adjacency_matrix[i][j] = (int*)calloc(_total_routers,sizeof(int));
-            adjacency_matrix_nofail[i][j] = (int*)calloc(_total_routers,sizeof(int));
+        for (int j = 0; j < _total_routers; j++) {
+            adjacency_matrix[i][j] = (int*)calloc(_total_routers, sizeof(int));
+            adjacency_matrix_nofail[i][j] = (int*)calloc(_total_routers, sizeof(int));
         }
     }
 
 
-    for(int i = 0; i < _total_routers; i++)
-    {
+    for (int i = 0; i < _total_routers; i++) {
         int src_gid = i;
         vector<Connection*> conns_from_src = _router_connections_map[src_gid];
         vector<Connection*>::iterator it = conns_from_src.begin();
-        for(; it != conns_from_src.end(); it++)
-        {
+        for (; it != conns_from_src.end(); it++) {
             int plane_id = (*it)->rail_or_planar_id;
             int dest_gid = (*it)->dest_gid;
-            adjacency_matrix[plane_id][src_gid][dest_gid] = 1; //bidirectional will be handled later in the loop
+            adjacency_matrix[plane_id][src_gid][dest_gid] =
+                1; //bidirectional will be handled later in the loop
         }
     }
 
-    map<int, vector<Link_Info> >::iterator it;
+    map<int, vector<Link_Info>>::iterator it;
     //fail the router router connections
-    for(it = _router_link_failure_lists.begin(); it != _router_link_failure_lists.end(); it++)
-    {
+    for (it = _router_link_failure_lists.begin(); it != _router_link_failure_lists.end(); it++) {
         //iterate over vector of link info
-        for(int i = 0; i < it->second.size(); i++)
-        {
+        for (int i = 0; i < it->second.size(); i++) {
             Link_Info link = it->second[i];
             fail_connection(link);
         }
     }
 
     //fail the router terminal connections
-    for(it = _router_terminal_link_failure_lists.begin(); it != _router_terminal_link_failure_lists.end(); it++)
-    {
+    for (it = _router_terminal_link_failure_lists.begin();
+         it != _router_terminal_link_failure_lists.end(); it++) {
         //iterate over vector of link info
-        for(int i = 0; i < it->second.size(); i++)
-        {
+        for (int i = 0; i < it->second.size(); i++) {
             Link_Info link = it->second[i];
             fail_connection(link);
         }
     }
 
-    for(int i = 0; i < _total_routers; i++)
-    {
+    for (int i = 0; i < _total_routers; i++) {
         int src_gid = i;
-        vector<Connection *> conns_from_src = _router_connections_map[src_gid];
+        vector<Connection*> conns_from_src = _router_connections_map[src_gid];
         vector<Connection*>::iterator it = conns_from_src.begin();
-        for(; it != conns_from_src.end(); it++)
-        {
+        for (; it != conns_from_src.end(); it++) {
             int plane_id = (*it)->rail_or_planar_id;
             int dest_gid = (*it)->dest_gid;
-            if((*it)->is_failed == false)
-                adjacency_matrix_nofail[plane_id][src_gid][dest_gid] = 1; //bidirectional will be handled later in the loop
+            if ((*it)->is_failed == false)
+                adjacency_matrix_nofail[plane_id][src_gid][dest_gid] =
+                    1; //bidirectional will be handled later in the loop
         }
     }
 
-    if(ENABLE_SHORT_PATH_CALC)
+    if (ENABLE_SHORT_PATH_CALC)
         calculate_floyd_warshall_shortest_paths();
 
     //add copies of all of the connections to the connection managers
     add_conns_to_connection_managers();
-    for(vector<DragonflyConnectionManager>::iterator it = _connection_manager_list.begin(); it != _connection_manager_list.end(); it++)
-    {
+    for (vector<DragonflyConnectionManager>::iterator it = _connection_manager_list.begin();
+         it != _connection_manager_list.end(); it++) {
         it->solidify_connections(); //solidify those connection managers
     }
-    for(vector<DragonflyConnectionManager>::iterator it = _terminal_connection_manager_list.begin(); it != _terminal_connection_manager_list.end(); it++)
-    {
+    for (vector<DragonflyConnectionManager>::iterator it =
+             _terminal_connection_manager_list.begin();
+         it != _terminal_connection_manager_list.end(); it++) {
         it->solidify_connections();
     }
 
-    if(is_link_failures_enabled())
-    {
+    if (is_link_failures_enabled()) {
         printf("Network Manager: precalculating valid paths\n");
         int rpp = _total_routers / _total_planes;
-        for(int p = 0; p < _total_planes; p++)
-        {
-            for(int i = 0; i < rpp;i++)
-            {
-                for(int j = 0; j < rpp;j++)
-                {
-                    int src_gid = i + (p*rpp);
-                    int dest_gid = j + (p*rpp);
+        for (int p = 0; p < _total_planes; p++) {
+            for (int i = 0; i < rpp; i++) {
+                for (int j = 0; j < rpp; j++) {
+                    int src_gid = i + (p * rpp);
+                    int dest_gid = j + (p * rpp);
                     // if (_router_ids_with_terminals.count(src_gid) > 0 && _router_ids_with_terminals.count(dest_gid) > 0) {
-                        // printf("next from %d to %d\n",src_gid,dest_gid);
-                    for(int local_hops = 0; local_hops <= _max_local_hops_per_group; local_hops++) {
-                        set<Connection> ret_valid = get_valid_next_hops_conns(src_gid,dest_gid,local_hops,_max_global_hops);
-                        _valid_next_conn_map[make_tuple(src_gid,dest_gid,local_hops,_max_global_hops)].insert(ret_valid.begin(), ret_valid.end());
+                    // printf("next from %d to %d\n",src_gid,dest_gid);
+                    for (int local_hops = 0; local_hops <= _max_local_hops_per_group;
+                         local_hops++) {
+                        set<Connection> ret_valid =
+                            get_valid_next_hops_conns(src_gid, dest_gid, local_hops,
+                                                      _max_global_hops);
+                        _valid_next_conn_map[make_tuple(src_gid, dest_gid, local_hops,
+                                                        _max_global_hops)]
+                            .insert(ret_valid.begin(), ret_valid.end());
                         // printf("Precalc <%d,%d,%d,%d>\n",src_gid,dest_gid,local_hops,_max_global_hops);
                     }
                     // }
@@ -644,18 +606,23 @@ void DragonflyNetworkManager::solidify_network()
 
 
 //*******************    Connection Manager Implementation *******************************************
-DragonflyConnectionManager::DragonflyConnectionManager()
-{
+DragonflyConnectionManager::DragonflyConnectionManager() {
     DragonflyConnectionManager(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, MAN_ROUTER);
 }
 
-DragonflyConnectionManager::DragonflyConnectionManager(int src_id_local, int src_id_global, int src_group, int max_intra, int max_inter, int max_term, int num_router_per_group, int num_groups)
-{
-    DragonflyConnectionManager(src_id_local, src_id_global, src_group, max_intra, max_inter, max_term, 0, num_router_per_group, num_groups, 1, MAN_ROUTER);
+DragonflyConnectionManager::DragonflyConnectionManager(int src_id_local, int src_id_global,
+                                                       int src_group, int max_intra, int max_inter,
+                                                       int max_term, int num_router_per_group,
+                                                       int num_groups) {
+    DragonflyConnectionManager(src_id_local, src_id_global, src_group, max_intra, max_inter,
+                               max_term, 0, num_router_per_group, num_groups, 1, MAN_ROUTER);
 }
 
-DragonflyConnectionManager::DragonflyConnectionManager(int src_id_local, int src_id_global, int src_group, int max_intra, int max_inter, int max_term, int max_injection, int num_router_per_group, int num_groups, int num_planes, ManagerType manType)
-{
+DragonflyConnectionManager::DragonflyConnectionManager(int src_id_local, int src_id_global,
+                                                       int src_group, int max_intra, int max_inter,
+                                                       int max_term, int max_injection,
+                                                       int num_router_per_group, int num_groups,
+                                                       int num_planes, ManagerType manType) {
     _manType = manType;
 
     _source_id_local = src_id_local;
@@ -683,10 +650,10 @@ DragonflyConnectionManager::DragonflyConnectionManager(int src_id_local, int src
     is_solidified = false;
 }
 
-int DragonflyConnectionManager::add_connection(int dest_gid, ConnectionType type)
-{
+int DragonflyConnectionManager::add_connection(int dest_gid, ConnectionType type) {
     if (is_solidified)
-        tw_error(TW_LOC,"DragonflyConnectionManager: Attempting to add connections after manager has been solidified!\n");
+        tw_error(TW_LOC, "DragonflyConnectionManager: Attempting to add connections after manager "
+                         "has been solidified!\n");
 
     Connection conn;
     conn.src_lid = _source_id_local;
@@ -702,88 +669,93 @@ int DragonflyConnectionManager::add_connection(int dest_gid, ConnectionType type
     return port;
 }
 
-int DragonflyConnectionManager::add_connection(Connection conn)
-{
+int DragonflyConnectionManager::add_connection(Connection conn) {
     if (is_solidified)
-        tw_error(TW_LOC,"DragonflyConnectionManager: Attempting to add connections after manager has been solidified!\n");
+        tw_error(TW_LOC, "DragonflyConnectionManager: Attempting to add connections after manager "
+                         "has been solidified!\n");
 
-    switch (conn.conn_type)
-    {
-        case CONN_LOCAL:
-            if (_manType == MAN_TERMINAL)
-                tw_error(TW_LOC, "Attempting to add local connections to a terminal connection manager\n");
-            if (_used_intra_ports < _max_intra_ports){
-                conn.port = this->get_used_ports_for(CONN_LOCAL);
-                intraGroupConnections[conn.dest_lid].push_back(conn);
-                intraGroupConnectionsGID[conn.dest_gid].push_back(conn);
-                _used_intra_ports++;
-                _connected_to_router_gids.insert(conn.dest_gid);
-            }
-            else
-                tw_error(TW_LOC,"Attempting to add too many local connections per router - exceeding configuration value: %d",_max_intra_ports);
-            break;
-        case CONN_GLOBAL:
-            // printf("R%d P%d: Global Add to %d\n", _source_id_global, conn.rail_or_planar_id, conn.dest_gid);
+    switch (conn.conn_type) {
+    case CONN_LOCAL:
+        if (_manType == MAN_TERMINAL)
+            tw_error(TW_LOC,
+                     "Attempting to add local connections to a terminal connection manager\n");
+        if (_used_intra_ports < _max_intra_ports) {
+            conn.port = this->get_used_ports_for(CONN_LOCAL);
+            intraGroupConnections[conn.dest_lid].push_back(conn);
+            intraGroupConnectionsGID[conn.dest_gid].push_back(conn);
+            _used_intra_ports++;
+            _connected_to_router_gids.insert(conn.dest_gid);
+        } else
+            tw_error(TW_LOC,
+                     "Attempting to add too many local connections per router - exceeding "
+                     "configuration value: %d",
+                     _max_intra_ports);
+        break;
+    case CONN_GLOBAL:
+        // printf("R%d P%d: Global Add to %d\n", _source_id_global, conn.rail_or_planar_id, conn.dest_gid);
 
-            if (_manType == MAN_TERMINAL)
-                tw_error(TW_LOC, "Attempting to add global connections to a terminal connection manager\n");
-            if(_used_inter_ports < _max_inter_ports) {
-                conn.port = _max_intra_ports + this->get_used_ports_for(CONN_GLOBAL);
-                globalConnections[conn.dest_gid].push_back(conn);
-                _used_inter_ports++;
-                _connected_to_router_gids.insert(conn.dest_gid);
-            }
-            else
-                tw_error(TW_LOC,"Attempting to add too many global connections per router - exceeding configuration value: %d",_max_inter_ports);
-            break;
-        case CONN_TERMINAL:
-            if (_manType == MAN_TERMINAL)
-                tw_error(TW_LOC, "Attempting to add terminal connections to a terminal connection manager\n");
-            if(_used_terminal_ports < _max_terminal_ports){
-                conn.port = _max_intra_ports + _max_inter_ports + this->get_used_ports_for(CONN_TERMINAL);
-                conn.dest_group_id = _source_group;
-                terminalConnections[conn.dest_gid].push_back(conn);
-                _used_terminal_ports++;
-                _connected_to_terminal_gids.insert(conn.dest_gid);
-            }
-            else
-                tw_error(TW_LOC,"Attempting to add too many terminal connections per router - exceeding configuration value: %d",_max_terminal_ports);
-            break;
-        case CONN_INJECTION:
-            if(_used_injection_ports < _max_injection_ports){
-                injectionConnections[conn.dest_gid].push_back(conn);
-                _used_injection_ports++;
-                _connected_to_router_gids.insert(conn.dest_gid);
-            }
-            break;
-        default:
-            assert(false);
+        if (_manType == MAN_TERMINAL)
+            tw_error(TW_LOC,
+                     "Attempting to add global connections to a terminal connection manager\n");
+        if (_used_inter_ports < _max_inter_ports) {
+            conn.port = _max_intra_ports + this->get_used_ports_for(CONN_GLOBAL);
+            globalConnections[conn.dest_gid].push_back(conn);
+            _used_inter_ports++;
+            _connected_to_router_gids.insert(conn.dest_gid);
+        } else
+            tw_error(TW_LOC,
+                     "Attempting to add too many global connections per router - exceeding "
+                     "configuration value: %d",
+                     _max_inter_ports);
+        break;
+    case CONN_TERMINAL:
+        if (_manType == MAN_TERMINAL)
+            tw_error(TW_LOC,
+                     "Attempting to add terminal connections to a terminal connection manager\n");
+        if (_used_terminal_ports < _max_terminal_ports) {
+            conn.port =
+                _max_intra_ports + _max_inter_ports + this->get_used_ports_for(CONN_TERMINAL);
+            conn.dest_group_id = _source_group;
+            terminalConnections[conn.dest_gid].push_back(conn);
+            _used_terminal_ports++;
+            _connected_to_terminal_gids.insert(conn.dest_gid);
+        } else
+            tw_error(TW_LOC,
+                     "Attempting to add too many terminal connections per router - exceeding "
+                     "configuration value: %d",
+                     _max_terminal_ports);
+        break;
+    case CONN_INJECTION:
+        if (_used_injection_ports < _max_injection_ports) {
+            injectionConnections[conn.dest_gid].push_back(conn);
+            _used_injection_ports++;
+            _connected_to_router_gids.insert(conn.dest_gid);
+        }
+        break;
+    default:
+        assert(false);
     }
 
     _portMap[conn.port] = conn;
     return conn.port;
 }
 
-void DragonflyConnectionManager::add_group_group_connection_information(map<pair<int,int>, vector<Connection*> > group_group_connections)
-{
-    map<pair<int, int>, vector<Connection*> >::iterator map_it = group_group_connections.begin();
-    for(; map_it != group_group_connections.end(); map_it++)
-    {
-        pair<int,int> pair_key = map_it->first;
+void DragonflyConnectionManager::add_group_group_connection_information(
+    map<pair<int, int>, vector<Connection*>> group_group_connections) {
+    map<pair<int, int>, vector<Connection*>>::iterator map_it = group_group_connections.begin();
+    for (; map_it != group_group_connections.end(); map_it++) {
+        pair<int, int> pair_key = map_it->first;
         int src_grp = pair_key.first;
         int dest_grp = pair_key.second;
 
-        if(map_it->second.size() > 0)
-        {
+        if (map_it->second.size() > 0) {
             add_as_if_set_int(dest_grp, _group_group_connection_map[src_grp]);
             add_as_if_set_int(src_grp, _group_group_connection_map[dest_grp]);
         }
 
         vector<Connection*>::iterator vec_it = map_it->second.begin();
-        for(; vec_it != map_it->second.end(); vec_it++)
-        {
-            if((*vec_it)->is_failed == false)
-            {
+        for (; vec_it != map_it->second.end(); vec_it++) {
+            if ((*vec_it)->is_failed == false) {
                 add_as_if_set_int(dest_grp, _group_group_connection_map_nofail[src_grp]);
                 add_as_if_set_int(src_grp, _group_group_connection_map_nofail[dest_grp]);
                 break;
@@ -792,49 +764,42 @@ void DragonflyConnectionManager::add_group_group_connection_information(map<pair
     }
 }
 
-void DragonflyConnectionManager::set_routed_connections_to_groups(map<int, vector<Connection> > conn_map)
-{
+void DragonflyConnectionManager::set_routed_connections_to_groups(
+    map<int, vector<Connection>> conn_map) {
     _routed_connections_to_group_map = conn_map;
 }
 
-vector< Connection > DragonflyConnectionManager::get_routed_connections_to_group(int group_id, bool get_next_hop, bool include_failed)
-{
-    vector< Connection > conns;
-    vector< Connection >::iterator it;
+vector<Connection>
+DragonflyConnectionManager::get_routed_connections_to_group(int group_id, bool get_next_hop,
+                                                            bool include_failed) {
+    vector<Connection> conns;
+    vector<Connection>::iterator it;
 
-    if (include_failed == false)
-    {
-        for(it = _routed_connections_to_group_map_nofail[group_id].begin(); it != _routed_connections_to_group_map_nofail[group_id].end(); it++)
-        {
-
+    if (include_failed == false) {
+        for (it = _routed_connections_to_group_map_nofail[group_id].begin();
+             it != _routed_connections_to_group_map_nofail[group_id].end(); it++) {
             if (get_next_hop) //then verify that we have a direct connection to the src_lid of this routed conn
             {
-                vector< Connection > local_conns = get_connections_to_gid(it->src_gid, CONN_LOCAL, include_failed);
+                vector<Connection> local_conns =
+                    get_connections_to_gid(it->src_gid, CONN_LOCAL, include_failed);
                 conns.insert(conns.end(), local_conns.begin(), local_conns.end());
-            }
-            else
-            {
-                if(!include_failed)
-                {
-                    if(it->is_failed == false)
+            } else {
+                if (!include_failed) {
+                    if (it->is_failed == false)
                         conns.push_back(*it);
-                }
-                else
+                } else
                     conns.push_back(*it);
             }
         }
-    }
-    else{
-        for(it = _routed_connections_to_group_map[group_id].begin(); it != _routed_connections_to_group_map[group_id].end(); it++)
-        {
-
+    } else {
+        for (it = _routed_connections_to_group_map[group_id].begin();
+             it != _routed_connections_to_group_map[group_id].end(); it++) {
             if (get_next_hop) //then verify that we have a direct connection to the src_lid of this routed conn
             {
-                vector< Connection > local_conns = get_connections_to_gid(it->src_gid, CONN_LOCAL, include_failed);
+                vector<Connection> local_conns =
+                    get_connections_to_gid(it->src_gid, CONN_LOCAL, include_failed);
                 conns.insert(conns.end(), local_conns.begin(), local_conns.end());
-            }
-            else
-            {
+            } else {
                 conns.push_back(*it);
             }
         }
@@ -843,36 +808,35 @@ vector< Connection > DragonflyConnectionManager::get_routed_connections_to_group
     return conns;
 }
 
-vector< Connection > DragonflyConnectionManager::get_routed_connections_to_group(int group_id, bool get_next_hop)
-{
+vector<Connection> DragonflyConnectionManager::get_routed_connections_to_group(int group_id,
+                                                                               bool get_next_hop) {
     return get_routed_connections_to_group(group_id, get_next_hop, false);
 }
 
-vector< Connection > DragonflyConnectionManager::get_next_hop_routed_connections_to_group(int group_id, bool include_failed)
-{
+vector<Connection>
+DragonflyConnectionManager::get_next_hop_routed_connections_to_group(int group_id,
+                                                                     bool include_failed) {
     if (include_failed)
         return _next_hop_routed_connections_to_group_map[group_id];
     else
         return _next_hop_routed_connections_to_group_map_nofail[group_id];
 }
 
-vector< Connection > DragonflyConnectionManager::get_next_hop_routed_connections_to_group(int group_id)
-{
+vector<Connection>
+DragonflyConnectionManager::get_next_hop_routed_connections_to_group(int group_id) {
     return get_next_hop_routed_connections_to_group(group_id, false);
 }
 
-vector< int > DragonflyConnectionManager::get_accessible_group_ids()
-{
+vector<int> DragonflyConnectionManager::get_accessible_group_ids() {
     return _accessible_group_ids_nofail;
 }
 
-vector< int > DragonflyConnectionManager::get_router_gids_with_global_to_group(int group_id)
-{
+vector<int> DragonflyConnectionManager::get_router_gids_with_global_to_group(int group_id) {
     return get_router_gids_with_global_to_group(group_id, false);
 }
 
-vector< int > DragonflyConnectionManager::get_router_gids_with_global_to_group(int group_id, bool include_failed)
-{
+vector<int> DragonflyConnectionManager::get_router_gids_with_global_to_group(int group_id,
+                                                                             bool include_failed) {
     try {
         if (include_failed)
             return _routed_router_gids_to_group_map.at(group_id);
@@ -884,9 +848,9 @@ vector< int > DragonflyConnectionManager::get_router_gids_with_global_to_group(i
 }
 
 
-vector< int > DragonflyConnectionManager::get_groups_that_connect_to_group(int dest_group, bool include_failed)
-{
-    try{
+vector<int> DragonflyConnectionManager::get_groups_that_connect_to_group(int dest_group,
+                                                                         bool include_failed) {
+    try {
         if (include_failed)
             return _group_group_connection_map.at(dest_group);
         else
@@ -894,71 +858,62 @@ vector< int > DragonflyConnectionManager::get_groups_that_connect_to_group(int d
     } catch (exception e) {
         return vector<int>();
     }
-
 }
 
-vector< int > DragonflyConnectionManager::get_groups_that_connect_to_group(int dest_group)
-{
+vector<int> DragonflyConnectionManager::get_groups_that_connect_to_group(int dest_group) {
     return get_groups_that_connect_to_group(dest_group, false);
 }
 
-int DragonflyConnectionManager::get_source_id(ConnectionType type)
-{
-    switch (type)
-    {
-        case CONN_LOCAL:
-            return _source_id_local;
-        case CONN_GLOBAL:
-            return _source_id_global;
-        default:
-            assert(false);
-            // TW_ERROR(TW_LOC, "get_source_id(type): Unsupported connection type\n");
+int DragonflyConnectionManager::get_source_id(ConnectionType type) {
+    switch (type) {
+    case CONN_LOCAL:
+        return _source_id_local;
+    case CONN_GLOBAL:
+        return _source_id_global;
+    default:
+        assert(false);
+        // TW_ERROR(TW_LOC, "get_source_id(type): Unsupported connection type\n");
     }
 }
 
-vector<int> DragonflyConnectionManager::get_ports(int dest_id, ConnectionType type, bool include_failed)
-{
-    vector< Connection > conns = this->get_connections_to_gid(dest_id, type);
+vector<int> DragonflyConnectionManager::get_ports(int dest_id, ConnectionType type,
+                                                  bool include_failed) {
+    vector<Connection> conns = this->get_connections_to_gid(dest_id, type);
 
-    vector< int > ports_used;
-    vector< Connection >::iterator it = conns.begin();
-    for(; it != conns.end(); it++) {
+    vector<int> ports_used;
+    vector<Connection>::iterator it = conns.begin();
+    for (; it != conns.end(); it++) {
         if (it->is_failed == 0 || include_failed)
             ports_used.push_back((*it).port); //add port from connection list to the used ports list
     }
     return ports_used;
 }
 
-vector<int> DragonflyConnectionManager::get_ports(int dest_id, ConnectionType type)
-{
+vector<int> DragonflyConnectionManager::get_ports(int dest_id, ConnectionType type) {
     return get_ports(dest_id, type, false);
 }
 
-Connection DragonflyConnectionManager::get_connection_on_port(int port, bool include_failed)
-{
+Connection DragonflyConnectionManager::get_connection_on_port(int port, bool include_failed) {
     Connection conn = _portMap[port];
     if (conn.is_failed == 0 || include_failed)
         return conn;
-    else
-    {
+    else {
         Connection empty_conn;
         empty_conn.port = -1;
         return empty_conn;
     }
 }
 
-Connection DragonflyConnectionManager::get_connection_on_port(int port)
-{
+Connection DragonflyConnectionManager::get_connection_on_port(int port) {
     return get_connection_on_port(port, true);
 }
 
-bool DragonflyConnectionManager::is_connected_to_by_type(int dest_id, ConnectionType type)
-{
+bool DragonflyConnectionManager::is_connected_to_by_type(int dest_id, ConnectionType type) {
     return is_connected_to_by_type(dest_id, type, false); //by default, don't include failed links
 }
 
-bool DragonflyConnectionManager::is_connected_to_by_type(int dest_id, ConnectionType type, bool include_failed)
-{
+bool DragonflyConnectionManager::is_connected_to_by_type(int dest_id, ConnectionType type,
+                                                         bool include_failed) {
     if (include_failed) {
         if (intraGroupConnectionsGID.find(dest_id) != intraGroupConnectionsGID.end())
             return true;
@@ -968,8 +923,7 @@ bool DragonflyConnectionManager::is_connected_to_by_type(int dest_id, Connection
             return true;
 
         return false;
-    }
-    else {
+    } else {
         if (intraGroupConnectionsGID_nofail.find(dest_id) != intraGroupConnectionsGID_nofail.end())
             return true;
         if (globalConnections_nofail.find(dest_id) != globalConnections_nofail.end())
@@ -1020,13 +974,11 @@ bool DragonflyConnectionManager::is_connected_to_by_type(int dest_id, Connection
     // return false;
 }
 
-bool DragonflyConnectionManager::is_any_connection_to(int dest_global_id)
-{
+bool DragonflyConnectionManager::is_any_connection_to(int dest_global_id) {
     return is_any_connection_to(dest_global_id, false);
 }
 
-bool DragonflyConnectionManager::is_any_connection_to(int dest_global_id, bool include_failed)
-{
+bool DragonflyConnectionManager::is_any_connection_to(int dest_global_id, bool include_failed) {
     int local_id = dest_global_id % _num_routers_per_group;
     if (is_connected_to_by_type(local_id, CONN_LOCAL, include_failed))
         return true;
@@ -1039,8 +991,7 @@ bool DragonflyConnectionManager::is_any_connection_to(int dest_global_id, bool i
     return false;
 }
 
-int DragonflyConnectionManager::get_total_used_ports(bool account_for_failed)
-{
+int DragonflyConnectionManager::get_total_used_ports(bool account_for_failed) {
     int sum = 0;
     sum = _used_intra_ports + _used_inter_ports + _used_terminal_ports;
     if (account_for_failed)
@@ -1048,119 +999,104 @@ int DragonflyConnectionManager::get_total_used_ports(bool account_for_failed)
     return sum;
 }
 
-int DragonflyConnectionManager::get_total_used_ports()
-{
+int DragonflyConnectionManager::get_total_used_ports() {
     return get_total_used_ports(true);
 }
 
-int DragonflyConnectionManager::get_used_ports_for(ConnectionType type, bool account_for_failed)
-{
-    switch (type)
-    {
-        case CONN_LOCAL:
-            return _used_intra_ports - (_failed_intra_ports * account_for_failed);
+int DragonflyConnectionManager::get_used_ports_for(ConnectionType type, bool account_for_failed) {
+    switch (type) {
+    case CONN_LOCAL:
+        return _used_intra_ports - (_failed_intra_ports * account_for_failed);
         break;
-        case CONN_GLOBAL:
-            return _used_inter_ports - (_failed_inter_ports * account_for_failed);
+    case CONN_GLOBAL:
+        return _used_inter_ports - (_failed_inter_ports * account_for_failed);
         break;
-        case CONN_TERMINAL:
-            return _used_terminal_ports - (_failed_terminal_ports * account_for_failed);
+    case CONN_TERMINAL:
+        return _used_terminal_ports - (_failed_terminal_ports * account_for_failed);
         break;
-        case CONN_INJECTION:
-            return _used_injection_ports - (_failed_injection_ports * account_for_failed);
+    case CONN_INJECTION:
+        return _used_injection_ports - (_failed_injection_ports * account_for_failed);
         break;
-        default:
-            assert(false);
-            // TW_ERROR(TW_LOC, "get_used_ports_for(type): Undefined connection type\n");
+    default:
+        assert(false);
+        // TW_ERROR(TW_LOC, "get_used_ports_for(type): Undefined connection type\n");
     }
 }
 
-int DragonflyConnectionManager::get_used_ports_for(ConnectionType type)
-{
+int DragonflyConnectionManager::get_used_ports_for(ConnectionType type) {
     return get_used_ports_for(type, true);
 }
 
-ConnectionType DragonflyConnectionManager::get_port_type(int port_num)
-{
+ConnectionType DragonflyConnectionManager::get_port_type(int port_num) {
     return _portMap[port_num].conn_type;
 }
 
-bool DragonflyConnectionManager::get_port_failed_status(int port_num)
-{
+bool DragonflyConnectionManager::get_port_failed_status(int port_num) {
     return _portMap[port_num].is_failed;
 }
 
-vector< Connection > DragonflyConnectionManager::get_connections_to_gid(int dest_gid, ConnectionType type)
-{
+vector<Connection> DragonflyConnectionManager::get_connections_to_gid(int dest_gid,
+                                                                      ConnectionType type) {
     return get_connections_to_gid(dest_gid, type, false);
 }
 
-vector< Connection > DragonflyConnectionManager::get_connections_to_gid(int dest_gid, ConnectionType type, bool include_failed)
-{
+vector<Connection> DragonflyConnectionManager::get_connections_to_gid(int dest_gid,
+                                                                      ConnectionType type,
+                                                                      bool include_failed) {
     vector<Connection> conn_vec;
     try {
-        if (include_failed) 
-        {
-            switch (type)
-            {
-                case CONN_LOCAL:
-                        return intraGroupConnectionsGID.at(dest_gid);
+        if (include_failed) {
+            switch (type) {
+            case CONN_LOCAL:
+                return intraGroupConnectionsGID.at(dest_gid);
                 break;
-                case CONN_GLOBAL:
-                        return globalConnections.at(dest_gid);
+            case CONN_GLOBAL:
+                return globalConnections.at(dest_gid);
                 break;
-                case CONN_TERMINAL:
-                        return terminalConnections.at(dest_gid);
+            case CONN_TERMINAL:
+                return terminalConnections.at(dest_gid);
                 break;
-                case CONN_INJECTION:
-                        return injectionConnections.at(dest_gid);
+            case CONN_INJECTION:
+                return injectionConnections.at(dest_gid);
                 break;
-                default:
-                    assert(false);
-                    // TW_ERROR(TW_LOC, "get_connections(type): Undefined connection type\n");
+            default:
+                assert(false);
+                // TW_ERROR(TW_LOC, "get_connections(type): Undefined connection type\n");
+            }
+        } else {
+            switch (type) {
+            case CONN_LOCAL:
+                return intraGroupConnectionsGID_nofail.at(dest_gid);
+                break;
+            case CONN_GLOBAL:
+                return globalConnections_nofail.at(dest_gid);
+                break;
+            case CONN_TERMINAL:
+                return terminalConnections_nofail.at(dest_gid);
+                break;
+            case CONN_INJECTION:
+                return injectionConnections_nofail.at(dest_gid);
+                break;
+            default:
+                assert(false);
+                // TW_ERROR(TW_LOC, "get_connections(type): Undefined connection type\n");
             }
         }
-        else 
-        {
-            switch (type)
-            {
-                case CONN_LOCAL:
-                        return intraGroupConnectionsGID_nofail.at(dest_gid);
-                break;
-                case CONN_GLOBAL:
-                        return globalConnections_nofail.at(dest_gid);
-                break;
-                case CONN_TERMINAL:
-                        return terminalConnections_nofail.at(dest_gid);
-                break;
-                case CONN_INJECTION:
-                        return injectionConnections_nofail.at(dest_gid);
-                break;
-                default:
-                    assert(false);
-                    // TW_ERROR(TW_LOC, "get_connections(type): Undefined connection type\n");
-            }
-        }
-    } catch (exception e)
-    {
+    } catch (exception e) {
         return vector<Connection>(); //so we don't accidentally add a key with []
     }
 }
 
-vector< Connection > DragonflyConnectionManager::get_connections_to_group(int dest_group_id)
-{
+vector<Connection> DragonflyConnectionManager::get_connections_to_group(int dest_group_id) {
     return get_connections_to_group(dest_group_id, false);
 }
 
-vector< Connection > DragonflyConnectionManager::get_connections_to_group(int dest_group_id, bool include_failed)
-{
+vector<Connection> DragonflyConnectionManager::get_connections_to_group(int dest_group_id,
+                                                                        bool include_failed) {
     try {
-        if(include_failed)
-        {
+        if (include_failed) {
             return _connections_to_groups_map.at(dest_group_id);
-        }
-        else
-        {
+        } else {
             return _connections_to_groups_map_nofail.at(dest_group_id);
         }
     } catch (exception e) {
@@ -1168,15 +1104,14 @@ vector< Connection > DragonflyConnectionManager::get_connections_to_group(int de
     }
 }
 
-vector< Connection > DragonflyConnectionManager::get_connections_by_type(ConnectionType type)
-{
+vector<Connection> DragonflyConnectionManager::get_connections_by_type(ConnectionType type) {
     return get_connections_by_type(type, false);
 }
 
-vector< Connection > DragonflyConnectionManager::get_connections_by_type(ConnectionType type, bool include_failed)
-{
+vector<Connection> DragonflyConnectionManager::get_connections_by_type(ConnectionType type,
+                                                                       bool include_failed) {
     try {
-        if(include_failed)
+        if (include_failed)
             return _all_conns_by_type_map.at(type);
         else
             return _all_conns_by_type_map_nofail.at(type);
@@ -1185,65 +1120,58 @@ vector< Connection > DragonflyConnectionManager::get_connections_by_type(Connect
     }
 }
 
-vector< int > DragonflyConnectionManager::get_connected_group_ids()
-{
+vector<int> DragonflyConnectionManager::get_connected_group_ids() {
     return get_connected_group_ids(false);
 }
 
-vector< int > DragonflyConnectionManager::get_connected_group_ids(bool include_failed)
-{
+vector<int> DragonflyConnectionManager::get_connected_group_ids(bool include_failed) {
     if (include_failed)
         return _other_groups_i_connect_to;
     else
         return _other_groups_i_connect_to_nofail;
 }
 
-void DragonflyConnectionManager::solidify_connections()
-{
+void DragonflyConnectionManager::solidify_connections() {
     //--connections to group
-    for(map<int, vector<Connection> >::iterator it = globalConnections.begin(); it != globalConnections.end(); it++)
-    {   
-        vector< Connection >::iterator vec_it = it->second.begin();
-        for(; vec_it != it->second.end(); vec_it++)
-        {
+    for (map<int, vector<Connection>>::iterator it = globalConnections.begin();
+         it != globalConnections.end(); it++) {
+        vector<Connection>::iterator vec_it = it->second.begin();
+        for (; vec_it != it->second.end(); vec_it++) {
             int dest_group_id = vec_it->dest_group_id;
             _connections_to_groups_map[dest_group_id].push_back(*vec_it);
         }
     }
 
     //other groups i connect to
-    for(map<int, vector<Connection> >::iterator it = _connections_to_groups_map.begin(); it != _connections_to_groups_map.end(); it++)
-    {
-        if(it->second.size() > 0) //empty vectors can be inserted if [] is used on a non-exist key
+    for (map<int, vector<Connection>>::iterator it = _connections_to_groups_map.begin();
+         it != _connections_to_groups_map.end(); it++) {
+        if (it->second.size() > 0) //empty vectors can be inserted if [] is used on a non-exist key
             _other_groups_i_connect_to.push_back(it->first);
     }
 
     //--get connections by type
-    map< int, vector< Connection > > theMap;
-    for ( int enum_int = CONN_LOCAL; enum_int != CONN_INJECTION + 1; enum_int++ )
-    {
-        switch (enum_int)
-        {
-            case CONN_LOCAL:
-                theMap = intraGroupConnections;
-                break;
-            case CONN_GLOBAL:
-                theMap = globalConnections;
-                break;
-            case CONN_TERMINAL:
-                theMap = terminalConnections;
-                break;
-            case CONN_INJECTION:
-                theMap = injectionConnections;
-                break;
-            default:
-                tw_error(TW_LOC, "Bad enum type\n");
+    map<int, vector<Connection>> theMap;
+    for (int enum_int = CONN_LOCAL; enum_int != CONN_INJECTION + 1; enum_int++) {
+        switch (enum_int) {
+        case CONN_LOCAL:
+            theMap = intraGroupConnections;
+            break;
+        case CONN_GLOBAL:
+            theMap = globalConnections;
+            break;
+        case CONN_TERMINAL:
+            theMap = terminalConnections;
+            break;
+        case CONN_INJECTION:
+            theMap = injectionConnections;
+            break;
+        default:
+            tw_error(TW_LOC, "Bad enum type\n");
         }
 
-        vector< Connection > retVec;
-        map< int, vector< Connection > >::iterator it;
-        for(it = theMap.begin(); it != theMap.end(); it++)
-        {
+        vector<Connection> retVec;
+        map<int, vector<Connection>>::iterator it;
+        for (it = theMap.begin(); it != theMap.end(); it++) {
             retVec.insert(retVec.end(), (*it).second.begin(), (*it).second.end());
         }
         _all_conns_by_type_map[enum_int] = retVec;
@@ -1251,127 +1179,116 @@ void DragonflyConnectionManager::solidify_connections()
 
 
     // make copies of data structures but without failed links -----------------------------------------
-    map< int, vector< Connection > >::iterator it;
-    for(it = intraGroupConnections.begin(); it != intraGroupConnections.end(); it++)
-    {
+    map<int, vector<Connection>>::iterator it;
+    for (it = intraGroupConnections.begin(); it != intraGroupConnections.end(); it++) {
         int id = it->first;
         vector<Connection> conns_to_id = it->second;
-        vector< Connection >::iterator vec_it;
-        for(vec_it = conns_to_id.begin(); vec_it != conns_to_id.end(); vec_it++)
-        {
-            if(vec_it->is_failed == 0)
+        vector<Connection>::iterator vec_it;
+        for (vec_it = conns_to_id.begin(); vec_it != conns_to_id.end(); vec_it++) {
+            if (vec_it->is_failed == 0)
                 intraGroupConnections_nofail[id].push_back(*vec_it);
         }
     }
 
-    for(it = intraGroupConnectionsGID.begin(); it != intraGroupConnectionsGID.end(); it++)
-    {
+    for (it = intraGroupConnectionsGID.begin(); it != intraGroupConnectionsGID.end(); it++) {
         int id = it->first;
         vector<Connection> conns_to_id = it->second;
-        vector< Connection >::iterator vec_it;
-        for(vec_it = conns_to_id.begin(); vec_it != conns_to_id.end(); vec_it++)
-        {
-            if(vec_it->is_failed == 0)
+        vector<Connection>::iterator vec_it;
+        for (vec_it = conns_to_id.begin(); vec_it != conns_to_id.end(); vec_it++) {
+            if (vec_it->is_failed == 0)
                 intraGroupConnectionsGID_nofail[id].push_back(*vec_it);
         }
     }
 
-    for(it = globalConnections.begin(); it != globalConnections.end(); it++)
-    {
+    for (it = globalConnections.begin(); it != globalConnections.end(); it++) {
         int id = it->first;
         vector<Connection> conns_to_id = it->second;
-        vector< Connection >::iterator vec_it;
-        for(vec_it = conns_to_id.begin(); vec_it != conns_to_id.end(); vec_it++)
-        {
-            if(vec_it->is_failed == 0)
+        vector<Connection>::iterator vec_it;
+        for (vec_it = conns_to_id.begin(); vec_it != conns_to_id.end(); vec_it++) {
+            if (vec_it->is_failed == 0)
                 globalConnections_nofail[id].push_back(*vec_it);
         }
     }
-        
-    for(it = terminalConnections.begin(); it != terminalConnections.end(); it++)
-    {
+
+    for (it = terminalConnections.begin(); it != terminalConnections.end(); it++) {
         int id = it->first;
         vector<Connection> conns_to_id = it->second;
-        vector< Connection >::iterator vec_it;
-        for(vec_it = conns_to_id.begin(); vec_it != conns_to_id.end(); vec_it++)
-        {
-            if(vec_it->is_failed == 0)
+        vector<Connection>::iterator vec_it;
+        for (vec_it = conns_to_id.begin(); vec_it != conns_to_id.end(); vec_it++) {
+            if (vec_it->is_failed == 0)
                 terminalConnections_nofail[id].push_back(*vec_it);
         }
     }
 
-    for(it = injectionConnections.begin(); it != injectionConnections.end(); it++)
-    {
+    for (it = injectionConnections.begin(); it != injectionConnections.end(); it++) {
         int id = it->first;
         vector<Connection> conns_to_id = it->second;
-        vector< Connection >::iterator vec_it;
-        for(vec_it = conns_to_id.begin(); vec_it != conns_to_id.end(); vec_it++)
-        {
-            if(vec_it->is_failed == 0)
+        vector<Connection>::iterator vec_it;
+        for (vec_it = conns_to_id.begin(); vec_it != conns_to_id.end(); vec_it++) {
+            if (vec_it->is_failed == 0)
                 injectionConnections_nofail[id].push_back(*vec_it);
         }
     }
 
-    for(it = _connections_to_groups_map.begin(); it != _connections_to_groups_map.end(); it++)
-    {
+    for (it = _connections_to_groups_map.begin(); it != _connections_to_groups_map.end(); it++) {
         int id = it->first;
         vector<Connection> conns_to_id = it->second;
-        vector< Connection >::iterator vec_it;
-        for(vec_it = conns_to_id.begin(); vec_it != conns_to_id.end(); vec_it++)
-        {
-            if(vec_it->is_failed == 0)
+        vector<Connection>::iterator vec_it;
+        for (vec_it = conns_to_id.begin(); vec_it != conns_to_id.end(); vec_it++) {
+            if (vec_it->is_failed == 0)
                 _connections_to_groups_map_nofail[id].push_back(*vec_it);
         }
     }
 
-    for(it = _connections_to_groups_map_nofail.begin(); it != _connections_to_groups_map_nofail.end(); it++)
-    {
-        if(it->second.size() > 0) //empty vectors can be inserted if [] is used on a non-exist key
+    for (it = _connections_to_groups_map_nofail.begin();
+         it != _connections_to_groups_map_nofail.end(); it++) {
+        if (it->second.size() > 0) //empty vectors can be inserted if [] is used on a non-exist key
         {
             add_as_if_set_int(it->first, _other_groups_i_connect_to_nofail);
         }
     }
 
 
-    for(it = _all_conns_by_type_map.begin(); it != _all_conns_by_type_map.end(); it++)
-    {
+    for (it = _all_conns_by_type_map.begin(); it != _all_conns_by_type_map.end(); it++) {
         int id = it->first;
         vector<Connection> conns_to_id = it->second;
-        vector< Connection >::iterator vec_it;
-        for(vec_it = conns_to_id.begin(); vec_it != conns_to_id.end(); vec_it++)
-        {
-            if(vec_it->is_failed == 0)
+        vector<Connection>::iterator vec_it;
+        for (vec_it = conns_to_id.begin(); vec_it != conns_to_id.end(); vec_it++) {
+            if (vec_it->is_failed == 0)
                 _all_conns_by_type_map_nofail[id].push_back(*vec_it);
         }
     }
 
-    for(it = _routed_connections_to_group_map.begin(); it != _routed_connections_to_group_map.end(); it++)
-    {
+    for (it = _routed_connections_to_group_map.begin();
+         it != _routed_connections_to_group_map.end(); it++) {
         int group_id = it->first;
         vector<Connection> conns_to_group = it->second;
         vector<Connection>::iterator vec_it;
-        for(vec_it = conns_to_group.begin(); vec_it != conns_to_group.end(); vec_it++)
-        {
-            vector< Connection > local_conns = get_connections_to_gid(vec_it->src_gid, CONN_LOCAL, true);
+        for (vec_it = conns_to_group.begin(); vec_it != conns_to_group.end(); vec_it++) {
+            vector<Connection> local_conns =
+                get_connections_to_gid(vec_it->src_gid, CONN_LOCAL, true);
             if (local_conns.size() > 1)
-                _next_hop_routed_connections_to_group_map[group_id].insert(_next_hop_routed_connections_to_group_map[group_id].end(), local_conns.begin(), local_conns.end());
+                _next_hop_routed_connections_to_group_map[group_id].insert(
+                    _next_hop_routed_connections_to_group_map[group_id].end(), local_conns.begin(),
+                    local_conns.end());
 
             local_conns = get_connections_to_gid(vec_it->src_gid, CONN_LOCAL, false);
             if (local_conns.size() > 1)
-                _next_hop_routed_connections_to_group_map_nofail[group_id].insert(_next_hop_routed_connections_to_group_map_nofail[group_id].end(), local_conns.begin(), local_conns.end());
+                _next_hop_routed_connections_to_group_map_nofail[group_id].insert(
+                    _next_hop_routed_connections_to_group_map_nofail[group_id].end(),
+                    local_conns.begin(), local_conns.end());
 
-            if(vec_it->is_failed == 0)
+            if (vec_it->is_failed == 0)
                 _routed_connections_to_group_map_nofail[group_id].push_back(*vec_it);
         }
     }
 
-    for(it = _routed_connections_to_group_map.begin(); it != _routed_connections_to_group_map.end(); it++)
-    {
+    for (it = _routed_connections_to_group_map.begin();
+         it != _routed_connections_to_group_map.end(); it++) {
         int group_id = it->first;
         vector<Connection> conns_to_group = it->second;
         vector<Connection>::iterator vec_it;
-        for(vec_it = conns_to_group.begin(); vec_it != conns_to_group.end(); vec_it++)
-        {
+        for (vec_it = conns_to_group.begin(); vec_it != conns_to_group.end(); vec_it++) {
             int src_gid = vec_it->src_gid;
             add_as_if_set_int(src_gid, _routed_router_gids_to_group_map[group_id]);
 
@@ -1381,62 +1298,57 @@ void DragonflyConnectionManager::solidify_connections()
         }
     }
 
-    for(it = _routed_connections_to_group_map_nofail.begin(); it != _routed_connections_to_group_map_nofail.end(); it++)
-    {
+    for (it = _routed_connections_to_group_map_nofail.begin();
+         it != _routed_connections_to_group_map_nofail.end(); it++) {
         int group_id = it->first;
         vector<Connection> conns_to_group = it->second;
         vector<Connection>::iterator vec_it;
-        for(vec_it = conns_to_group.begin(); vec_it != conns_to_group.end(); vec_it++)
-        {
-            if (is_connected_to_by_type(vec_it->src_gid, CONN_LOCAL))
-            {
+        for (vec_it = conns_to_group.begin(); vec_it != conns_to_group.end(); vec_it++) {
+            if (is_connected_to_by_type(vec_it->src_gid, CONN_LOCAL)) {
                 _accessible_group_ids_nofail.push_back(group_id);
                 break;
             }
         }
     }
     vector<int>::iterator vec_it;
-    for(vec_it = _other_groups_i_connect_to_nofail.begin(); vec_it != _other_groups_i_connect_to_nofail.end(); vec_it++)
-    {
-        add_as_if_set_int(*vec_it,_accessible_group_ids_nofail);
+    for (vec_it = _other_groups_i_connect_to_nofail.begin();
+         vec_it != _other_groups_i_connect_to_nofail.end(); vec_it++) {
+        add_as_if_set_int(*vec_it, _accessible_group_ids_nofail);
     }
 
     is_solidified = true;
 }
 
-bool DragonflyConnectionManager::check_is_solidified()
-{
+bool DragonflyConnectionManager::check_is_solidified() {
     return is_solidified;
 }
 
-void DragonflyConnectionManager::print_connections()
-{
-    if(_manType == MAN_ROUTER)
-        printf("Connections for Router: %d ---------------------------------------\n",_source_id_global);
+void DragonflyConnectionManager::print_connections() {
+    if (_manType == MAN_ROUTER)
+        printf("Connections for Router: %d ---------------------------------------\n",
+               _source_id_global);
     else
-        printf("Connections for Terminal: %d -------------------------------------\n",_source_id_global);
+        printf("Connections for Terminal: %d -------------------------------------\n",
+               _source_id_global);
 
     int ports_printed = 0;
-    map<int,Connection>::iterator it = _portMap.begin();
-    for(; it != _portMap.end(); it++)
-    {
-        if ( (ports_printed == 0) && (_used_intra_ports > 0) )
-        {
+    map<int, Connection>::iterator it = _portMap.begin();
+    for (; it != _portMap.end(); it++) {
+        if ((ports_printed == 0) && (_used_intra_ports > 0)) {
             printf(" -- Intra-Group Connections -- \n");
             printf("  Port  |  Dest_ID  |  Group  |  Link Type  |  Rail ID  |  Fail Status\n");
         }
-        if ( (ports_printed == _used_intra_ports) && (_used_inter_ports > 0) )
-        {
+        if ((ports_printed == _used_intra_ports) && (_used_inter_ports > 0)) {
             printf(" -- Inter-Group Connections -- \n");
             printf("  Port  |  Dest_ID  |  Group  |  Link Type  |  Rail ID  |  Fail Status\n");
         }
-        if ( (ports_printed == _used_intra_ports + _used_inter_ports) && (_used_terminal_ports > 0) )
-        {
+        if ((ports_printed == _used_intra_ports + _used_inter_ports) &&
+            (_used_terminal_ports > 0)) {
             printf(" -- Terminal Connections -- \n");
             printf("  Port  |  Dest_ID  |  Group  |  Link Type  |  Rail ID  |  Fail Status\n");
         }
-        if ( (ports_printed == _used_intra_ports + _used_inter_ports + _used_terminal_ports) && (_used_injection_ports > 0) )
-        {
+        if ((ports_printed == _used_intra_ports + _used_inter_ports + _used_terminal_ports) &&
+            (_used_injection_ports > 0)) {
             printf(" -- Injection Connections -- \n");
             printf("  Port  |  Dest_ID  |  Group  |  Link Type  |  Rail ID  |  Fail Status\n");
         }
@@ -1444,26 +1356,27 @@ void DragonflyConnectionManager::print_connections()
         int port_num = it->first;
         int group_id = it->second.dest_group_id;
 
-        int id,gid;
-        if( get_port_type(port_num) == CONN_LOCAL ) {
+        int id, gid;
+        if (get_port_type(port_num) == CONN_LOCAL) {
             id = it->second.dest_lid;
             gid = it->second.dest_gid;
-            printf("  %d   ->   (%d,%d)        :  %d     -  LOCAL  -   %d     -  %d\n", port_num, id, gid, group_id,it->second.rail_or_planar_id,it->second.is_failed);
+            printf("  %d   ->   (%d,%d)        :  %d     -  LOCAL  -   %d     -  %d\n", port_num,
+                   id, gid, group_id, it->second.rail_or_planar_id, it->second.is_failed);
 
-        } 
-        else if (get_port_type(port_num) == CONN_GLOBAL) {
+        } else if (get_port_type(port_num) == CONN_GLOBAL) {
             id = it->second.dest_gid;
-            printf("  %d   ->   %d        :  %d     -  GLOBAL    -   %d   -     %d\n", port_num, id, group_id,it->second.rail_or_planar_id,it->second.is_failed);
-        }
-        else if (get_port_type(port_num) == CONN_TERMINAL) {
+            printf("  %d   ->   %d        :  %d     -  GLOBAL    -   %d   -     %d\n", port_num, id,
+                   group_id, it->second.rail_or_planar_id, it->second.is_failed);
+        } else if (get_port_type(port_num) == CONN_TERMINAL) {
             id = it->second.dest_gid;
-            printf("  %d   ->   %d        :  %d     -  TERMINAL   -    %d    -     %d\n", port_num, id, group_id,it->second.rail_or_planar_id,it->second.is_failed);
-        }
-        else if(get_port_type(port_num) == CONN_INJECTION) {
+            printf("  %d   ->   %d        :  %d     -  TERMINAL   -    %d    -     %d\n", port_num,
+                   id, group_id, it->second.rail_or_planar_id, it->second.is_failed);
+        } else if (get_port_type(port_num) == CONN_INJECTION) {
             id = it->second.dest_gid;
-            printf("  %d   ->   %d        :  %d     -  INJECTION   -    %d    -     %d\n", port_num, id, group_id,it->second.rail_or_planar_id,it->second.is_failed);
+            printf("  %d   ->   %d        :  %d     -  INJECTION   -    %d    -     %d\n", port_num,
+                   id, group_id, it->second.rail_or_planar_id, it->second.is_failed);
         }
-            
+
         ports_printed++;
     }
 }
@@ -1500,17 +1413,17 @@ void DragonflyConnectionManager::print_connections()
 
 // vector<Connection>::iterator IsPathInvalid::erase_where(vector<Connection> conns, IsPathInvalid&& f)
 // {
-//     return conns.erase(std::remove_if(conns.begin(), 
+//     return conns.erase(std::remove_if(conns.begin(),
 //                                 conns.end(),
 //                                 std::forward<IsPathInvalid>(f)),
-//                 conns.end());    
+//                 conns.end());
 // }
 
 // template<class F>
 // vector<Connection>::iterator IsPathInvalid::erase_where(vector<Connection> conns, F&& f)
 // {
-//     return conns.erase(std::remove_if(conns.begin(), 
+//     return conns.erase(std::remove_if(conns.begin(),
 //                                   conns.end(),
 //                                   std::forward<F>(f)),
-//                    conns.end());    
+//                    conns.end());
 // }

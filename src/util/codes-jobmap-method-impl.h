@@ -13,18 +13,18 @@
 struct codes_jobmap_impl {
     /* returns nonzero on failure (to distinguish between no-state (dummy) and
      * failure) */
-    int                    (*configure)(void const * params, void ** ctx);
-    void                   (*destroy)(void * ctx);
-    struct codes_jobmap_id (*to_local) (int id, void const * ctx);
-    int                    (*to_global) (struct codes_jobmap_id id, void const * ctx);
-    int                    (*get_num_jobs)(void const * ctx);
-    int                    (*get_num_ranks)(int job_id, void const * ctx);
+    int (*configure)(void const* params, void** ctx);
+    void (*destroy)(void* ctx);
+    struct codes_jobmap_id (*to_local)(int id, void const* ctx);
+    int (*to_global)(struct codes_jobmap_id id, void const* ctx);
+    int (*get_num_jobs)(void const* ctx);
+    int (*get_num_ranks)(int job_id, void const* ctx);
 };
 
 struct codes_jobmap_ctx {
     enum codes_jobmap_type type;
-    struct codes_jobmap_impl *impl;
-    void * ctx;
+    struct codes_jobmap_impl* impl;
+    void* ctx;
 };
 
 #endif

@@ -49,7 +49,7 @@ struct codes_jobmap_params_dummy {
 };
 
 struct codes_jobmap_params_list {
-    char *alloc_file;
+    char* alloc_file;
 };
 
 
@@ -61,10 +61,9 @@ struct codes_jobmap_id {
     int rank; // relative to job
 };
 
-struct codes_jobmap_ctx *
-codes_jobmap_configure(enum codes_jobmap_type t, void const * params);
+struct codes_jobmap_ctx* codes_jobmap_configure(enum codes_jobmap_type t, void const* params);
 
-void codes_jobmap_destroy(struct codes_jobmap_ctx *c);
+void codes_jobmap_destroy(struct codes_jobmap_ctx* c);
 
 /* main mapping functions - bidirectional mapping is needed:
  * - global -> local ID for initialization
@@ -72,17 +71,13 @@ void codes_jobmap_destroy(struct codes_jobmap_ctx *c);
  *
  * functions return {-1, -1} and -1, respectively, for invalid id input */
 
-struct codes_jobmap_id codes_jobmap_to_local_id(
-        int id,
-        struct codes_jobmap_ctx const * c);
+struct codes_jobmap_id codes_jobmap_to_local_id(int id, struct codes_jobmap_ctx const* c);
 
-int codes_jobmap_to_global_id(
-        struct codes_jobmap_id id,
-        struct codes_jobmap_ctx const * c);
+int codes_jobmap_to_global_id(struct codes_jobmap_id id, struct codes_jobmap_ctx const* c);
 
-int codes_jobmap_get_num_jobs(struct codes_jobmap_ctx const * c);
+int codes_jobmap_get_num_jobs(struct codes_jobmap_ctx const* c);
 
-int codes_jobmap_get_num_ranks(int job_id, struct codes_jobmap_ctx const * c);
+int codes_jobmap_get_num_ranks(int job_id, struct codes_jobmap_ctx const* c);
 
 #ifdef __cplusplus
 }

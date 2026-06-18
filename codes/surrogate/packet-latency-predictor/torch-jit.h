@@ -11,7 +11,7 @@ extern "C" {
 
 void surrogate_torch_set_lp_aware_mode(bool enabled);
 void surrogate_torch_set_debug_prints(bool enabled);
-void surrogate_torch_init(char const * dir);
+void surrogate_torch_init(char const* dir);
 
 struct router_timing_prediction_start {
     float router_id;
@@ -28,16 +28,15 @@ struct router_timing_prediction_start {
     float nominal_router_delay;
 };
 
-void surrogate_torch_init_lp_type_models(
-        char const *terminal_model_path,
-        char const *router_timing_model_path,
-        char const *default_model_path);
+void surrogate_torch_init_lp_type_models(char const* terminal_model_path,
+                                         char const* router_timing_model_path,
+                                         char const* default_model_path);
 
 bool surrogate_torch_router_timing_model_enabled(void);
 
-double surrogate_torch_predict_router_queueing_delay(
-        struct router_timing_prediction_start const *start,
-        double fallback_queueing_delay);
+double
+surrogate_torch_predict_router_queueing_delay(struct router_timing_prediction_start const* start,
+                                              double fallback_queueing_delay);
 
 extern struct packet_latency_predictor torch_latency_predictor;
 

@@ -7,12 +7,11 @@
 #ifndef CODESIOKERNELCONTEXT_H
 #define CODESIOKERNELCONTEXT_H
 
-typedef struct CodesIOKernelContext
-{
-    void *scanner_;
-    char *text;
-    void *lval;
-    void *locval;
+typedef struct CodesIOKernelContext {
+    void* scanner_;
+    char* text;
+    void* lval;
+    void* locval;
 
     int64_t sym[26];
     int64_t var[10];
@@ -27,13 +26,10 @@ typedef struct CodesIOKernelContext
 
 } CodesIOKernelContext;
 
-void CodesIOKernelScannerInit(
-    CodesIOKernelContext * context);
-void CodesIOKernelScannerDestroy(
-    CodesIOKernelContext * context);
+void CodesIOKernelScannerInit(CodesIOKernelContext* context);
+void CodesIOKernelScannerDestroy(CodesIOKernelContext* context);
 
-void CodesIOKernelScannerSetSymTable(
-    CodesIOKernelContext * context);
+void CodesIOKernelScannerSetSymTable(CodesIOKernelContext* context);
 
 #endif
 

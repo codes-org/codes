@@ -9,7 +9,7 @@
 
 #include "codes/model-net-sched.h"
 
-extern const model_net_sched_interface * sched_interfaces[];
+extern const model_net_sched_interface* sched_interfaces[];
 
 #endif /* end of include guard: MODEL-NET-SCHED-IMPL_H */
 
