@@ -1,0 +1,13 @@
+# Revisions for `git blame` to skip. One SHA per line; lines starting
+# with `#` are comments. The GitHub web UI honors this file at repo
+# root automatically. Configure your local git once with:
+#
+#     git config blame.ignoreRevsFile .git-blame-ignore-revs
+#
+# Then `git blame` skips these revisions on every file in the repo.
+
+# Mass clang-format reformat.
+5b37c3d7e40f52fe70d48788c570f00d4ecbe530
+
+# Removal of obsolete vim/emacs modelines.
+47d24a9a956d4f4dfd347c04737081ba42045e1d
