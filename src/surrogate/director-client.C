@@ -10,8 +10,10 @@
 #include <algorithm> // std::min_element
 #include <ios> //std::fixed
 #include <iomanip> // std::precision
+#include <limits>
 
 #include "codes/surrogate/director-client.h"
+#include "codes/codes.h"
 #include "codes/configuration.h"
 #include "zmqmlrequester.h"
 
@@ -88,7 +90,7 @@ int inferencing_enabled = 1;
 
 
 
-static void director_record_zmq_latency_stats(
+void director_record_zmq_latency_stats(
     const char* label,
     const std::vector<std::string>& ret,
     double local_latency_sec)
@@ -645,15 +647,14 @@ std::vector<std::string> director_client_request(
 {
     std::vector<std::string> ret;
 
-    if(strcmp(cmd, "exit") == 0) {
-        ret = zmqml_request(cmd);
-        return ret;
-    }
-
     auto start_time = std::chrono::steady_clock::now();
 
-    std::vector<std::string> args_list = director_get_str_list(args, ';');
-    ret = zmqml_request(cmd, args_list, data);
+    if(strcmp(cmd, "exit") == 0) {
+        ret = zmqml_request(cmd);
+    } else {
+        std::vector<std::string> args_list = director_get_str_list(args, ';');
+        ret = zmqml_request(cmd, args_list, data);
+    }
 
     auto end_time = std::chrono::steady_clock::now();
     double local_latency_sec =
@@ -1507,6 +1508,118 @@ void director_event_handler_commit(director_state* s, tw_bf * bf, director_messa
     m->rc_valid = 0;
 }
 
+static void director_reduce_and_print_zmq_latency_stat(
+    const char* stat_name,
+    const std::vector<double>& local_values)
+{
+    unsigned long long local_count =
+        (unsigned long long)local_values.size();
+
+    double local_sum = 0.0;
+    double local_sq_sum = 0.0;
+    double local_min = std::numeric_limits<double>::infinity();
+    double local_max = -std::numeric_limits<double>::infinity();
+
+    for (double value : local_values) {
+        local_sum += value;
+        local_sq_sum += value * value;
+
+        if (value < local_min) {
+            local_min = value;
+        }
+
+        if (value > local_max) {
+            local_max = value;
+        }
+    }
+
+    unsigned long long global_count = 0;
+    double global_sum = 0.0;
+    double global_sq_sum = 0.0;
+    double global_min = 0.0;
+    double global_max = 0.0;
+
+    MPI_Reduce(
+        &local_count,
+        &global_count,
+        1,
+        MPI_UNSIGNED_LONG_LONG,
+        MPI_SUM,
+        0,
+        MPI_COMM_CODES
+    );
+
+    MPI_Reduce(
+        &local_sum,
+        &global_sum,
+        1,
+        MPI_DOUBLE,
+        MPI_SUM,
+        0,
+        MPI_COMM_CODES
+    );
+
+    MPI_Reduce(
+        &local_sq_sum,
+        &global_sq_sum,
+        1,
+        MPI_DOUBLE,
+        MPI_SUM,
+        0,
+        MPI_COMM_CODES
+    );
+
+    MPI_Reduce(
+        &local_min,
+        &global_min,
+        1,
+        MPI_DOUBLE,
+        MPI_MIN,
+        0,
+        MPI_COMM_CODES
+    );
+
+    MPI_Reduce(
+        &local_max,
+        &global_max,
+        1,
+        MPI_DOUBLE,
+        MPI_MAX,
+        0,
+        MPI_COMM_CODES
+    );
+
+    int rank = 0;
+    MPI_Comm_rank(MPI_COMM_CODES, &rank);
+
+    if (rank != 0 || global_count == 0) {
+        return;
+    }
+
+    double mean = global_sum / (double)global_count;
+    double variance = global_sq_sum / (double)global_count - mean * mean;
+
+    /*
+     * Floating-point roundoff can make variance slightly negative when
+     * values are very close together.
+     */
+    if (variance < 0.0 && variance > -1.0e-18) {
+        variance = 0.0;
+    }
+
+    double stddev = sqrt(variance);
+
+    std::cout << std::setprecision(9) << std::fixed
+        << "==DIR_STATS " << stat_name
+        << ": requests = " << global_count
+        << ", mean = " << mean
+        << ", min = " << global_min
+        << ", max = " << global_max
+        << ", std-deviation = " << stddev
+        << std::endl;
+}
+
+
 static void director_print_zmq_latency_stats_once(void)
 {
     static int printed = 0;
@@ -1517,86 +1630,27 @@ static void director_print_zmq_latency_stats_once(void)
 
     printed = 1;
 
-    if (evaluate_perf != 1 || director_zmq_total_elapsed_times.empty()) {
+    if (evaluate_perf != 1) {
         return;
     }
 
-    double proc_sum = 0.0;
-    for (double ts : director_zmq_processing_times) {
-        proc_sum += ts;
-    }
-
-    double proc_mean =
-        director_zmq_processing_times.empty()
-            ? 0.0
-            : proc_sum / director_zmq_processing_times.size();
-
-    double proc_sq_diff = 0.0;
-    for (double ts : director_zmq_processing_times) {
-        proc_sq_diff += (ts - proc_mean) * (ts - proc_mean);
-    }
-
-    double proc_std =
-        director_zmq_processing_times.empty()
-            ? 0.0
-            : sqrt(proc_sq_diff / director_zmq_processing_times.size());
-
-    auto proc_min = std::min_element(
-        director_zmq_processing_times.begin(),
-        director_zmq_processing_times.end()
-    );
-    auto proc_max = std::max_element(
-        director_zmq_processing_times.begin(),
-        director_zmq_processing_times.end()
+    /*
+     * These reductions make DIR_STATS cumulative across MPI ranks.
+     *
+     * The local vectors are process-local, so printing them directly causes
+     * one "global" line per MPI rank in optimistic simulations.  Instead,
+     * reduce count/sum/square-sum/min/max onto rank 0 and print once.
+     */
+    director_reduce_and_print_zmq_latency_stat(
+        "zmq-processing-global",
+        director_zmq_processing_times
     );
 
-    double total_sum = 0.0;
-    for (double ts : director_zmq_total_elapsed_times) {
-        total_sum += ts;
-    }
-
-    double total_mean = total_sum / director_zmq_total_elapsed_times.size();
-
-    double total_sq_diff = 0.0;
-    for (double ts : director_zmq_total_elapsed_times) {
-        total_sq_diff += (ts - total_mean) * (ts - total_mean);
-    }
-
-    double total_std =
-        sqrt(total_sq_diff / director_zmq_total_elapsed_times.size());
-
-    auto total_min = std::min_element(
-        director_zmq_total_elapsed_times.begin(),
-        director_zmq_total_elapsed_times.end()
+    director_reduce_and_print_zmq_latency_stat(
+        "zmq-total-global",
+        director_zmq_total_elapsed_times
     );
-    auto total_max = std::max_element(
-        director_zmq_total_elapsed_times.begin(),
-        director_zmq_total_elapsed_times.end()
-    );
-
-    std::cout << std::setprecision(9) << std::fixed;
-
-    if (!director_zmq_processing_times.empty()) {
-        std::cout
-            << "==DIR_STATS zmq-processing-global: requests = "
-            << director_zmq_processing_times.size()
-            << ", mean = " << proc_mean
-            << ", min = " << *proc_min
-            << ", max = " << *proc_max
-            << ", std-deviation = " << proc_std
-            << std::endl;
-    }
-
-    std::cout
-        << "==DIR_STATS zmq-total-global: requests = "
-        << director_zmq_total_elapsed_times.size()
-        << ", mean = " << total_mean
-        << ", min = " << *total_min
-        << ", max = " << *total_max
-        << ", std-deviation = " << total_std
-        << std::endl;
 }
-
 
 void director_finalize(director_state* s, tw_lp* lp)
 {

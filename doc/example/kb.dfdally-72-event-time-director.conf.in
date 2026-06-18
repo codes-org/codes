@@ -94,6 +94,6 @@ PARAMS
     modelnet_order=("dragonfly_dally","dragonfly_dally_router");
     modelnet_scheduler="round-robin";
 
-    intra-group-connections="/home/local/KHQ/sanjay.chari/codes/src/network-workloads/conf/dragonfly-dally/dfdally-72-intra";
-    inter-group-connections="/home/local/KHQ/sanjay.chari/codes/src/network-workloads/conf/dragonfly-dally/dfdally-72-inter";
+    intra-group-connections="@CMAKE_SOURCE_DIR@/src/network-workloads/conf/dragonfly-dally/dfdally-72-intra";
+    inter-group-connections="@CMAKE_SOURCE_DIR@/src/network-workloads/conf/dragonfly-dally/dfdally-72-inter";
 }

@@ -59,6 +59,12 @@ extern std::vector<std::string> zmqml_director_request(
     const std::string& bindata
 ) __attribute__((weak));
 
+extern void director_record_zmq_latency_stats(
+    const char* label,
+    const std::vector<std::string>& ret,
+    double local_latency_sec
+) __attribute__((weak));
+
 
 
 #ifdef ENABLE_CORTEX
@@ -246,11 +252,6 @@ static int event_time_training_records_enabled = 0;
 static std::unordered_map<std::string, double> event_time_prediction_cache;
 static unsigned long long event_time_cache_hits = 0;
 static unsigned long long event_time_cache_misses = 0;
-static unsigned long long event_time_zmq_inference_calls = 0;
-static unsigned long long event_time_zmq_request_count = 0;
-static double event_time_zmq_local_latency_sum = 0.0;
-static double event_time_zmq_server_latency_sum = 0.0;
-static unsigned long long event_time_zmq_server_latency_count = 0;
 static double event_time_cache_time_bucket = 0.0;
 static int event_time_cache_time_bucket_initialized = 0;
 static int event_time_zmq_batch_size = 65536;
@@ -271,6 +272,14 @@ static std::vector<std::string> dfdally_event_time_director_request_with_latency
 {
     const char* op = operation ? operation : "";
     std::vector<std::string> ret;
+
+    char label[256];
+    snprintf(
+        label,
+        sizeof(label),
+        "family=event-time backend=dragonfly-dally operation=%s",
+        op
+    );
 
     struct timespec start, finish;
     clock_gettime(CLOCK_MONOTONIC, &start);
@@ -293,19 +302,10 @@ static std::vector<std::string> dfdally_event_time_director_request_with_latency
         (double)(finish.tv_sec - start.tv_sec) +
         (double)(finish.tv_nsec - start.tv_nsec) / 1000000000.0;
 
-    event_time_zmq_request_count++;
-    event_time_zmq_local_latency_sum += local_latency_sec;
-
-    if(ret.size() > 1) {
-        char *endptr = NULL;
-        double server_latency = strtod(ret[1].c_str(), &endptr);
-        if(endptr != ret[1].c_str() && isfinite(server_latency) && server_latency >= 0.0) {
-            event_time_zmq_server_latency_sum += server_latency;
-            event_time_zmq_server_latency_count++;
-        }
+    if (director_record_zmq_latency_stats) {
+        director_record_zmq_latency_stats(label, ret, local_latency_sec);
     }
 
-    (void)op;
     return ret;
 }
 
@@ -332,27 +332,16 @@ static void dfdally_event_time_print_global_cache_summary_once(void)
         return;
     }
 
-    unsigned long long local_counts[6];
-    unsigned long long global_counts[6];
+    unsigned long long local_counts[3];
+    unsigned long long global_counts[3];
 
     local_counts[0] = event_time_cache_hits;
     local_counts[1] = event_time_cache_misses;
-    local_counts[2] = event_time_zmq_inference_calls;
-    local_counts[3] = (unsigned long long)event_time_prediction_cache.size();
-    local_counts[4] = event_time_zmq_request_count;
-    local_counts[5] = event_time_zmq_server_latency_count;
+    local_counts[2] = (unsigned long long)event_time_prediction_cache.size();
 
-    for (int i = 0; i < 6; i++) {
+    for (int i = 0; i < 3; i++) {
         global_counts[i] = 0;
     }
-
-    double local_sums[2];
-    double global_sums[2];
-
-    local_sums[0] = event_time_zmq_local_latency_sum;
-    local_sums[1] = event_time_zmq_server_latency_sum;
-    global_sums[0] = 0.0;
-    global_sums[1] = 0.0;
 
     int mpi_initialized = 0;
     MPI_Initialized(&mpi_initialized);
@@ -360,62 +349,34 @@ static void dfdally_event_time_print_global_cache_summary_once(void)
     int rank = 0;
 
     if(mpi_initialized) {
-        MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+        MPI_Comm_rank(MPI_COMM_CODES, &rank);
 
         MPI_Reduce(
             local_counts,
             global_counts,
-            6,
+            3,
             MPI_UNSIGNED_LONG_LONG,
             MPI_SUM,
             0,
-            MPI_COMM_WORLD
-        );
-
-        MPI_Reduce(
-            local_sums,
-            global_sums,
-            2,
-            MPI_DOUBLE,
-            MPI_SUM,
-            0,
-            MPI_COMM_WORLD
+            MPI_COMM_CODES
         );
     } else {
-        for (int i = 0; i < 6; i++) {
+        for (int i = 0; i < 3; i++) {
             global_counts[i] = local_counts[i];
         }
-
-        global_sums[0] = local_sums[0];
-        global_sums[1] = local_sums[1];
     }
 
     if(rank != 0) {
         return;
     }
 
-    double const avg_local_latency =
-        global_counts[4] > 0
-            ? global_sums[0] / (double)global_counts[4]
-            : 0.0;
-
-    double const avg_server_latency =
-        global_counts[5] > 0
-            ? global_sums[1] / (double)global_counts[5]
-            : 0.0;
-
     fprintf(
         stderr,
         "[event-time cache summary global] hits=%llu misses=%llu "
-        "zmq_calls=%llu cache_size_sum=%llu zmq_requests=%llu "
-        "avg_local_latency_sec=%.9f avg_server_et=%.9f\n",
+        "cache_size_sum=%llu\n",
         global_counts[0],
         global_counts[1],
-        global_counts[2],
-        global_counts[3],
-        global_counts[4],
-        avg_local_latency,
-        avg_server_latency
+        global_counts[2]
     );
     fflush(stderr);
 }
@@ -3967,10 +3928,9 @@ static double dfdally_event_time_predict_or_original(
             fprintf(
                 stderr,
                 "[event-time inference cache-hit] hits=%llu misses=%llu "
-                "zmq_calls=%llu cache_size=%llu original=%.17g predicted=%.17g\n",
+                "cache_size=%llu original=%.17g predicted=%.17g\n",
                 event_time_cache_hits,
                 event_time_cache_misses,
-                event_time_zmq_inference_calls,
                 (unsigned long long)event_time_prediction_cache.size(),
                 original_delay,
                 predicted
@@ -4018,7 +3978,6 @@ static double dfdally_event_time_predict_or_original(
     std::vector<std::string> ret;
     try {
         ret = dfdally_event_time_director_request_with_latency("inference", args, row.str());
-        event_time_zmq_inference_calls++;
     } catch (...) {
         if (dfdally_surrogate_debug_prints) {
             fprintf(
@@ -4063,10 +4022,9 @@ static double dfdally_event_time_predict_or_original(
         fprintf(
             stderr,
             "[event-time inference cache-miss] hits=%llu misses=%llu "
-            "zmq_calls=%llu cache_size=%llu original=%.17g predicted=%.17g\n",
+            "cache_size=%llu original=%.17g predicted=%.17g\n",
             event_time_cache_hits,
             event_time_cache_misses,
-            event_time_zmq_inference_calls,
             (unsigned long long)event_time_prediction_cache.size(),
             original_delay,
             predicted
