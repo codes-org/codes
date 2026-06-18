@@ -206,12 +206,3 @@ char const* codes_mapping_get_anno_name_by_cid(int cid);
 #endif
 
 #endif
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ts=8 sts=4 sw=4 expandtab
- */

@@ -62,12 +62,3 @@ const st_model_types* st_model_type_lookup(const char* name) {
 
     return (NULL);
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

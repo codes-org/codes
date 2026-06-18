@@ -179,12 +179,3 @@ void* model_net_method_msg_from_tw_event(tw_lp*, model_net_wrap_msg*);
 #endif
 
 #endif /* end of include guard: MODEL_NET_LP_H */
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

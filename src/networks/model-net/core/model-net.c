@@ -600,12 +600,3 @@ tw_lpid model_net_find_local_device_mctx(int net_id, struct codes_mctx const* ma
 /* structure that gives access to the topology functions */
 cortex_topology model_net_topology;
 #endif
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

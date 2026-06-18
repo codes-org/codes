@@ -128,12 +128,3 @@ static void test_workload_get_next(int app_id, int rank, struct codes_workload_o
 
     return;
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

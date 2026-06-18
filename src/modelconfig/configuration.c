@@ -505,12 +505,3 @@ int configuration_get_annotation_index(const char* anno, const config_anno_map_t
     }
     return -1;
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ts=8 sts=4 sw=4 expandtab
- */

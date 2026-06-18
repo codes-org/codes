@@ -189,13 +189,3 @@ char const* codes_mctx_get_annotation(struct codes_mctx const* ctx, char const* 
 
     return codes_mapping_get_annotation_by_name(group, dest_lp_name);
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- *  indent-tabs-mode: nil
- * End:
- *
- * vim: ts=8 sts=4 sw=4 expandtab
- */

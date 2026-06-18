@@ -64,13 +64,3 @@ int codes_jobmap_get_num_jobs(struct codes_jobmap_ctx const* c) {
 int codes_jobmap_get_num_ranks(int job_id, struct codes_jobmap_ctx const* c) {
     return c->impl->get_num_ranks(job_id, c->ctx);
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- *  indent-tabs-mode: nil
- * End:
- *
- * vim: ts=8 sts=4 sw=4 expandtab
- */

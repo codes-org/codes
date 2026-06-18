@@ -688,12 +688,3 @@ static const struct param_table_entry* find_params(uint64_t msg_size, const logg
 
     return (&params->table[i]);
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

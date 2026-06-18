@@ -52,12 +52,3 @@ int txtfile_writeConfig(struct ConfigVTable* h, SectionHandle h2, FILE* out, cha
 #endif
 
 #endif
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ts=8 sts=4 sw=4 expandtab
- */

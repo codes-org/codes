@@ -662,12 +662,3 @@ int codes_mapping_get_anno_cid_by_lpid(tw_lpid id) {
 char const* codes_mapping_get_anno_name_by_cid(int cid) {
     return get_name_by_cid(cid, lpconf.anno_names, lpconf.num_uniq_annos);
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ts=8 sts=4 sw=4 expandtab
- */

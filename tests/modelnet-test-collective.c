@@ -341,12 +341,3 @@ static void handle_req_event(svr_state* ns, svr_msg* m, tw_lp* lp) {
     //    printf("\n Sending ack to LP %d %d ", m->src, m_remote->src);
     return;
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

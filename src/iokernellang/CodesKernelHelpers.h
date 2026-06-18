@@ -76,12 +76,3 @@ int codes_kernel_helper_bootstrap(char* io_kernel_path, char* io_kernel_meta_pat
 char* code_kernel_helpers_cleventToStr(int inst);
 char* code_kernel_helpers_kinstToStr(int inst);
 #endif
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ts=8 sts=4 sw=4 expandtab
- */

@@ -394,12 +394,3 @@ extern cortex_topology model_net_topology;
 #endif
 
 #endif /* MODELNET_H */
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

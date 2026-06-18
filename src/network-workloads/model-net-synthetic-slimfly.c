@@ -1056,11 +1056,3 @@ static void get_router_connections(int src_router_id, int* local_channels, int* 
     assert(local_idx == num_local_channels);
     assert(global_idx == num_global_channels);
 }
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

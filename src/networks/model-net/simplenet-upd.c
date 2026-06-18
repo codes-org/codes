@@ -521,13 +521,3 @@ void print_msg(sn_message* m) {
            m->magic, m->src_gid, m->final_dest_gid, m->event_size_bytes, m->local_event_size_bytes);
 }
 #endif
-
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

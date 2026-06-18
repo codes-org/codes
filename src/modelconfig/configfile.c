@@ -165,12 +165,3 @@ int cf_equal(struct ConfigVTable* h1, struct ConfigVTable* h2) {
 int cf_dump(struct ConfigVTable* cf, SectionHandle h, char** err) {
     return txtfile_writeConfig(cf, h, stdout, err);
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ts=8 sts=4 sw=4 expandtab
- */

@@ -61,13 +61,3 @@ int jobmap_identity_get_num_ranks(int job_id, void const* ctx) {
 struct codes_jobmap_impl jobmap_identity_impl = {
     jobmap_identity_configure, jobmap_identity_destroy,      jobmap_identity_to_local,
     jobmap_identity_to_global, jobmap_identity_get_num_jobs, jobmap_identity_get_num_ranks};
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- *  indent-tabs-mode: nil
- * End:
- *
- * vim: ts=8 sts=4 sw=4 expandtab
- */

@@ -689,13 +689,3 @@ void fprint_codes_workload_op(FILE* out, char const* prefix, struct codes_worklo
         break;
     }
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- *  indent-tabs-mode: nil
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

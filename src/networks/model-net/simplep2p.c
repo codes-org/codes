@@ -816,12 +816,3 @@ static category_idles* sp_get_category_idles(char* category, category_idles* idl
     }
     return &idles[i];
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

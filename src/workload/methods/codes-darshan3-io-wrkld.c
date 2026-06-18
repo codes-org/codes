@@ -1341,13 +1341,3 @@ static void file_sanity_check(struct darshan_posix_file* file, struct darshan_mp
 
     return;
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- *  indent-tabs-mode: nil
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

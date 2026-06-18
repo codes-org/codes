@@ -312,15 +312,6 @@ static inline bool are_qlist_equal(struct qlist_head const* left, struct qlist_h
     return true;
 }
 
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ts=8 sts=4 sw=4 expandtab
- */
-
 #ifdef __cplusplus
 }
 #endif

@@ -307,12 +307,3 @@ static inline int quickhash_null32_hash(void* k, int table_size) {
 #endif
 
 #endif /* SRC_COMMON_UTIL_QUICKHASH_H */
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ts=8 sts=4 sw=4 expandtab
- */

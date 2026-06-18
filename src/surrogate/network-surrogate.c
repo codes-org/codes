@@ -488,4 +488,3 @@ void surrogate_switch_network_model(tw_pe* pe, bool is_queue_empty) {
 }
 //
 // === END OF Director functionality
-// vim: set tabstop=4 shiftwidth=4 expandtab :

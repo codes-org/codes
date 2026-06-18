@@ -41,12 +41,3 @@ static inline char* lp_io_handle_to_dir(lp_io_handle handle) {
 #endif
 
 #endif /* LP_IO_H */
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

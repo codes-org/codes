@@ -537,12 +537,3 @@ void prio_next_rc(void* sched, const void* rc_event_save, const model_net_sched_
     }
     // else, no-op
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

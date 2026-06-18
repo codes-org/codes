@@ -722,12 +722,3 @@ int hash_file_compare(void* key, struct qlist_head* link) {
 
     return 0;
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

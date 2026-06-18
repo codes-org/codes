@@ -237,13 +237,3 @@ static void jobmap_list_destroy(void* ctx) {
 struct codes_jobmap_impl jobmap_list_impl = {jobmap_list_configure,    jobmap_list_destroy,
                                              jobmap_list_to_local,     jobmap_list_to_global,
                                              jobmap_list_get_num_jobs, jobmap_list_get_num_ranks};
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- *  indent-tabs-mode: nil
- * End:
- *
- * vim: ts=8 sts=4 sw=4 expandtab
- */

@@ -335,12 +335,3 @@ static int checkpoint_state_compare(void* key, struct qhash_head* link) {
 
     return (0);
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

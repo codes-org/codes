@@ -332,12 +332,3 @@ static void handle_req_event(svr_state* ns, svr_msg* m, tw_lp* lp) {
     m->ret = model_net_event(net_id, "test", m->src, PAYLOAD_SZ, 0.0, sizeof(svr_msg), &m_remote,
                              sizeof(svr_msg), &m_local, lp);
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

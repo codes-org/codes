@@ -312,12 +312,3 @@ int mcs_listsection(const mcs_entry* e, mcs_section_entry* out, unsigned int max
     }
     return i;
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ts=8 sts=4 sw=4 expandtab
- */

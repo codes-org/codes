@@ -246,12 +246,3 @@ static void handle_recv_event(svr_state* ns, svr_msg* m) {
 static void handle_recv_rev_event(svr_state* ns, svr_msg* m) {
     ns->num_recv[m->src_svr_idx]--;
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

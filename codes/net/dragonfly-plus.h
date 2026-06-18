@@ -123,12 +123,3 @@ struct terminal_plus_message {
 #endif
 
 #endif /* end of include guard: DRAGONFLY_H */
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

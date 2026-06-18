@@ -194,12 +194,3 @@ static void handle_kickoff_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp)
     (void)m;
     (void)lp;
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

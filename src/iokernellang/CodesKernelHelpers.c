@@ -333,12 +333,3 @@ int codes_kernel_helper_bootstrap(char* io_kernel_path, char* io_kernel_meta_pat
 
     return t;
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ts=8 sts=4 sw=4 expandtab
- */

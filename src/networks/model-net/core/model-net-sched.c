@@ -117,12 +117,3 @@ void print_model_net_sched_checkpoint(FILE* out, char const* prefix, model_net_s
     __print_model_net_sched(out, prefix, sched, false);
 }
 /* STOP Checking reverse handler functionality */
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

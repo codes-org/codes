@@ -65,13 +65,3 @@ int jobmap_dummy_get_num_ranks(int job_id, void const* ctx) {
 struct codes_jobmap_impl jobmap_dummy_impl = {
     jobmap_dummy_configure, jobmap_dummy_destroy,      jobmap_dummy_to_local,
     jobmap_dummy_to_global, jobmap_dummy_get_num_jobs, jobmap_dummy_get_num_ranks};
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- *  indent-tabs-mode: nil
- * End:
- *
- * vim: ts=8 sts=4 sw=4 expandtab
- */

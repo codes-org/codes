@@ -347,12 +347,3 @@ void cn_set_params(int num_clients, int num_servers) {
     g_num_clients = num_clients;
     g_num_servers = num_servers;
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

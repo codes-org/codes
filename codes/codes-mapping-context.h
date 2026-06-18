@@ -118,13 +118,3 @@ char const* codes_mctx_get_annotation(struct codes_mctx const* ctx, char const* 
 #endif
 
 #endif /* end of include guard: CODES_MAPPING_CONTEXT_H */
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- *  indent-tabs-mode: nil
- * End:
- *
- * vim: ts=8 sts=4 sw=4 expandtab
- */

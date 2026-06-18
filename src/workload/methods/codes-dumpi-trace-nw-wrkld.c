@@ -1064,13 +1064,3 @@ struct codes_workload_method dumpi_trace_workload_method = {
     .codes_workload_get_next = dumpi_trace_nw_workload_get_next,
     .codes_workload_get_next_rc2 = dumpi_trace_nw_workload_get_next_rc2,
 };
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- *  indent-tabs-mode: nil
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

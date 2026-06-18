@@ -72,12 +72,3 @@ extern int* group_size;
 extern int temp_group_rank;
 extern int temp_group_size;
 #endif
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ts=8 sts=4 sw=4 expandtab
- */

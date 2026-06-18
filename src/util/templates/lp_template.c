@@ -142,12 +142,3 @@ void handle_template_b_rev(template_state* ns, tw_bf* b, template_msg* m, tw_lp*
 }
 
 /**** END IMPLEMENTATIONS ****/
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */
