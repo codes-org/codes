@@ -129,6 +129,19 @@ CODES provides comprehensive simulation capabilities for:
 
 ## Contributing
 
+### Code formatting
+
+This repo uses [clang-format](https://clang.llvm.org/docs/ClangFormat.html) to keep C/C++ style consistent. The rules live in [`.clang-format`](.clang-format) at the repo root; configure your editor to pick it up:
+
+- **VS Code:** install the C/C++ extension and enable `editor.formatOnSave` for C/C++ (or use Command Palette → "Format Document").
+- **CLion / IntelliJ:** uses `.clang-format` by default.
+- **Vim:** see [vim-clang-format](https://github.com/rhysd/vim-clang-format), or run `:!clang-format -i %`.
+- **Emacs:** see [clang-format.el](https://clang.llvm.org/docs/ClangFormat.html#emacs-integration).
+
+To reformat a file manually: `clang-format -i path/to/file.c`. CI runs `clang-format --dry-run --Werror` on every PR and rejects any drift, so PRs with unformatted code don't merge.
+
+### Determinism
+
 Before contributing please run the full test suite. Some tests verify our determinism guarantees (every simulation should be reproducible), i.e, the number of net events processed between two runs in parallel mode should be the same. We want to keep our determinism guarantees forever. Non-deterministic simulations are often the result of faulty reverse handlers, which have caused serious bug failures and hundreds of hours of debugging.
 
 If you find yourself with a model that is not deterministic (two runs with the same initial configuration produce different numbers of net events), then you can check for errors in the reverse handlers via the ROSS feature: reverse handlers check. For this, run your model with `--synch=6`. Make sure that all LPs in the simulation (ie, routers, terminals and others) have implemented proper reversibility checks (defined in a struct of type `crv_checkpointer`).
