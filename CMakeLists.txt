@@ -11,8 +11,12 @@ cmake_print_variables(CMAKE_MODULE_PATH)
 
 set(CMAKE_INSTALL_PREFIX "${PROJECT_BINARY_DIR}" CACHE PATH "Where to install CODES")
 
-set(CMAKE_CXX_STANDARD 11)
+# C++17 is the project-wide baseline (was previously only enabled when Torch
+# was found). Required, no compiler extensions, so the build is portable
+# across gcc/clang/AppleClang.
+set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
+set(CMAKE_CXX_EXTENSIONS OFF)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED True)
@@ -123,7 +127,6 @@ endif()
 if((NOT DEFINED USE_TORCH) OR USE_TORCH)
     find_package(Torch)
     if(Torch_FOUND)
-        set(CMAKE_CXX_STANDARD 17)
         add_definitions(-DUSE_TORCH)
         set(USE_TORCH true)
         message(STATUS "Loading TORCH models enabled.")

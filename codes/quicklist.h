@@ -213,8 +213,8 @@ static __inline__ void qlist_splice(struct qlist_head* qlist, struct qlist_head*
  * @member:	the name of the list_struct within the struct.
  */
 #define qlist_for_each_entry(pos, head, member)                                                    \
-    for (pos = qlist_entry((head)->next, typeof(*pos), member); &pos->member != (head);            \
-         pos = qlist_entry(pos->member.next, typeof(*pos), member))
+    for (pos = qlist_entry((head)->next, __typeof__(*pos), member); &pos->member != (head);        \
+         pos = qlist_entry(pos->member.next, __typeof__(*pos), member))
 
 /**
  * qlist_for_each_entry_safe - iterate over list of given type safe against removal of list entry
@@ -224,9 +224,9 @@ static __inline__ void qlist_splice(struct qlist_head* qlist, struct qlist_head*
  * @member:	the name of the list_struct within the struct.
  */
 #define qlist_for_each_entry_safe(pos, n, head, member)                                            \
-    for (pos = qlist_entry((head)->next, typeof(*pos), member),                                    \
-        n = qlist_entry(pos->member.next, typeof(*pos), member);                                   \
-         &pos->member != (head); pos = n, n = qlist_entry(n->member.next, typeof(*n), member))
+    for (pos = qlist_entry((head)->next, __typeof__(*pos), member),                                \
+        n = qlist_entry(pos->member.next, __typeof__(*pos), member);                               \
+         &pos->member != (head); pos = n, n = qlist_entry(n->member.next, __typeof__(*n), member))
 
 static inline int qlist_exists(struct qlist_head* list, struct qlist_head* qlink) {
     struct qlist_head* pos;
