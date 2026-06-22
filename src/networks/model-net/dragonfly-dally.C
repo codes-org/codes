@@ -22,6 +22,7 @@
 #include "codes/model-net-method.h"
 #include "codes/model-net-lp.h"
 #include "codes/surrogate/init.h"
+#include "codes/surrogate/director-client.h"
 #ifdef USE_TORCH
 #include "codes/surrogate/packet-latency-predictor/torch-jit.h"
 #endif
@@ -64,11 +65,18 @@
  * resolve it to null.)
  */
 #ifdef USE_ZMQML
-extern std::vector<std::string> zmqml_director_request(const std::string& surrogate_family,
-                                                       const std::string& surrogate_backend,
-                                                       const std::string& operation,
-                                                       const std::vector<std::string>& args,
-                                                       const std::string& bindata);
+extern std::vector<std::string> zmqml_director_request(
+    const std::string& surrogate_family,
+    const std::string& surrogate_backend,
+    const std::string& operation,
+    const std::vector<std::string>& args,
+    const std::string& bindata
+) __attribute__((weak));
+
+extern "C" void director_record_external_zmq_latency(
+    double processing_sec,
+    double total_sec
+) __attribute__((weak));
 
 extern void director_record_zmq_latency_stats(const char* label,
                                               const std::vector<std::string>& ret,
@@ -297,7 +305,20 @@ static std::vector<std::string> dfdally_event_time_director_request_with_latency
                                (double)(finish.tv_nsec - start.tv_nsec) / 1000000000.0;
 
 #ifdef USE_ZMQML
-    director_record_zmq_latency_stats(label, ret, local_latency_sec);
+    double zmq_processing_time = 0.0;
+
+    if (ret.size() > 1) {
+        char *endptr = NULL;
+        double parsed = strtod(ret[1].c_str(), &endptr);
+
+        if (endptr != ret[1].c_str() && isfinite(parsed) && parsed >= 0.0) {
+            zmq_processing_time = parsed;
+        }
+    }
+
+    if (director_record_external_zmq_latency) {
+        director_record_external_zmq_latency(zmq_processing_time, local_latency_sec);
+    }
 #endif
 
     return ret;

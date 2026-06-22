@@ -124,9 +124,8 @@ extern "C" {
 //                                const char* data);
 
 
-extern void director_lp_register_model(const char*);
-
-
+extern void director_lp_register_model(const char *);
+extern void director_record_external_zmq_latency(double processing_sec, double total_sec);
 /*
 extern void director_parse_args(char *args, int **args_array, int *length);
 static void director_issue_codes_event(director_state * s, tw_lpid nw_lpid, int dir_registered_event_type, tw_stime ts, tw_lp* lp);
@@ -142,5 +141,4 @@ extern void dir_test_finalize(director_state* s, tw_lp* lp);
 #ifdef __cplusplus
 }
 #endif
-
 #endif
