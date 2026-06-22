@@ -89,7 +89,7 @@ list(APPEND SRCS
     modelconfig/txt_configfile.c
 )
 
-list(APPEND LIBS_TO_LINK PkgConfig::ROSS)
+list(APPEND LIBS_TO_LINK ROSS::ROSS)
 
 if(USE_DUMPI)
     list(APPEND SRCS workload/methods/codes-dumpi-trace-nw-wrkld.c)
@@ -190,7 +190,6 @@ endif()
 # target_link_libraries(codes PUBLIC PkgConfig::ROSS)
 target_include_directories(codes PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
-    ${ROSS_INCLUDE_DIRS}
     ${PROJECT_BINARY_DIR}
     ${PROJECT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/codes
@@ -238,7 +237,7 @@ if(USE_ZMQML)
 endif()
 
 foreach(tar IN LISTS CODES_TARGETS)
-    target_include_directories(${tar} PUBLIC ${CODES_INCLUDE_DIRS} ${ROSS_INCLUDE_DIRS})
+    target_include_directories(${tar} PUBLIC ${CODES_INCLUDE_DIRS})
     target_link_libraries(${tar} PUBLIC codes ${LIBS_TO_LINK})
     if(USE_ZMQML)
         target_link_libraries(${tar} PUBLIC zmqmlrequester ${ZeroMQ_LIBRARY})

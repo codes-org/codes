@@ -21,16 +21,23 @@ set(CMAKE_C_STANDARD_REQUIRED True)
 #prevent cmake from stripping the runtime path (important if shared libraries are imported)
 SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
-set(ROSS_PKG_CONFIG_PATH "" CACHE PATH "Where is ROSS PKG_CONFIG is installed?")
 set(SWM_PKG_CONFIG_PATH "" CACHE PATH "Where is the SWM PKG_CONFIG installed?")
 set(UNION_PKG_CONFIG_PATH "" CACHE PATH "Where is the Union PKG_CONFIG installed?")
 set(ARGOBOTS_PKG_CONFIG_PATH "" CACHE PATH "Where is argobots PKG_COPNFIG installed? Necessary for SWM")
 set(DAMARIS_PKG_CONFIG_PATH "" CACHE PATH "Where is the damaris PKG_CONFIG installed?")
 
 
+# ROSS — modern CMake-config discovery. find_package(ROSS) resolves
+# <prefix>/lib/cmake/ROSS/ROSSConfig.cmake; point CMAKE_PREFIX_PATH at the
+# ROSS install prefix. The ROSS::ROSS imported target carries the include
+# dirs, the MPI dependency, and link libraries (linked in src/CMakeLists.txt).
+find_package(ROSS CONFIG REQUIRED)
+
+# PkgConfig still discovers the optional SWM/UNION/ARGOBOTS deps below
+# (modernized to imported targets in a later step); their *_PKG_CONFIG_PATH
+# cache vars feed PKG_CONFIG_PATH here.
 find_package(PkgConfig REQUIRED)
-set(ENV{PKG_CONFIG_PATH} "${ROSS_PKG_CONFIG_PATH}:${SWM_PKG_CONFIG_PATH}:${UNION_PKG_CONFIG_PATH}:${ARGOBOTS_PKG_CONFIG_PATH}")
-pkg_check_modules(ROSS REQUIRED IMPORTED_TARGET ross)
+set(ENV{PKG_CONFIG_PATH} "${SWM_PKG_CONFIG_PATH}:${UNION_PKG_CONFIG_PATH}:${ARGOBOTS_PKG_CONFIG_PATH}")
 
 # MPI — modern imported-target discovery. find_package(MPI) provides the
 # MPI::MPI_C / MPI::MPI_CXX imported targets, which carry the include dirs,

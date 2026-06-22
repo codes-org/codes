@@ -97,7 +97,7 @@ jobs:
           -DBUILD_TESTING=ON
           -DUSE_TORCH=OFF
           -DUSE_ZMQML=OFF
-          -DROSS_PKG_CONFIG_PATH=$PWD/ross-install/lib/pkgconfig
+          -DCMAKE_PREFIX_PATH=$PWD/ross-install
 
       - name: Build CODES
         run: cmake --build codes/build -j
