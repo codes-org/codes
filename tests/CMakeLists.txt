@@ -2,10 +2,6 @@ enable_testing()
 
 configure_file(run-test.sh.in run-test.sh)
 
-# ROSS include dirs come transitively from linking codes (PUBLIC ROSS::ROSS);
-# CODES_SOURCE_DIR is kept so test sources resolve in-tree codes headers.
-include_directories("${CODES_SOURCE_DIR}")
-
 # Unfortunatelly, CMake doesn't support iteration of a key-pair structure,
 # otherwise the following lists could be easily compressed into a single
 # list/dictionary/structure. Instead each C file name **MUST** match each

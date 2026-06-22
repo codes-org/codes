@@ -143,20 +143,16 @@ endif()
 
 add_library(codes STATIC ${SRCS})
 
+# Compile definitions accumulated from optional-dep detection in the top-level
+# CMakeLists (USE_DUMPI, USE_ONLINE, USE_SWM, USE_UNION, USE_RECORDER, USE_TORCH).
+# PUBLIC so codes' sources and every consumer (executables, tests) see them.
+target_compile_definitions(codes PUBLIC ${CODES_COMPILE_DEFINITIONS})
+
 # MPI imported targets carry the include dirs, compile flags, and link libs.
 # Linked PUBLIC (via LIBS_TO_LINK below) so codes' own sources and every
 # consumer (executables, tests) inherit them.
 list(APPEND LIBS_TO_LINK MPI::MPI_C MPI::MPI_CXX)
 
-# set(LIBS_TO_LINK
-#     PkgConfig::ROSS
-#     ${DUMPI_LIB}
-#     PkgConfig::ARGOBOTS
-#     PkgConfig::SWM
-# )
-
-#LINK DUMPI
-# target_link_libraries(codes PUBLIC ${DUPMI_LIB})
 if(USE_DUMPI)
     target_include_directories(codes PUBLIC ${DUMPI_INCLUDE})
 endif()
@@ -185,9 +181,6 @@ if(USE_ZMQML)
     target_compile_definitions(codes PUBLIC USE_ZMQML)
 endif()
 
-#LINK ROSS
-# target_link_libraries(codes PUBLIC #{pkgcfg_lib_ROSS_ROSS})
-# target_link_libraries(codes PUBLIC PkgConfig::ROSS)
 target_include_directories(codes PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${PROJECT_BINARY_DIR}
@@ -199,9 +192,6 @@ target_include_directories(codes PUBLIC
 )
 
 target_link_libraries(codes PUBLIC ${LIBS_TO_LINK})
-
-get_target_property(CODES_INCLUDE_DIRS codes INCLUDE_DIRECTORIES)
-cmake_print_variables(CODES_INCLUDE_DIRS)
 
 add_executable(topology-test networks/model-net/topology-test.c)
 add_executable(model-net-mpi-replay network-workloads/model-net-mpi-replay.c network-workloads/model-net-mpi-replay-main.c)
@@ -236,11 +226,12 @@ if(USE_ZMQML)
     find_library(ZeroMQ_LIBRARY NAMES zmq PATHS ${PC_ZeroMQ_LIBRARY_DIRS})
 endif()
 
+# Each executable links codes; its include dirs, MPI, ROSS, and optional-dep
+# libs all propagate transitively through codes' PUBLIC usage requirements.
 foreach(tar IN LISTS CODES_TARGETS)
-    target_include_directories(${tar} PUBLIC ${CODES_INCLUDE_DIRS})
-    target_link_libraries(${tar} PUBLIC codes ${LIBS_TO_LINK})
+    target_link_libraries(${tar} PRIVATE codes)
     if(USE_ZMQML)
-        target_link_libraries(${tar} PUBLIC zmqmlrequester ${ZeroMQ_LIBRARY})
+        target_link_libraries(${tar} PRIVATE zmqmlrequester ${ZeroMQ_LIBRARY})
     endif()
 endforeach()
 
