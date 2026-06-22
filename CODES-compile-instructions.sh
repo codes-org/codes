@@ -3,9 +3,9 @@ set -euo pipefail
 set -x
 
 # Switches
-swm_enable=1
+swm_enable=0
 union_enable=0
-torch_enable=1
+torch_enable=0
 
 # Uncomment below for MPICH
 #export PATH=/usr/local/mpich-4.1.2/bin/:"$PATH"
