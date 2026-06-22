@@ -47,19 +47,33 @@
 /*
  * Optional ZeroMQ Director requester.
  *
- * dragonfly-dally.C is compiled into libcodes.a, which is linked by many
- * tests/examples that do not link libzmqmlrequester.so. Keep this symbol weak
- * so only executables that link the requester use live event-time
- * collection/inference; all other targets fall back to original PDES behavior.
+ * These symbols are defined only when CODES is built with USE_ZMQML=ON
+ * (src/surrogate/director-client.C + libzmqmlrequester). USE_ZMQML is
+ * all-or-nothing for a given build: src/CMakeLists.txt links libzmqmlrequester
+ * into *every* CODES executable when ON and into none when OFF. So whether the
+ * requester is available is a compile-time fact, not a runtime one — the
+ * original __attribute__((weak)) + runtime `if (!zmqml_director_request)`
+ * checks could only ever take their "available" branch under ON and their
+ * "null" branch under OFF.
+ *
+ * The declarations and every reference are therefore #ifdef USE_ZMQML-guarded:
+ * the ON build calls the requester directly, the OFF build compiles in only
+ * the original-PDES fallback and emits no reference to the symbol. (Without
+ * the guard the OFF build fails to link on macOS/Mach-O, where ld64 rejects an
+ * undefined weak symbol with no providing library; Linux/ELF happens to
+ * resolve it to null.)
  */
-extern std::vector<std::string>
-zmqml_director_request(const std::string& surrogate_family, const std::string& surrogate_backend,
-                       const std::string& operation, const std::vector<std::string>& args,
-                       const std::string& bindata) __attribute__((weak));
+#ifdef USE_ZMQML
+extern std::vector<std::string> zmqml_director_request(const std::string& surrogate_family,
+                                                       const std::string& surrogate_backend,
+                                                       const std::string& operation,
+                                                       const std::vector<std::string>& args,
+                                                       const std::string& bindata);
 
 extern void director_record_zmq_latency_stats(const char* label,
                                               const std::vector<std::string>& ret,
-                                              double local_latency_sec) __attribute__((weak));
+                                              double local_latency_sec);
+#endif
 
 
 #ifdef ENABLE_CORTEX
@@ -271,20 +285,20 @@ static std::vector<std::string> dfdally_event_time_director_request_with_latency
     struct timespec start, finish;
     clock_gettime(CLOCK_MONOTONIC, &start);
 
-    if (!zmqml_director_request) {
-        ret.push_back("failed");
-    } else {
-        ret = zmqml_director_request("event-time", "dragonfly-dally", op, args, bindata);
-    }
+#ifdef USE_ZMQML
+    ret = zmqml_director_request("event-time", "dragonfly-dally", op, args, bindata);
+#else
+    ret.push_back("failed");
+#endif
 
     clock_gettime(CLOCK_MONOTONIC, &finish);
 
     double local_latency_sec = (double)(finish.tv_sec - start.tv_sec) +
                                (double)(finish.tv_nsec - start.tv_nsec) / 1000000000.0;
 
-    if (director_record_zmq_latency_stats) {
-        director_record_zmq_latency_stats(label, ret, local_latency_sec);
-    }
+#ifdef USE_ZMQML
+    director_record_zmq_latency_stats(label, ret, local_latency_sec);
+#endif
 
     return ret;
 }
@@ -3555,19 +3569,19 @@ static void dfdally_event_time_zmq_flush(void) {
         return;
     }
 
-    if (!zmqml_director_request) {
-        if (dfdally_surrogate_debug_prints) {
-            fprintf(stderr,
-                    "[event-time records] zmqml_director_request unavailable; dropping %llu "
-                    "buffered rows\n",
-                    event_time_zmq_buffered_rows);
-            fflush(stderr);
-        }
-
-        event_time_zmq_buffer.clear();
-        event_time_zmq_buffered_rows = 0;
-        return;
+#ifndef USE_ZMQML
+    if (dfdally_surrogate_debug_prints) {
+        fprintf(stderr,
+                "[event-time records] zmqml_director_request unavailable; dropping %llu "
+                "buffered rows\n",
+                event_time_zmq_buffered_rows);
+        fflush(stderr);
     }
+
+    event_time_zmq_buffer.clear();
+    event_time_zmq_buffered_rows = 0;
+    return;
+#endif
 
     std::vector<std::string> args;
     args.push_back("1");
@@ -3772,16 +3786,16 @@ static double dfdally_event_time_predict_or_original(tw_lp* lp, int current_lp_t
     std::vector<std::string> args;
     args.push_back("1");
 
-    if (!zmqml_director_request) {
-        if (dfdally_surrogate_debug_prints) {
-            fprintf(stderr,
-                    "[event-time inference] zmqml_director_request unavailable; "
-                    "using original delay %.17g\n",
-                    original_delay);
-            fflush(stderr);
-        }
-        return original_delay;
+#ifndef USE_ZMQML
+    if (dfdally_surrogate_debug_prints) {
+        fprintf(stderr,
+                "[event-time inference] zmqml_director_request unavailable; "
+                "using original delay %.17g\n",
+                original_delay);
+        fflush(stderr);
     }
+    return original_delay;
+#endif
 
     std::vector<std::string> ret;
     try {
@@ -6694,6 +6708,7 @@ static void dragonfly_dally_terminal_final(terminal_state* s, tw_lp* lp) {
     s->sent_packets.~map();
     s->is_pending_local_send.~set();
     s->remaining_sz_packets.~map();
+    s->zombies.~set(); // placement-new'd in terminal_dally_init; was missing here
 
     // TODO: drop once make_lptype<T>() trampoline lands.
     s->connMan.~DragonflyConnectionManager();

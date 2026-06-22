@@ -561,7 +561,11 @@ void cc_router_local_controller_init(rlc_state* s, tw_lp* lp, int total_terminal
     // s->port_vc_to_term_count_map = map<pair<int,int>,map<int,int> >();
 
     s->workloads_finished_flag_ptr = workload_finished_flag_ptr;
-    s->output_ports = set<int>();
+    // ROSS zero-inits LP state and never runs a C++ ctor, so output_ports must
+    // be constructed in place before first use. Forward-assigning `= set<int>()`
+    // into the zeroed memory is UB (segfaults on libc++/macOS, works by luck on
+    // libstdc++/Linux). TODO: drop once make_lptype<T>() trampoline lands.
+    new (&s->output_ports) set<int>();
     s->packet_counting_tree = new Portchan_node(ROOT, radix, num_vcs_per_port);
 }
 
@@ -855,6 +859,9 @@ void cc_router_congestion_check_rc(rlc_state* s, tw_lp* lp, int port_no, int vc_
 }
 
 void cc_router_local_controller_finalize(rlc_state* s) {
+    // Paired with the placement-new in cc_router_local_controller_init.
+    // TODO: drop once make_lptype<T>() trampoline lands.
+    s->output_ports.~set();
     delete s->packet_counting_tree;
 }
 
