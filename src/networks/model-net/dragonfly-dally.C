@@ -6694,6 +6694,7 @@ static void dragonfly_dally_terminal_final(terminal_state* s, tw_lp* lp) {
     s->sent_packets.~map();
     s->is_pending_local_send.~set();
     s->remaining_sz_packets.~map();
+    s->zombies.~set(); // placement-new'd in terminal_dally_init; was missing here
 
     // TODO: drop once make_lptype<T>() trampoline lands.
     s->connMan.~DragonflyConnectionManager();
