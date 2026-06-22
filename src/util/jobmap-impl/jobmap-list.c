@@ -10,52 +10,45 @@
 #include "../codes-jobmap-method-impl.h"
 
 #define LIST_DEBUG 0
-#define dprintf(_fmt, ...) \
-    do { \
-        if (LIST_DEBUG) { \
-            fprintf(stdout, "jobmap-list: "); \
-            fprintf(stdout, _fmt, ##__VA_ARGS__); \
-        } \
+#define dprintf(_fmt, ...)                                                                         \
+    do {                                                                                           \
+        if (LIST_DEBUG) {                                                                          \
+            fprintf(stdout, "jobmap-list: ");                                                      \
+            fprintf(stdout, _fmt, ##__VA_ARGS__);                                                  \
+        }                                                                                          \
     } while (0)
 
-#define ERR(str, ...)\
-    do{\
-        if (LIST_DEBUG) { \
-            fprintf(stderr, "ERROR at %s:%d: " str "\n", \
-                    __FILE__, __LINE__, ##__VA_ARGS__);\
-        } \
-        return -1; \
-    }while(0)
+#define ERR(str, ...)                                                                              \
+    do {                                                                                           \
+        if (LIST_DEBUG) {                                                                          \
+            fprintf(stderr, "ERROR at %s:%d: " str "\n", __FILE__, __LINE__, ##__VA_ARGS__);       \
+        }                                                                                          \
+        return -1;                                                                                 \
+    } while (0)
 
 struct jobmap_list {
     int num_jobs;
-    int *rank_counts;
-    int **global_ids;
+    int* rank_counts;
+    int** global_ids;
 
     // This is a look up table containing the same info as above, but with O(1) access.
     // It is used by `jobmap_list_to_local`. This solves a scalibility bug that appears
     // when all jobs combined have many nodes (> 8K nodes)
     int highest_global_id;
-    struct codes_jobmap_id * id_to_jobmap;
+    struct codes_jobmap_id* id_to_jobmap;
 };
 
-#define COND_REALLOC(_len_expr, _cap_var, _buf_var) \
-    do { \
-        if ((_len_expr) == _cap_var) { \
-            _buf_var = realloc(_buf_var, (_cap_var)*2*sizeof(*(_buf_var))); \
-            assert(_buf_var); \
-            _cap_var *= 2; \
-        } \
+#define COND_REALLOC(_len_expr, _cap_var, _buf_var)                                                \
+    do {                                                                                           \
+        if ((_len_expr) == _cap_var) {                                                             \
+            _buf_var = realloc(_buf_var, (_cap_var) * 2 * sizeof(*(_buf_var)));                    \
+            assert(_buf_var);                                                                      \
+            _cap_var *= 2;                                                                         \
+        }                                                                                          \
     } while (0)
 
-static int parse_line(
-        FILE *f,
-        char **line_buf,
-        int *line_cap,
-        int *num_ranks,
-        int **rank_list)
-{
-    char * buf = *line_buf;
+static int parse_line(FILE* f, char** line_buf, int* line_cap, int* num_ranks, int** rank_list) {
+    char* buf = *line_buf;
 
     int cap = *line_cap;
     int pos = 0;
@@ -69,24 +62,20 @@ static int parse_line(
     if (ferror(f)) {
         *num_ranks = -1;
         goto end;
-    }
-    else {
-        buf[pos]='\0';
+    } else {
+        buf[pos] = '\0';
     }
 
     int list_cap = 8;
-    int *lst = malloc(list_cap * sizeof(*lst));
+    int* lst = malloc(list_cap * sizeof(*lst));
     assert(lst);
     int rank;
 
     *num_ranks = 0;
-    for (char * tok = strtok(buf, " \t\r"); tok != NULL;
-            tok = strtok(NULL, " \t\r")) {
+    for (char* tok = strtok(buf, " \t\r"); tok != NULL; tok = strtok(NULL, " \t\r")) {
         int rc = sscanf(tok, "%d", &rank);
         if (rc != 1) {
-            fprintf(stderr,
-                    "jobmap-list: unable to read alloc file - bad rank (%s)\n",
-                    tok);
+            fprintf(stderr, "jobmap-list: unable to read alloc file - bad rank (%s)\n", tok);
             *num_ranks = -1;
             break;
         }
@@ -98,8 +87,7 @@ static int parse_line(
     if (*num_ranks <= 0) {
         *rank_list = NULL;
         free(lst);
-    }
-    else
+    } else
         *rank_list = lst;
 end:
     *line_buf = buf;
@@ -107,14 +95,13 @@ end:
     return (*num_ranks < 0) ? -1 : 0;
 }
 
-static int jobmap_list_configure(void const * params, void ** ctx)
-{
-    struct codes_jobmap_params_list const * p = params;
-    struct jobmap_list *lst = malloc(sizeof(*lst));
+static int jobmap_list_configure(void const* params, void** ctx) {
+    struct codes_jobmap_params_list const* p = params;
+    struct jobmap_list* lst = malloc(sizeof(*lst));
     assert(lst);
 
-    FILE *f = fopen(p->alloc_file, "r");
-    if(!f) {
+    FILE* f = fopen(p->alloc_file, "r");
+    if (!f) {
         ERR("Could not open file %s", p->alloc_file);
     }
 
@@ -127,23 +114,21 @@ static int jobmap_list_configure(void const * params, void ** ctx)
     assert(lst->global_ids);
 
     // line storage
-    int line_cap = 1<<10;
-    char *line_buf = malloc(line_cap);
+    int line_cap = 1 << 10;
+    char* line_buf = malloc(line_cap);
     assert(line_buf);
 
     int rc = 0;
     do {
-        rc = parse_line(f, &line_buf, &line_cap,
-                &lst->rank_counts[lst->num_jobs],
-                &lst->global_ids[lst->num_jobs]);
+        rc = parse_line(f, &line_buf, &line_cap, &lst->rank_counts[lst->num_jobs],
+                        &lst->global_ids[lst->num_jobs]);
         if (rc == -1) {
             // error and exit
             if (ferror(f)) {
                 perror("fgets");
                 break;
             }
-        }
-        else if (lst->rank_counts[lst->num_jobs] > 0) {
+        } else if (lst->rank_counts[lst->num_jobs] > 0) {
             lst->num_jobs++;
         }
         // resize if needed
@@ -162,21 +147,21 @@ static int jobmap_list_configure(void const * params, void ** ctx)
     // Finding highest global id. Although we should be able to get this from the network
     // configuration file, we look it up in here to keep different parts of CODES separated/modularized
     lst->highest_global_id = -1;
-    for(int i=0; i<lst->num_jobs; i++) {
-        for(int j=0; j < lst->rank_counts[i]; j++) {
-            if(lst->highest_global_id < lst->global_ids[i][j]) {
+    for (int i = 0; i < lst->num_jobs; i++) {
+        for (int j = 0; j < lst->rank_counts[i]; j++) {
+            if (lst->highest_global_id < lst->global_ids[i][j]) {
                 lst->highest_global_id = lst->global_ids[i][j];
             }
         }
     }
     lst->id_to_jobmap = calloc(lst->highest_global_id + 1, sizeof(*lst->id_to_jobmap));
-    for (int i=0; i<=lst->highest_global_id; i++) {
+    for (int i = 0; i <= lst->highest_global_id; i++) {
         lst->id_to_jobmap[i].job = -1;
         lst->id_to_jobmap[i].rank = -1;
     }
     // Finally, filling up the table
-    for(int i=0; i<lst->num_jobs; i++) {
-        for(int j=0; j < lst->rank_counts[i]; j++) {
+    for (int i = 0; i < lst->num_jobs; i++) {
+        for (int j = 0; j < lst->rank_counts[i]; j++) {
             int const id = lst->global_ids[i][j];
             lst->id_to_jobmap[id].job = i;
             lst->id_to_jobmap[id].rank = j;
@@ -190,8 +175,7 @@ static int jobmap_list_configure(void const * params, void ** ctx)
         free(line_buf);
         *ctx = lst;
         return 0;
-    }
-    else {
+    } else {
         for (int i = 0; i < job_cap; i++) {
             free(lst->global_ids[i]);
         }
@@ -204,21 +188,19 @@ static int jobmap_list_configure(void const * params, void ** ctx)
     }
 }
 
-static struct codes_jobmap_id jobmap_list_to_local(int id, void const * ctx)
-{
-    struct jobmap_list const *lst = (struct jobmap_list const *)ctx;
+static struct codes_jobmap_id jobmap_list_to_local(int id, void const* ctx) {
+    struct jobmap_list const* lst = (struct jobmap_list const*)ctx;
 
     // invalid id from what we got in the config
     if (id < 0 || lst->highest_global_id < id) {
-        return (struct codes_jobmap_id) { .job = -1, .rank = -1 };
+        return (struct codes_jobmap_id){.job = -1, .rank = -1};
     }
 
     return lst->id_to_jobmap[id];
 }
 
-static int jobmap_list_to_global(struct codes_jobmap_id id, void const * ctx)
-{
-    struct jobmap_list const *lst = (struct jobmap_list*)ctx;
+static int jobmap_list_to_global(struct codes_jobmap_id id, void const* ctx) {
+    struct jobmap_list const* lst = (struct jobmap_list*)ctx;
 
     if (id.job < lst->num_jobs)
         return lst->global_ids[id.job][id.rank];
@@ -226,25 +208,22 @@ static int jobmap_list_to_global(struct codes_jobmap_id id, void const * ctx)
         return -1;
 }
 
-static int jobmap_list_get_num_jobs(void const * ctx)
-{
-    struct jobmap_list *lst = (struct jobmap_list*)ctx;
+static int jobmap_list_get_num_jobs(void const* ctx) {
+    struct jobmap_list* lst = (struct jobmap_list*)ctx;
     return lst->num_jobs;
 }
 
-static int jobmap_list_get_num_ranks(int job_id, void const * ctx)
-{
-    struct jobmap_list const *lst = (struct jobmap_list const *) ctx;
+static int jobmap_list_get_num_ranks(int job_id, void const* ctx) {
+    struct jobmap_list const* lst = (struct jobmap_list const*)ctx;
     if (job_id < 0 || job_id >= lst->num_jobs)
         return -1;
     else
         return lst->rank_counts[job_id];
 }
 
-static void jobmap_list_destroy(void * ctx)
-{
-    struct jobmap_list *lst = (struct jobmap_list*)ctx;
-    for(int i=0; i<lst->num_jobs; i++){
+static void jobmap_list_destroy(void* ctx) {
+    struct jobmap_list* lst = (struct jobmap_list*)ctx;
+    for (int i = 0; i < lst->num_jobs; i++) {
         free(lst->global_ids[i]);
     }
 
@@ -255,21 +234,6 @@ static void jobmap_list_destroy(void * ctx)
 }
 
 
-struct codes_jobmap_impl jobmap_list_impl = {
-    jobmap_list_configure,
-    jobmap_list_destroy,
-    jobmap_list_to_local,
-    jobmap_list_to_global,
-    jobmap_list_get_num_jobs,
-    jobmap_list_get_num_ranks
-};
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- *  indent-tabs-mode: nil
- * End:
- *
- * vim: ts=8 sts=4 sw=4 expandtab
- */
+struct codes_jobmap_impl jobmap_list_impl = {jobmap_list_configure,    jobmap_list_destroy,
+                                             jobmap_list_to_local,     jobmap_list_to_global,
+                                             jobmap_list_get_num_jobs, jobmap_list_get_num_ranks};

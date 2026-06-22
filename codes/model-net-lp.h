@@ -38,7 +38,7 @@ extern int model_net_base_magic;
 
 // register the networks with ROSS, given the array of flags, one for each
 // network type
-void model_net_base_register(int *do_config_nets);
+void model_net_base_register(int* do_config_nets);
 // configure the base LP type, setting up general parameters
 void model_net_base_configure();
 
@@ -52,23 +52,13 @@ void model_net_base_configure();
 //
 // This function is expected to be called within each specific model-net
 // method - strange and disturbing things will happen otherwise
-tw_event * model_net_method_event_new(
-        tw_lpid dest_gid,
-        tw_stime offset_ts,
-        tw_lp *sender,
-        int net_id,
-        void **msg_data,
-        void **extra_data);
+tw_event* model_net_method_event_new(tw_lpid dest_gid, tw_stime offset_ts, tw_lp* sender,
+                                     int net_id, void** msg_data, void** extra_data);
 
 // Same as `model_net_method_event_new` extended to use user priorities to enforce ordering of some simulatenous events (USE WITH CARE!!)
-tw_event * model_net_method_event_new_user_prio(
-        tw_lpid dest_gid,
-        tw_stime offset_ts,
-        tw_lp *sender,
-        int net_id,
-        void **msg_data,
-        void **extra_data,
-        tw_stime prio);
+tw_event* model_net_method_event_new_user_prio(tw_lpid dest_gid, tw_stime offset_ts, tw_lp* sender,
+                                               int net_id, void** msg_data, void** extra_data,
+                                               tw_stime prio);
 
 // Construct a model-net-specific event, similar to model_net_method_event_new.
 // The primary differences are:
@@ -78,21 +68,16 @@ tw_event * model_net_method_event_new_user_prio(
 //
 // NOTE: this is largely a constructor of a model_net_request
 void model_net_method_send_msg_recv_event(
-        tw_lpid final_dest_lp,
-        tw_lpid dest_mn_lp, // which model-net lp is going to handle message
-        tw_lpid src_lp, // the "actual" source (as opposed to the model net lp)
-        uint64_t msg_size, // the size of this message
-        int is_pull,
-        uint64_t pull_size, // the size of the message to pull if is_pull==1
-        int remote_event_size,
-        const mn_sched_params *sched_params,
-        const char * category,
-        int net_id,
-        void * msg,
-        tw_stime offset,
-        tw_lp *sender);
+    tw_lpid final_dest_lp,
+    tw_lpid dest_mn_lp, // which model-net lp is going to handle message
+    tw_lpid src_lp,     // the "actual" source (as opposed to the model net lp)
+    uint64_t msg_size,  // the size of this message
+    int is_pull,
+    uint64_t pull_size, // the size of the message to pull if is_pull==1
+    int remote_event_size, const mn_sched_params* sched_params, const char* category, int net_id,
+    void* msg, tw_stime offset, tw_lp* sender);
 // just need to reverse an RNG for the time being
-void model_net_method_send_msg_recv_event_rc(tw_lp *sender);
+void model_net_method_send_msg_recv_event_rc(tw_lp* sender);
 
 // Issue an event from the underlying model (e.g., simplenet, loggp) to tell the
 // scheduler when next to issue a packet event. As different models update their
@@ -102,41 +87,34 @@ void model_net_method_send_msg_recv_event_rc(tw_lp *sender);
 //
 // This function is expected to be called within each specific model-net
 // method - strange and disturbing things will happen otherwise
-void model_net_method_idle_event(tw_stime offset_ts, int is_recv_queue,
-        tw_lp * lp);
-void model_net_method_idle_event2(tw_stime offset_ts, int is_recv_queue,
-        int queue_offset, tw_lp * lp);
+void model_net_method_idle_event(tw_stime offset_ts, int is_recv_queue, tw_lp* lp);
+void model_net_method_idle_event2(tw_stime offset_ts, int is_recv_queue, int queue_offset,
+                                  tw_lp* lp);
 
 // Get a ptr to past the message struct area, where the self/remote events
 // are located, given the type of network.
 // NOTE: this should ONLY be called on model-net implementations, nowhere else
-void * model_net_method_get_edata(int net_id, void * msg);
+void* model_net_method_get_edata(int net_id, void* msg);
 
-int model_net_method_end_sim_broadcast(
-    tw_stime offset_ts,
-    tw_lp *sender);
+int model_net_method_end_sim_broadcast(tw_stime offset_ts, tw_lp* sender);
 
-tw_event* model_net_method_end_sim_notification(
-    tw_lpid dest_gid,
-    tw_stime offset_ts,
-    tw_lp *sender);
+tw_event* model_net_method_end_sim_notification(tw_lpid dest_gid, tw_stime offset_ts,
+                                                tw_lp* sender);
 
 // Wrapper for congestion controller to request congestion data from destination
-tw_event* model_net_method_congestion_event(tw_lpid dest_gid,
-    tw_stime offset_ts,
-    tw_lp *sender,
-    void **msg_data,
-    void **extra_data);
+tw_event* model_net_method_congestion_event(tw_lpid dest_gid, tw_stime offset_ts, tw_lp* sender,
+                                            void** msg_data, void** extra_data);
 
 // Functions to call when switching from highdef to surrogate, and surrogate to highdef
-void model_net_method_switch_to_surrogate_lp(tw_lp * lp);
-void model_net_method_switch_to_highdef_lp(tw_lp * lp);
+void model_net_method_switch_to_surrogate_lp(tw_lp* lp);
+void model_net_method_switch_to_highdef_lp(tw_lp* lp);
 void model_net_method_switch_to_surrogate(void);
 void model_net_method_switch_to_highdef(void);
 
 // It will call the function (pointer) on the internal structure/network model.
 // The lp parameter has to be a model-net lp. The function pointer has to coincide with the underlying subtype
-void model_net_method_call_inner(tw_lp * lp, void (*) (void * inner, tw_lp * lp, void * data), void * data);
+void model_net_method_call_inner(tw_lp* lp, void (*)(void* inner, tw_lp* lp, void* data),
+                                 void* data);
 
 /// The following functions/data structures should not need to be used by
 /// model developers - they are just provided so other internal components can
@@ -173,40 +151,31 @@ typedef struct model_net_base_msg {
 typedef struct model_net_wrap_msg {
     msg_header h;
     union {
-        model_net_base_msg      m_base;  // base lp
-        terminal_message        m_dfly;  // dragonfly
-        terminal_custom_message        m_custom_dfly;  // dragonfly-custom
-        terminal_plus_message        m_dfly_plus;  // dragonfly plus
-        terminal_dally_message        m_dally_dfly;  // dragonfly dally
-        slim_terminal_message   m_slim;  // slimfly
-	fattree_message		m_fat;   // fattree
-        loggp_message           m_loggp; // loggp
-        sn_message              m_snet;  // simplenet
-        sp_message              m_sp2p;  // simplep2p
-        nodes_message           m_torus; // torus
-        em_message              m_em; // express-mesh
+        model_net_base_msg m_base;             // base lp
+        terminal_message m_dfly;               // dragonfly
+        terminal_custom_message m_custom_dfly; // dragonfly-custom
+        terminal_plus_message m_dfly_plus;     // dragonfly plus
+        terminal_dally_message m_dally_dfly;   // dragonfly dally
+        slim_terminal_message m_slim;          // slimfly
+        fattree_message m_fat;                 // fattree
+        loggp_message m_loggp;                 // loggp
+        sn_message m_snet;                     // simplenet
+        sp_message m_sp2p;                     // simplep2p
+        nodes_message m_torus;                 // torus
+        em_message m_em;                       // express-mesh
         congestion_control_message m_cc;
         // add new ones here
     } msg;
 } model_net_wrap_msg;
 
 // Returns the (hidden) event type of the current event
-int model_net_get_event_type_lp(model_net_wrap_msg *);
+int model_net_get_event_type_lp(model_net_wrap_msg*);
 
 // Extracting message contained within event MN_BASE_PASS
-void * model_net_method_msg_from_tw_event(tw_lp *, model_net_wrap_msg *);
+void* model_net_method_msg_from_tw_event(tw_lp*, model_net_wrap_msg*);
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif /* end of include guard: MODEL_NET_LP_H */
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

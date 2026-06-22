@@ -1,0 +1,55 @@
+# CODES code style.
+# Run `clang-format -i <file>` (or enable format-on-save) to apply.
+---
+BasedOnStyle: LLVM
+
+# Indentation: 4 spaces, no tabs. This is the dominant pre-existing style in
+# CODES (vs ~2000 tab-indented lines mixed in). Switching to "no tabs" closes
+# the door on tab/space drift.
+IndentWidth: 4
+TabWidth: 4
+UseTab: Never
+ContinuationIndentWidth: 4
+
+# Line length: matches ROSS's soft-100 convention. Not a hard rule, but
+# clang-format will reflow longer lines where safe.
+ColumnLimit: 100
+
+# Braces: attached (K&R-style) on the same line as the control statement /
+# function signature.
+BreakBeforeBraces: Attach
+AllowShortIfStatementsOnASingleLine: Never
+AllowShortFunctionsOnASingleLine: InlineOnly
+AllowShortLoopsOnASingleLine: false
+AllowShortCaseLabelsOnASingleLine: false
+
+# Pointer/reference alignment: `int* p` (type-side).
+PointerAlignment: Left
+DerivePointerAlignment: false
+
+# Don't align consecutive assignments / declarations into pretty columns —
+# this is the source of most of the "open a file and unrelated lines move
+# around" pain. Single-pass formatting only changes the line being edited.
+AlignConsecutiveAssignments: false
+AlignConsecutiveDeclarations: false
+AlignConsecutiveMacros: false
+
+# Includes: keep what the developer wrote, don't reorder. Reordering across
+# #include groups can break compilation in this codebase (some headers have
+# implicit ordering dependencies — e.g. mpi.h before some C++ stdlib headers).
+SortIncludes: Never
+
+# Standard: C++17
+Standard: c++17
+
+# Empty lines: keep at most one inside functions; never more than two anywhere.
+MaxEmptyLinesToKeep: 2
+KeepEmptyLinesAtTheStartOfBlocks: false
+
+# Comment reflow: don't, leave existing comments alone (avoids reflowing
+# multi-line Doxygen blocks and ASCII tables).
+ReflowComments: false
+
+# Penalties tuned slightly to discourage trailing one-arg-per-line splits
+# on function calls that fit within ColumnLimit.
+PenaltyBreakBeforeFirstCallParameter: 100

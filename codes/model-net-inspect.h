@@ -24,36 +24,16 @@ extern "C" {
 
 /* get the dimensions of a torus configuration torus network. n and dims are
  * return paramters */
-void model_net_torus_get_dims(
-        char const        * anno,
-        int                 ignore_annotations,
-        int               * n,
-        int const * const * dims);
+void model_net_torus_get_dims(char const* anno, int ignore_annotations, int* n,
+                              int const* const* dims);
 
 /* mapping utilities to and from linearized torus node ids */
-void model_net_torus_get_dim_id(
-        int         flat_id,
-        int         ndims,
-        const int * dim_lens,
-        int       * out_dim_ids);
+void model_net_torus_get_dim_id(int flat_id, int ndims, const int* dim_lens, int* out_dim_ids);
 
-int model_net_torus_get_flat_id(
-        int         ndims,
-        const int * dim_lens,
-        const int * dim_ids);
+int model_net_torus_get_flat_id(int ndims, const int* dim_lens, const int* dim_ids);
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif /* end of include guard: MODEL_NET_INSPECT_H */
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- *  indent-tabs-mode: nil
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

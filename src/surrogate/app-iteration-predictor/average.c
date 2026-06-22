@@ -6,7 +6,10 @@
 #include <math.h>
 #include <ross-extern.h>
 
-#define master_printf(...) if (g_tw_mynode == 0) { printf(__VA_ARGS__); }
+#define master_printf(...)                                                                         \
+    if (g_tw_mynode == 0) {                                                                        \
+        printf(__VA_ARGS__);                                                                       \
+    }
 
 static struct avg_app_config my_config = {0};
 
@@ -17,7 +20,7 @@ struct node_data {
     int acc_iters;
     int last_iter;
 };
-static struct node_data * arr_node_data = NULL; // array containing info for all nodes
+static struct node_data* arr_node_data = NULL; // array containing info for all nodes
 
 enum APP_STATUS {
     APP_STATUS_running = 0,
@@ -29,9 +32,9 @@ struct app_data {
     enum NODE_TYPE type;
     int num_nodes; // nodes in PE
     int nodes_with_enough_iters;
-    int ending_iteration;  // last iteration the simulation will run (aka, num of iterations)
+    int ending_iteration; // last iteration the simulation will run (aka, num of iterations)
     int nodes_that_have_ended;
-    enum APP_STATUS status;  // use ended to stop accumulating data
+    enum APP_STATUS status; // use ended to stop accumulating data
     // To be used when called by the model. Set by `prepare_fast_forward_jump`
     struct {
         int jump_at_iter;
@@ -39,35 +42,41 @@ struct app_data {
         double restart_at;
     } pred;
 };
-static struct app_data * arr_app_data = NULL; // array containing info for all apps
+static struct app_data* arr_app_data = NULL; // array containing info for all apps
 static bool ready_to_skip = false;
 
-static inline char const * string_node_type(enum NODE_TYPE type) {
+static inline char const* string_node_type(enum NODE_TYPE type) {
     switch (type) {
-        case NODE_TYPE_unassigned:       return "Unassigned app";
-        case NODE_TYPE_background_noise: return "Background noise/synthetic pattern";
-        case NODE_TYPE_app:              return "App that runs on predictable iterations";
-        default:                         return "Unknown type!";
+    case NODE_TYPE_unassigned:
+        return "Unassigned app";
+    case NODE_TYPE_background_noise:
+        return "Background noise/synthetic pattern";
+    case NODE_TYPE_app:
+        return "App that runs on predictable iterations";
+    default:
+        return "Unknown type!";
     }
 }
 
 
-static void find_max_iter_per_app(int * save_last_iter);
-static inline void mpi_allreduce_int_max(int const * local_data, int * result_data, int count);
-static inline void mpi_allreduce_int_sum(int const * local_data, int * result_data, int count);
-static inline void mpi_allreduce_double_sum(double const * local_data, double * result_data, int count);
-static inline void mpi_allreduce_bool_and(bool const * local_data, bool * result_data, int count);
-static inline void init_int_array(int * array, int size, int value);
-static inline void init_double_array(double * array, int size, double value);
+static void find_max_iter_per_app(int* save_last_iter);
+static inline void mpi_allreduce_int_max(int const* local_data, int* result_data, int count);
+static inline void mpi_allreduce_int_sum(int const* local_data, int* result_data, int count);
+static inline void mpi_allreduce_double_sum(double const* local_data, double* result_data,
+                                            int count);
+static inline void mpi_allreduce_bool_and(bool const* local_data, bool* result_data, int count);
+static inline void init_int_array(int* array, int size, int value);
+static inline void init_double_array(double* array, int size, double value);
 static inline int app_id_for(int nw_id_in_pe) {
     return arr_node_data[nw_id_in_pe].app_id;
 }
 
 
-static void model_calls_init(tw_lp * lp, int nw_id_in_pe, struct app_iter_node_config * config) {
+static void model_calls_init(tw_lp* lp, int nw_id_in_pe, struct app_iter_node_config* config) {
     assert(arr_node_data);
     if (my_config.num_nodes_in_pe <= nw_id_in_pe) {
-        tw_error(TW_LOC, "Node id relative to PE (%d) is larger than the number of nodes %d", nw_id_in_pe, my_config.num_nodes_in_pe);
+        tw_error(TW_LOC, "Node id relative to PE (%d) is larger than the number of nodes %d",
+                 nw_id_in_pe, my_config.num_nodes_in_pe);
     }
 
     // Storing node data info
@@ -80,7 +89,11 @@ static void model_calls_init(tw_lp * lp, int nw_id_in_pe, struct app_iter_node_c
     if (arr_app_data[config->app_id].type == NODE_TYPE_unassigned) {
         arr_app_data[config->app_id].type = config->type;
     } else if (arr_app_data[config->app_id].type != config->type) {
-        tw_error(TW_LOC, "Two different ranks for application %d have signaded different compute node types. LP ID %d is of type '%s', but app had been configured as '%s'", lp->gid, string_node_type(arr_app_data[config->app_id].type), string_node_type(config->type));
+        tw_error(TW_LOC,
+                 "Two different ranks for application %d have signaded different compute node "
+                 "types. LP ID %d is of type '%s', but app had been configured as '%s'",
+                 lp->gid, string_node_type(arr_app_data[config->app_id].type),
+                 string_node_type(config->type));
     }
 
     if (config->type == NODE_TYPE_background_noise) {
@@ -90,7 +103,11 @@ static void model_calls_init(tw_lp * lp, int nw_id_in_pe, struct app_iter_node_c
     if (arr_app_data[config->app_id].ending_iteration == INT_MIN) {
         arr_app_data[config->app_id].ending_iteration = config->app_ending_iter;
     } else if (arr_app_data[config->app_id].ending_iteration != config->app_ending_iter) {
-        tw_error(TW_LOC, "Two different ranks for application %d have differing total iterations they will run (%d != %d)", config->app_id, config->app_ending_iter, arr_app_data[config->app_id].ending_iteration);
+        tw_error(TW_LOC,
+                 "Two different ranks for application %d have differing total iterations they will "
+                 "run (%d != %d)",
+                 config->app_id, config->app_ending_iter,
+                 arr_app_data[config->app_id].ending_iteration);
     }
 }
 
@@ -102,9 +119,9 @@ static inline void assert_app_initialized(int nw_id_in_pe) {
     }
 }
 
-static void model_calls_feed(tw_lp * lp, int nw_id_in_pe, int iter, double iteration_time) {
-    (void) lp;
-    assert(my_config.num_nodes_in_pe > (size_t) nw_id_in_pe);
+static void model_calls_feed(tw_lp* lp, int nw_id_in_pe, int iter, double iteration_time) {
+    (void)lp;
+    assert(my_config.num_nodes_in_pe > (size_t)nw_id_in_pe);
     assert_app_initialized(nw_id_in_pe);
 
     int const app_id = app_id_for(nw_id_in_pe);
@@ -113,18 +130,22 @@ static void model_calls_feed(tw_lp * lp, int nw_id_in_pe, int iter, double itera
     static bool shown_warning = false;
     if (!shown_warning && arr_app_data[app_id].type == NODE_TYPE_background_noise) {
         shown_warning = true;
-        tw_warning(TW_LOC, "`feed` has been called in App %d, which was determined to be Background traffic (aka, a synthetic workload)", app_id);
+        tw_warning(TW_LOC,
+                   "`feed` has been called in App %d, which was determined to be Background "
+                   "traffic (aka, a synthetic workload)",
+                   app_id);
         return;
     }
 
     assert(arr_app_data[app_id].type == NODE_TYPE_app);
-    struct node_data * node_data = &arr_node_data[nw_id_in_pe];
+    struct node_data* node_data = &arr_node_data[nw_id_in_pe];
     // we only collect iteration data past the previous `last_iter`
     if (node_data->last_iter >= iter) {
         return;
     }
     if (arr_app_data[app_id].status != APP_STATUS_running) {
-        tw_warning(TW_LOC, "Attempting to feed data to application predictor for an application that has either been marked as completed or not configured");
+        tw_warning(TW_LOC, "Attempting to feed data to application predictor for an application "
+                           "that has either been marked as completed or not configured");
     }
     node_data->acc_iteration_time += iteration_time - node_data->prev_iteration_time;
     node_data->prev_iteration_time = iteration_time;
@@ -137,9 +158,9 @@ static void model_calls_feed(tw_lp * lp, int nw_id_in_pe, int iter, double itera
 }
 
 
-static void model_calls_ended(tw_lp * lp, int nw_id_in_pe, double iteration_time) {
+static void model_calls_ended(tw_lp* lp, int nw_id_in_pe, double iteration_time) {
     assert_app_initialized(nw_id_in_pe);
-    struct app_data * app_data = &arr_app_data[app_id_for(nw_id_in_pe)];
+    struct app_data* app_data = &arr_app_data[app_id_for(nw_id_in_pe)];
     app_data->nodes_that_have_ended++;
     if (app_data->nodes_that_have_ended == app_data->num_nodes) {
         app_data->status = APP_STATUS_just_completed;
@@ -147,28 +168,30 @@ static void model_calls_ended(tw_lp * lp, int nw_id_in_pe, double iteration_time
 }
 
 
-static struct iteration_pred model_calls_predict(tw_lp * lp, int nw_id_in_pe) {
-    assert(my_config.num_nodes_in_pe > (size_t) nw_id_in_pe);
+static struct iteration_pred model_calls_predict(tw_lp* lp, int nw_id_in_pe) {
+    assert(my_config.num_nodes_in_pe > (size_t)nw_id_in_pe);
     assert_app_initialized(nw_id_in_pe);
-    struct app_data * app_data = &arr_app_data[app_id_for(nw_id_in_pe)];
-    return (struct iteration_pred) {
+    struct app_data* app_data = &arr_app_data[app_id_for(nw_id_in_pe)];
+    return (struct iteration_pred){
         .resume_at_iter = app_data->pred.resume_at_iter,
         .restart_at = app_data->pred.restart_at,
     };
 }
 
-static void model_calls_predict_rc(tw_lp * lp, int nw_id_in_pe) {}
+static void model_calls_predict_rc(tw_lp* lp, int nw_id_in_pe) {
+}
 
-static void reset_with(bool const * app_just_ended) {
+static void reset_with(bool const* app_just_ended) {
     ready_to_skip = false;
 
-    master_printf("Resetting (average) application predictor at GVT %d time %f\n", g_tw_gvt_done, g_tw_pe->GVT_sig.recv_ts)
-    
-    int last_iter[my_config.num_apps];
+    master_printf("Resetting (average) application predictor at GVT %d time %f\n", g_tw_gvt_done,
+                  g_tw_pe->GVT_sig.recv_ts)
+
+        int last_iter[my_config.num_apps];
     find_max_iter_per_app(last_iter); // We should start tracking iterations from the next iteration
 
-    for (int i=0; i < my_config.num_nodes_in_pe; i++) {
-        struct node_data * node_data = &arr_node_data[i];
+    for (int i = 0; i < my_config.num_nodes_in_pe; i++) {
+        struct node_data* node_data = &arr_node_data[i];
         if (node_data->app_id == -1) {
             continue;
         }
@@ -179,7 +202,7 @@ static void reset_with(bool const * app_just_ended) {
             node_data->prev_iteration_time = arr_app_data[node_data->app_id].pred.restart_at;
         }
     }
-    for (int i=0; i < my_config.num_apps; i++) {
+    for (int i = 0; i < my_config.num_apps; i++) {
         arr_app_data[i].nodes_with_enough_iters = 0;
     }
 
@@ -191,30 +214,30 @@ static void reset_with(bool const * app_just_ended) {
     }
 }
 
-static bool model_calls_have_we_hit_switch(tw_lp * lp, int nw_id_in_pe, int iteration_id) {
-    assert(my_config.num_nodes_in_pe > (size_t) nw_id_in_pe);
+static bool model_calls_have_we_hit_switch(tw_lp* lp, int nw_id_in_pe, int iteration_id) {
+    assert(my_config.num_nodes_in_pe > (size_t)nw_id_in_pe);
     assert_app_initialized(nw_id_in_pe);
 
     if (!ready_to_skip) {
         return false;
     }
 
-    struct app_data * app_data = &arr_app_data[app_id_for(nw_id_in_pe)];
+    struct app_data* app_data = &arr_app_data[app_id_for(nw_id_in_pe)];
     switch (app_data->type) {
-        case NODE_TYPE_background_noise:
+    case NODE_TYPE_background_noise:
+        return true;
+    case NODE_TYPE_app:
+        if (iteration_id == app_data->pred.jump_at_iter) {
             return true;
-        case NODE_TYPE_app:
-            if (iteration_id == app_data->pred.jump_at_iter) {
-                return true;
-            }
-        default:
+        }
+    default:
         break;
     }
 
     return false;
 }
 
-static inline void find_app_types(enum NODE_TYPE * app_type) {
+static inline void find_app_types(enum NODE_TYPE* app_type) {
     int app_type_here[my_config.num_apps];
     for (int i = 0; i < my_config.num_apps; i++) {
         app_type_here[i] = arr_app_data[i].type;
@@ -242,42 +265,53 @@ static inline void post_init_share_ending_iteration(void) {
 
     // Checking that total iterations are the same across nodes
     for (int i = 0; i < my_config.num_apps; i++) {
-        struct app_data * app_data_here = &arr_app_data[i];
+        struct app_data* app_data_here = &arr_app_data[i];
         switch (app_type[i]) {
-            case NODE_TYPE_unassigned:
-                assert(app_data_here->type == NODE_TYPE_unassigned);
-                master_printf("Workload/app %d has not been configured to be tracked by iteration predictor\n", i);
-                app_data_here->status = APP_STATUS_completed_everywhere;
+        case NODE_TYPE_unassigned:
+            assert(app_data_here->type == NODE_TYPE_unassigned);
+            master_printf(
+                "Workload/app %d has not been configured to be tracked by iteration predictor\n",
+                i);
+            app_data_here->status = APP_STATUS_completed_everywhere;
             break;
-            case NODE_TYPE_background_noise:
-                if (app_data_here->type == NODE_TYPE_app) {
-                    tw_error(TW_LOC, "Two different ranks for application %d (on different PEs) have signaled conflicting node type (here: application, other: background noise)", i);
-                }
-                // We assume the background noise stays the same forever, thus we can think of it as not running. But if the background noise were to change, we would have to keep it APP_STATUS_running. And, possibly, we would have to call .ended() from the background process
-                app_data_here->status = APP_STATUS_completed_everywhere;
-                app_data_here->type = NODE_TYPE_background_noise;
+        case NODE_TYPE_background_noise:
+            if (app_data_here->type == NODE_TYPE_app) {
+                tw_error(TW_LOC,
+                         "Two different ranks for application %d (on different PEs) have signaled "
+                         "conflicting node type (here: application, other: background noise)",
+                         i);
+            }
+            // We assume the background noise stays the same forever, thus we can think of it as not running. But if the background noise were to change, we would have to keep it APP_STATUS_running. And, possibly, we would have to call .ended() from the background process
+            app_data_here->status = APP_STATUS_completed_everywhere;
+            app_data_here->type = NODE_TYPE_background_noise;
             break;
-            case NODE_TYPE_app:
-                if (app_data_here->type == NODE_TYPE_unassigned) {
-                    // There are no nodes for this application on this PE
-                    app_data_here->status = APP_STATUS_just_completed;
-                } else if (app_data_here->type == NODE_TYPE_background_noise) {
-                    tw_error(TW_LOC, "Two different ranks for application %d (on different PEs) have signaled conflicting node type (here: background noise, other: application)", i);
-                } else if (ending_iteration[i] != app_data_here->ending_iteration) {
-                    tw_error(TW_LOC, "Two different ranks for application %d (on different PEs) have differing total iterations they will run (%d != %d)", i, ending_iteration[i], app_data_here->ending_iteration);
-                }
-                app_data_here->ending_iteration = ending_iteration[i];
-                app_data_here->type = NODE_TYPE_app;
+        case NODE_TYPE_app:
+            if (app_data_here->type == NODE_TYPE_unassigned) {
+                // There are no nodes for this application on this PE
+                app_data_here->status = APP_STATUS_just_completed;
+            } else if (app_data_here->type == NODE_TYPE_background_noise) {
+                tw_error(TW_LOC,
+                         "Two different ranks for application %d (on different PEs) have signaled "
+                         "conflicting node type (here: background noise, other: application)",
+                         i);
+            } else if (ending_iteration[i] != app_data_here->ending_iteration) {
+                tw_error(TW_LOC,
+                         "Two different ranks for application %d (on different PEs) have differing "
+                         "total iterations they will run (%d != %d)",
+                         i, ending_iteration[i], app_data_here->ending_iteration);
+            }
+            app_data_here->ending_iteration = ending_iteration[i];
+            app_data_here->type = NODE_TYPE_app;
             break;
         }
     }
 }
 
-static inline bool has_any_app_ended(bool * save_app_just_ended) {
+static inline bool has_any_app_ended(bool* save_app_just_ended) {
     // Checking any application has fully ended, in which case we have to restart collecting data
     bool app_just_ended_here[my_config.num_apps];
     for (int i = 0; i < my_config.num_apps; i++) {
-        struct app_data * app_data = &arr_app_data[i];
+        struct app_data* app_data = &arr_app_data[i];
         app_just_ended_here[i] = app_data->status == APP_STATUS_just_completed;
     }
     mpi_allreduce_bool_and(app_just_ended_here, save_app_just_ended, my_config.num_apps);
@@ -291,7 +325,7 @@ static inline bool has_any_app_ended(bool * save_app_just_ended) {
 
 static inline bool all_apps_ended(void) {
     for (int i = 0; i < my_config.num_apps; i++) {
-        struct app_data * app_data = &arr_app_data[i];
+        struct app_data* app_data = &arr_app_data[i];
         if (app_data->status != APP_STATUS_completed_everywhere) {
             return false;
         }
@@ -303,7 +337,7 @@ static inline bool all_apps_ended(void) {
 static inline bool has_everyone_accumulated_enough() {
     bool everyone = true;
     for (int i = 0; i < my_config.num_apps; i++) {
-        struct app_data * app_data = &arr_app_data[i];
+        struct app_data* app_data = &arr_app_data[i];
         // ignoring apps that have ended already
         bool const app_in_pe = app_data->num_nodes > 0;
         bool const hasnt_ended = app_data->status != APP_STATUS_completed_everywhere;
@@ -344,13 +378,13 @@ static void director_calls_reset(void) {
     reset_with(app_just_ended);
 }
 
-static void find_avg_iteration_time(double * save_avg_time) {
+static void find_avg_iteration_time(double* save_avg_time) {
     double acc_iter_time_here[my_config.num_apps];
     int acc_iters_here[my_config.num_apps];
     init_double_array(acc_iter_time_here, my_config.num_apps, 0.0);
     init_int_array(acc_iters_here, my_config.num_apps, 0);
-    for (int i=0; i < my_config.num_nodes_in_pe; i++) {
-        struct node_data * node_data = &arr_node_data[i];
+    for (int i = 0; i < my_config.num_nodes_in_pe; i++) {
+        struct node_data* node_data = &arr_node_data[i];
         int const app_id = node_data->app_id;
         if (app_id == -1) {
             continue;
@@ -363,55 +397,60 @@ static void find_avg_iteration_time(double * save_avg_time) {
     int acc_iters[my_config.num_apps];
     mpi_allreduce_int_sum(acc_iters_here, acc_iters, my_config.num_apps);
 
-    for (int i=0; i < my_config.num_apps; i++) {
+    for (int i = 0; i < my_config.num_apps; i++) {
         if (acc_iters[i]) {
             save_avg_time[i] = acc_iter_time[i] / acc_iters[i];
         }
     }
 }
 
-static inline void mpi_allreduce_int_max(int const * local_data, int * result_data, int count) {
-    if(MPI_Allreduce(local_data, result_data, count, MPI_INT, MPI_MAX, MPI_COMM_CODES) != MPI_SUCCESS) {
+static inline void mpi_allreduce_int_max(int const* local_data, int* result_data, int count) {
+    if (MPI_Allreduce(local_data, result_data, count, MPI_INT, MPI_MAX, MPI_COMM_CODES) !=
+        MPI_SUCCESS) {
         tw_error(TW_LOC, "MPI_Allreduce failed! Couldn't compute maximum");
     }
 }
 
-static inline void mpi_allreduce_int_sum(int const * local_data, int * result_data, int count) {
-    if(MPI_Allreduce(local_data, result_data, count, MPI_INT, MPI_SUM, MPI_COMM_CODES) != MPI_SUCCESS) {
+static inline void mpi_allreduce_int_sum(int const* local_data, int* result_data, int count) {
+    if (MPI_Allreduce(local_data, result_data, count, MPI_INT, MPI_SUM, MPI_COMM_CODES) !=
+        MPI_SUCCESS) {
         tw_error(TW_LOC, "MPI_Allreduce failed! Couldn't add up");
     }
 }
 
-static inline void mpi_allreduce_double_sum(double const * local_data, double * result_data, int count) {
-    if(MPI_Allreduce(local_data, result_data, count, MPI_DOUBLE, MPI_SUM, MPI_COMM_CODES) != MPI_SUCCESS) {
+static inline void mpi_allreduce_double_sum(double const* local_data, double* result_data,
+                                            int count) {
+    if (MPI_Allreduce(local_data, result_data, count, MPI_DOUBLE, MPI_SUM, MPI_COMM_CODES) !=
+        MPI_SUCCESS) {
         tw_error(TW_LOC, "MPI_Allreduce failed! Couldn't add up");
     }
 }
 
-static inline void mpi_allreduce_bool_and(bool const * local_data, bool * result_data, int count) {
-    if(MPI_Allreduce(local_data, result_data, count, MPI_C_BOOL, MPI_LAND, MPI_COMM_CODES) != MPI_SUCCESS) {
+static inline void mpi_allreduce_bool_and(bool const* local_data, bool* result_data, int count) {
+    if (MPI_Allreduce(local_data, result_data, count, MPI_C_BOOL, MPI_LAND, MPI_COMM_CODES) !=
+        MPI_SUCCESS) {
         tw_error(TW_LOC, "MPI_Allreduce call failed!");
     }
 }
 
-static inline void init_int_array(int * array, int size, int value) {
+static inline void init_int_array(int* array, int size, int value) {
     for (int i = 0; i < size; i++) {
         array[i] = value;
     }
 }
 
-static inline void init_double_array(double * array, int size, double value) {
+static inline void init_double_array(double* array, int size, double value) {
     for (int i = 0; i < size; i++) {
         array[i] = value;
     }
 }
 
-static void find_max_iter_per_app(int * save_last_iter) {
+static void find_max_iter_per_app(int* save_last_iter) {
     int last_iter_here[my_config.num_apps];
     init_int_array(last_iter_here, my_config.num_apps, INT_MIN);
 
-    for (int i=0; i < my_config.num_nodes_in_pe; i++) {
-        struct node_data * node_data = &arr_node_data[i];
+    for (int i = 0; i < my_config.num_nodes_in_pe; i++) {
+        struct node_data* node_data = &arr_node_data[i];
         int const app_id = node_data->app_id;
         if (app_id == -1) {
             continue;
@@ -423,13 +462,13 @@ static void find_max_iter_per_app(int * save_last_iter) {
     mpi_allreduce_int_max(last_iter_here, save_last_iter, my_config.num_apps);
 }
 
-static void find_avg_time_for_max_iter(double * save_last_iter_time, int const * last_iter) {
+static void find_avg_time_for_max_iter(double* save_last_iter_time, int const* last_iter) {
     int acc_iters_here[my_config.num_apps];
     double acc_last_iter_time[my_config.num_apps];
     init_int_array(acc_iters_here, my_config.num_apps, 0);
     init_double_array(acc_last_iter_time, my_config.num_apps, 0.0);
-    for (int i=0; i < my_config.num_nodes_in_pe; i++) {
-        struct node_data * node_data = &arr_node_data[i];
+    for (int i = 0; i < my_config.num_nodes_in_pe; i++) {
+        struct node_data* node_data = &arr_node_data[i];
         int const app_id = node_data->app_id;
         if (app_id == -1) {
             continue;
@@ -442,24 +481,21 @@ static void find_avg_time_for_max_iter(double * save_last_iter_time, int const *
     mpi_allreduce_double_sum(acc_last_iter_time, save_last_iter_time, my_config.num_apps);
     int acc_iters[my_config.num_apps];
     mpi_allreduce_int_sum(acc_iters_here, acc_iters, my_config.num_apps);
-    for (int i=0; i < my_config.num_apps; i++) {
+    for (int i = 0; i < my_config.num_apps; i++) {
         if (acc_iters[i] > 0) {
             save_last_iter_time[i] /= acc_iters[i];
         }
     }
 }
 
-static void get_running_apps(bool * is_running) {
+static void get_running_apps(bool* is_running) {
     for (int i = 0; i < my_config.num_apps; i++) {
         is_running[i] = arr_app_data[i].status != APP_STATUS_completed_everywhere;
     }
 }
 
-static double compute_earliest_end_time(
-    bool const * is_running,
-    double const * avg_iter_time,
-    int const * last_iter,
-    double const * last_iter_time) {
+static double compute_earliest_end_time(bool const* is_running, double const* avg_iter_time,
+                                        int const* last_iter, double const* last_iter_time) {
     // Compute avg end time for all apps (loop through every node, and add value to avg array)
     double apps_end_time[my_config.num_apps];
     for (int i = 0; i < my_config.num_apps; i++) {
@@ -476,14 +512,10 @@ static double compute_earliest_end_time(
     return switch_time;
 }
 
-static bool compute_restart_params(
-    bool const * is_running,
-    double const * avg_iter_time,
-    int const * last_iter,
-    double const * last_iter_time,
-    double switch_time,
-    double * apps_restart_at_time,
-    int * apps_restart_at_iter) {
+static bool compute_restart_params(bool const* is_running, double const* avg_iter_time,
+                                   int const* last_iter, double const* last_iter_time,
+                                   double switch_time, double* apps_restart_at_time,
+                                   int* apps_restart_at_iter) {
     // Find iteration to skip to per node
     bool worth_switching = true;
     for (int i = 0; i < my_config.num_apps; i++) {
@@ -502,7 +534,7 @@ static bool compute_restart_params(
     return worth_switching;
 }
 
-static double find_latest_restart_time(bool const * is_running, double const * apps_restart_at_time) {
+static double find_latest_restart_time(bool const* is_running, double const* apps_restart_at_time) {
     // Compute last application to restart (this is restarting_at)
     double last_to_finish = 0;
     for (int i = 0; i < my_config.num_apps; i++) {
@@ -513,7 +545,8 @@ static double find_latest_restart_time(bool const * is_running, double const * a
     return last_to_finish;
 }
 
-static double find_earliest_restart_time(bool const * is_running, double const * apps_restart_at_time) {
+static double find_earliest_restart_time(bool const* is_running,
+                                         double const* apps_restart_at_time) {
     // Compute last application to restart (this is restarting_at)
     double first_to_finish = DBL_MAX;
     for (int i = 0; i < my_config.num_apps; i++) {
@@ -524,21 +557,19 @@ static double find_earliest_restart_time(bool const * is_running, double const *
     return first_to_finish;
 }
 
-static void set_app_prediction_data(
-    bool const * is_running,
-    int const * last_iter,
-    int const * apps_restart_at_iter,
-    double const * apps_restart_at_time,
-    double const earliest_app_restart) {
+static void set_app_prediction_data(bool const* is_running, int const* last_iter,
+                                    int const* apps_restart_at_iter,
+                                    double const* apps_restart_at_time,
+                                    double const earliest_app_restart) {
     // Set values for iteration to restart at and iterations to jump for each application
     for (int i = 0; i < my_config.num_apps; i++) {
         switch (arr_app_data[i].type) {
-            case NODE_TYPE_unassigned:
+        case NODE_TYPE_unassigned:
             break;
-            case NODE_TYPE_background_noise:
-                arr_app_data[i].pred.restart_at = earliest_app_restart;
+        case NODE_TYPE_background_noise:
+            arr_app_data[i].pred.restart_at = earliest_app_restart;
             break;
-            case NODE_TYPE_app:
+        case NODE_TYPE_app:
             if (is_running[i]) {
                 arr_app_data[i].pred.jump_at_iter = last_iter[i] + 1;
                 arr_app_data[i].pred.resume_at_iter = apps_restart_at_iter[i];
@@ -564,13 +595,16 @@ static struct fast_forward_values director_calls_prepare_fast_forward_jump(void)
     find_max_iter_per_app(last_iter);
     find_avg_time_for_max_iter(last_iter_time, last_iter);
     //   c. & d. Compute and pick smallest end time/time to skip
-    double switch_time = compute_earliest_end_time(is_running, avg_iter_time, last_iter, last_iter_time);
+    double switch_time =
+        compute_earliest_end_time(is_running, avg_iter_time, last_iter, last_iter_time);
 
     // 2. Find number of iterations to skip per node given time to skip, then compute when each application is expected to reach this point
     //   a. Find iteration to skip to per node
     double apps_restart_at_time[my_config.num_apps];
     int apps_restart_at_iter[my_config.num_apps];
-    bool worth_switching = compute_restart_params(is_running, avg_iter_time, last_iter, last_iter_time, switch_time, apps_restart_at_time, apps_restart_at_iter);
+    bool worth_switching =
+        compute_restart_params(is_running, avg_iter_time, last_iter, last_iter_time, switch_time,
+                               apps_restart_at_time, apps_restart_at_iter);
 
     //   b. Compute last application to restart (this is restarting_at)
     double const last_to_finish = find_latest_restart_time(is_running, apps_restart_at_time);
@@ -578,49 +612,50 @@ static struct fast_forward_values director_calls_prepare_fast_forward_jump(void)
 
     //   c. If the number of iterations to skip is zero for any app, force reset of predictor tracking
     if (!worth_switching) {
-        return (struct fast_forward_values) {
+        return (struct fast_forward_values){
             .status = FAST_FORWARD_restart,
             .restarting_at = last_to_finish,
         };
     }
 
     // 3. Set values for iteration to restart at and iterations to jump for each application
-    set_app_prediction_data(is_running, last_iter, apps_restart_at_iter, apps_restart_at_time, first_to_finish);
+    set_app_prediction_data(is_running, last_iter, apps_restart_at_iter, apps_restart_at_time,
+                            first_to_finish);
     ready_to_skip = true;
 
-    return (struct fast_forward_values) {
+    return (struct fast_forward_values){
         .status = FAST_FORWARD_switching,
         .restarting_at = last_to_finish,
     };
 }
 
-struct app_iteration_predictor avg_app_iteration_predictor(struct avg_app_config * config_) {
+struct app_iteration_predictor avg_app_iteration_predictor(struct avg_app_config* config_) {
     my_config = *config_;
     arr_node_data = calloc(my_config.num_nodes_in_pe, sizeof(struct node_data));
     arr_app_data = calloc(my_config.num_apps, sizeof(struct app_data));
-    for (int i=0; i < my_config.num_nodes_in_pe; i++) {
-        struct node_data * node_data = &arr_node_data[i];
+    for (int i = 0; i < my_config.num_nodes_in_pe; i++) {
+        struct node_data* node_data = &arr_node_data[i];
         node_data->app_id = -1;
         node_data->last_iter = INT_MIN;
     }
-    for (int i=0; i < my_config.num_apps; i++) {
+    for (int i = 0; i < my_config.num_apps; i++) {
         arr_app_data[i].ending_iteration = INT_MIN;
     }
-    return (struct app_iteration_predictor) {
-        .model = {
-            .init = model_calls_init,
-            .feed = model_calls_feed,
-            .ended = model_calls_ended,
-            .predict = model_calls_predict,
-            .predict_rc = model_calls_predict_rc,
-            .have_we_hit_switch = model_calls_have_we_hit_switch,
-        },
+    return (struct app_iteration_predictor){
+        .model =
+            {
+                .init = model_calls_init,
+                .feed = model_calls_feed,
+                .ended = model_calls_ended,
+                .predict = model_calls_predict,
+                .predict_rc = model_calls_predict_rc,
+                .have_we_hit_switch = model_calls_have_we_hit_switch,
+            },
         .director = {
             .reset = director_calls_reset,
             .is_predictor_ready = director_calls_is_predictor_ready,
             .prepare_fast_forward_jump = director_calls_prepare_fast_forward_jump,
-        }
-    };
+        }};
 }
 
 void free_avg_app_iteration_predictor(void) {

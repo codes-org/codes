@@ -21,14 +21,12 @@ typedef struct template_state template_state;
 typedef struct template_msg template_msg;
 
 /* event types */
-enum template_event
-{
+enum template_event {
     TEMPLATE_A,
     TEMPLATE_B,
 };
 
-struct template_state {
-};
+struct template_state {};
 
 struct template_msg {
     enum template_event event_type;
@@ -40,168 +38,103 @@ struct template_msg {
 /**** BEGIN LP, EVENT PROCESSING FUNCTION DECLS ****/
 
 /* ROSS LP processing functions */
-static void template_lp_init(
-    template_state * ns,
-    tw_lp * lp);
-static void template_event_handler(
-    template_state * ns,
-    tw_bf * b,
-    template_msg * m,
-    tw_lp * lp);
-static void template_rev_handler(
-    template_state * ns,
-    tw_bf * b,
-    template_msg * m,
-    tw_lp * lp);
-static void template_finalize(
-    template_state * ns,
-    tw_lp * lp);
+static void template_lp_init(template_state* ns, tw_lp* lp);
+static void template_event_handler(template_state* ns, tw_bf* b, template_msg* m, tw_lp* lp);
+static void template_rev_handler(template_state* ns, tw_bf* b, template_msg* m, tw_lp* lp);
+static void template_finalize(template_state* ns, tw_lp* lp);
 
 /* event type handlers */
-static void handle_template_a(
-    template_state * ns,
-    tw_bf * b,
-    template_msg * m,
-    tw_lp * lp);
-static void handle_template_b(
-    template_state * ns,
-    tw_bf * b,
-    template_msg * m,
-    tw_lp * lp);
-static void handle_template_a_rev(
-    template_state * ns,
-    tw_bf * b,
-    template_msg * m,
-    tw_lp * lp);
-static void handle_template_b_rev(
-    template_state * ns,
-    tw_bf * b,
-    template_msg * m,
-    tw_lp * lp);
+static void handle_template_a(template_state* ns, tw_bf* b, template_msg* m, tw_lp* lp);
+static void handle_template_b(template_state* ns, tw_bf* b, template_msg* m, tw_lp* lp);
+static void handle_template_a_rev(template_state* ns, tw_bf* b, template_msg* m, tw_lp* lp);
+static void handle_template_b_rev(template_state* ns, tw_bf* b, template_msg* m, tw_lp* lp);
 
 /* ROSS function pointer table for this LP */
 tw_lptype template_lp = {
-    (init_f) template_lp_init,
-    (pre_run_f) NULL,
-    (event_f) template_event_handler,
-    (revent_f) template_rev_handler,
-    (commit_f) NULL,
-    (final_f)  template_finalize,
-    (map_f) codes_mapping,
-    sizeof(template_state),
+    (init_f)template_lp_init,       (pre_run_f)NULL,        (event_f)template_event_handler,
+    (revent_f)template_rev_handler, (commit_f)NULL,         (final_f)template_finalize,
+    (map_f)codes_mapping,           sizeof(template_state),
 };
 
 /**** END LP, EVENT PROCESSING FUNCTION DECLS ****/
 
 /**** BEGIN IMPLEMENTATIONS ****/
 
-void template_init(){
-    uint32_t h1=0, h2=0;
+void template_init() {
+    uint32_t h1 = 0, h2 = 0;
 
     bj_hashlittle2("template", strlen("template"), &h1, &h2);
-    template_magic = h1+h2;
+    template_magic = h1 + h2;
 
     lp_type_register("template", &template_lp);
 }
 
-void template_lp_init(
-        template_state * ns,
-        tw_lp * lp){
+void template_lp_init(template_state* ns, tw_lp* lp) {
     (void)ns; // avoid warnings...
     (void)lp;
     /* Fill me in... */
 }
 
-void template_event_handler(
-        template_state * ns,
-        tw_bf * b,
-        template_msg * m,
-        tw_lp * lp){
+void template_event_handler(template_state* ns, tw_bf* b, template_msg* m, tw_lp* lp) {
     assert(m->magic == template_magic);
 
-    switch (m->event_type){
-        case TEMPLATE_A:
-            handle_template_a(ns, b, m, lp);
-            break;
-        case TEMPLATE_B:
-            handle_template_b(ns, b, m, lp);
-            break;
-        /* ... */
-        default:
-            assert(!"template event type not known");
-            break;
+    switch (m->event_type) {
+    case TEMPLATE_A:
+        handle_template_a(ns, b, m, lp);
+        break;
+    case TEMPLATE_B:
+        handle_template_b(ns, b, m, lp);
+        break;
+    /* ... */
+    default:
+        assert(!"template event type not known");
+        break;
     }
 }
 
-void template_rev_handler(
-        template_state * ns,
-        tw_bf * b,
-        template_msg * m,
-        tw_lp * lp){
+void template_rev_handler(template_state* ns, tw_bf* b, template_msg* m, tw_lp* lp) {
     assert(m->magic == template_magic);
 
-    switch (m->event_type){
-        case TEMPLATE_A:
-            handle_template_a_rev(ns, b, m, lp);
-            break;
-        case TEMPLATE_B:
-            handle_template_b_rev(ns, b, m, lp);
-            break;
-        /* ... */
-        default:
-            assert(!"template event type not known");
-            break;
+    switch (m->event_type) {
+    case TEMPLATE_A:
+        handle_template_a_rev(ns, b, m, lp);
+        break;
+    case TEMPLATE_B:
+        handle_template_b_rev(ns, b, m, lp);
+        break;
+    /* ... */
+    default:
+        assert(!"template event type not known");
+        break;
     }
 }
 
-void template_finalize(
-        template_state * ns,
-        tw_lp * lp){
+void template_finalize(template_state* ns, tw_lp* lp) {
     (void)ns; // avoid warnings...
     (void)lp;
     /* Fill me in... */
 }
 
 /* event type handlers */
-void handle_template_a(
-    template_state * ns,
-    tw_bf * b,
-    template_msg * m,
-    tw_lp * lp){
-    (void)ns; // avoid warnings...
-    (void)b;
-    (void)m;
-    (void)lp;
-
-}
-void handle_template_b(
-    template_state * ns,
-    tw_bf * b,
-    template_msg * m,
-    tw_lp * lp){
-
+void handle_template_a(template_state* ns, tw_bf* b, template_msg* m, tw_lp* lp) {
     (void)ns; // avoid warnings...
     (void)b;
     (void)m;
     (void)lp;
 }
-void handle_template_a_rev(
-    template_state * ns,
-    tw_bf * b,
-    template_msg * m,
-    tw_lp * lp){
-
+void handle_template_b(template_state* ns, tw_bf* b, template_msg* m, tw_lp* lp) {
     (void)ns; // avoid warnings...
     (void)b;
     (void)m;
     (void)lp;
 }
-void handle_template_b_rev(
-    template_state * ns,
-    tw_bf * b,
-    template_msg * m,
-    tw_lp * lp){
-
+void handle_template_a_rev(template_state* ns, tw_bf* b, template_msg* m, tw_lp* lp) {
+    (void)ns; // avoid warnings...
+    (void)b;
+    (void)m;
+    (void)lp;
+}
+void handle_template_b_rev(template_state* ns, tw_bf* b, template_msg* m, tw_lp* lp) {
     (void)ns; // avoid warnings...
     (void)b;
     (void)m;
@@ -209,12 +142,3 @@ void handle_template_b_rev(
 }
 
 /**** END IMPLEMENTATIONS ****/
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

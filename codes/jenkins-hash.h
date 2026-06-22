@@ -21,11 +21,10 @@ extern "C" {
  * Export other functions in that library as necessary.
  */
 
-void bj_hashlittle2(
-  const void *key,       /* the key to hash */
-  size_t      length,    /* length of the key */
-  uint32_t   *pc,        /* IN: primary initval, OUT: primary hash */
-  uint32_t   *pb);        /* IN: secondary initval, OUT: secondary hash */
+void bj_hashlittle2(const void* key, /* the key to hash */
+                    size_t length,   /* length of the key */
+                    uint32_t* pc,    /* IN: primary initval, OUT: primary hash */
+                    uint32_t* pb);   /* IN: secondary initval, OUT: secondary hash */
 
 /* bj_hashsize(shift) gives a hash table size that is a power of 2, good for bj_hashlittle2.
  * shift values are:
@@ -37,23 +36,14 @@ void bj_hashlittle2(
  * 262144 -> 18
  * 1048576 -> 20
  */
-#define bj_hashsize(n) ((uint32_t)1<<(n))
+#define bj_hashsize(n) ((uint32_t)1 << (n))
 
 /* bj_hashmask(n) gives a mask reasonable for returning a hash between 0 and the hashtable size.
  */
-#define bj_hashmask(n) (bj_hashsize(n)-1)
+#define bj_hashmask(n) (bj_hashsize(n) - 1)
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ts=8 sts=4 sw=4 expandtab
- */

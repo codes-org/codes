@@ -34,17 +34,18 @@ extern "C" {
 #include <stdbool.h>
 
 struct qlist_head {
-        struct qlist_head *next, *prev;
+    struct qlist_head *next, *prev;
 };
 
-#define QLIST_HEAD_INIT(name) { &(name), &(name) }
+#define QLIST_HEAD_INIT(name) {&(name), &(name)}
 
-#define QLIST_HEAD(name) \
-    struct qlist_head name = QLIST_HEAD_INIT(name)
+#define QLIST_HEAD(name) struct qlist_head name = QLIST_HEAD_INIT(name)
 
-#define INIT_QLIST_HEAD(ptr) do { \
-    (ptr)->next = (ptr); (ptr)->prev = (ptr); \
-} while (0)
+#define INIT_QLIST_HEAD(ptr)                                                                       \
+    do {                                                                                           \
+        (ptr)->next = (ptr);                                                                       \
+        (ptr)->prev = (ptr);                                                                       \
+    } while (0)
 
 /*
  * Insert a new entry between two known consecutive entries. 
@@ -52,10 +53,8 @@ struct qlist_head {
  * This is only for internal qlist manipulation where we know
  * the prev/next entries already!
  */
-static __inline__ void __qlist_add(struct qlist_head * newi,
-                                   struct qlist_head * prev,
-                                   struct qlist_head * next)
-{
+static __inline__ void __qlist_add(struct qlist_head* newi, struct qlist_head* prev,
+                                   struct qlist_head* next) {
     next->prev = newi;
     newi->next = next;
     newi->prev = prev;
@@ -70,8 +69,7 @@ static __inline__ void __qlist_add(struct qlist_head * newi,
  * Insert a new entry after the specified head.
  * This is good for implementing stacks.
  */
-static __inline__ void qlist_add(struct qlist_head *newi, struct qlist_head *head)
-{
+static __inline__ void qlist_add(struct qlist_head* newi, struct qlist_head* head) {
     __qlist_add(newi, head, head->next);
 }
 
@@ -83,8 +81,7 @@ static __inline__ void qlist_add(struct qlist_head *newi, struct qlist_head *hea
  * Insert a new entry before the specified head.
  * This is useful for implementing queues.
  */
-static __inline__ void qlist_add_tail(struct qlist_head *newi, struct qlist_head *head)
-{
+static __inline__ void qlist_add_tail(struct qlist_head* newi, struct qlist_head* head) {
     __qlist_add(newi, head->prev, head);
 }
 
@@ -95,9 +92,7 @@ static __inline__ void qlist_add_tail(struct qlist_head *newi, struct qlist_head
  * This is only for internal qlist manipulation where we know
  * the prev/next entries already!
  */
-static __inline__ void __qlist_del(struct qlist_head * prev,
-                                   struct qlist_head * next)
-{
+static __inline__ void __qlist_del(struct qlist_head* prev, struct qlist_head* next) {
     next->prev = prev;
     prev->next = next;
 }
@@ -107,8 +102,7 @@ static __inline__ void __qlist_del(struct qlist_head * prev,
  * @entry: the element to delete from the qlist.
  * Note: qlist_empty on entry does not return true after this, the entry is in an undefined state.
  */
-static __inline__ void qlist_del(struct qlist_head *entry)
-{
+static __inline__ void qlist_del(struct qlist_head* entry) {
     __qlist_del(entry->prev, entry->next);
 }
 
@@ -116,18 +110,16 @@ static __inline__ void qlist_del(struct qlist_head *entry)
  * qlist_del_init - deletes entry from qlist and reinitialize it.
  * @entry: the element to delete from the qlist.
  */
-static __inline__ void qlist_del_init(struct qlist_head *entry)
-{
+static __inline__ void qlist_del_init(struct qlist_head* entry) {
     __qlist_del(entry->prev, entry->next);
-    INIT_QLIST_HEAD(entry); 
+    INIT_QLIST_HEAD(entry);
 }
 
 /**
  * qlist_empty - tests whether a qlist is empty
  * @head: the qlist to test.
  */
-static __inline__ int qlist_empty(struct qlist_head *head)
-{
+static __inline__ int qlist_empty(struct qlist_head* head) {
     return head->next == head;
 }
 
@@ -135,12 +127,10 @@ static __inline__ int qlist_empty(struct qlist_head *head)
  * qlist_pop - pop the first item off the list and return it
  * @head: qlist to modify
  */
-static __inline__ struct qlist_head* qlist_pop(struct qlist_head *head)
-{
-    struct qlist_head *item = NULL;
+static __inline__ struct qlist_head* qlist_pop(struct qlist_head* head) {
+    struct qlist_head* item = NULL;
 
-    if (!qlist_empty(head))
-    {
+    if (!qlist_empty(head)) {
         item = head->next;
         qlist_del(item);
     }
@@ -152,12 +142,10 @@ static __inline__ struct qlist_head* qlist_pop(struct qlist_head *head)
  * qlist_pop_back - pop the last item off the list and return it
  * @head: qlist to modify
  */
-static __inline__ struct qlist_head* qlist_pop_back(struct qlist_head *head)
-{
-    struct qlist_head *item = NULL;
+static __inline__ struct qlist_head* qlist_pop_back(struct qlist_head* head) {
+    struct qlist_head* item = NULL;
 
-    if (!qlist_empty(head))
-    {
+    if (!qlist_empty(head)) {
         item = head->prev;
         qlist_del(item);
     }
@@ -170,13 +158,12 @@ static __inline__ struct qlist_head* qlist_pop_back(struct qlist_head *head)
  * @qlist: the new qlist to add.
  * @head: the place to add it in the first qlist.
  */
-static __inline__ void qlist_splice(struct qlist_head *qlist, struct qlist_head *head)
-{
-    struct qlist_head *first = qlist->next;
+static __inline__ void qlist_splice(struct qlist_head* qlist, struct qlist_head* head) {
+    struct qlist_head* first = qlist->next;
 
     if (first != qlist) {
-        struct qlist_head *last = qlist->prev;
-        struct qlist_head *at = head->next;
+        struct qlist_head* last = qlist->prev;
+        struct qlist_head* at = head->next;
 
         first->prev = head;
         head->next = first;
@@ -192,24 +179,22 @@ static __inline__ void qlist_splice(struct qlist_head *qlist, struct qlist_head 
  * @type:	the type of the struct this is embedded in.
  * @member:	the name of the qlist_struct within the struct.
  */
-#define qlist_entry(ptr, type, member) \
-    ((type *)((char *)(ptr)-(unsigned long)((&((type *)0)->member))))
+#define qlist_entry(ptr, type, member)                                                             \
+    ((type*)((char*)(ptr) - (unsigned long)((&((type*)0)->member))))
 
 /**
  * QLIST_OFFSET - get offset to the member that holds qlist_header
  * @type:	the type of the struct this is embedded in.
  * @member:	the name of the qlist_struct within the struct.
  */
-#define QLIST_OFFSET(type, member) \
-    (unsigned long)((&((type *)0)->member))
+#define QLIST_OFFSET(type, member) (unsigned long)((&((type*)0)->member))
 
 /**
  * qlist_for_each	-	iterate over a qlist
  * @pos:	the &struct qlist_head to use as a loop counter.
  * @head:	the head for your qlist.
  */
-#define qlist_for_each(pos, head) \
-    for (pos = (head)->next; pos != (head); pos = pos->next)
+#define qlist_for_each(pos, head) for (pos = (head)->next; pos != (head); pos = pos->next)
 
 /**
  * list_for_each_safe - iterate over a list safe against 
@@ -218,9 +203,8 @@ static __inline__ void qlist_splice(struct qlist_head *qlist, struct qlist_head 
  * @n:    another &struct list_head to use as temporary storage
  * @head: the head for your list.
  */
-#define qlist_for_each_safe(pos, scratch, head) \
-    for (pos = (head)->next, scratch = pos->next; pos != (head);\
-         pos = scratch, scratch = pos->next)
+#define qlist_for_each_safe(pos, scratch, head)                                                    \
+    for (pos = (head)->next, scratch = pos->next; pos != (head); pos = scratch, scratch = pos->next)
 
 /**
  * qlist_for_each_entry	-	iterate over list of given type
@@ -228,10 +212,9 @@ static __inline__ void qlist_splice(struct qlist_head *qlist, struct qlist_head 
  * @head:	the head for your list.
  * @member:	the name of the list_struct within the struct.
  */
-#define qlist_for_each_entry(pos, head, member)				\
-    for (pos = qlist_entry((head)->next, typeof(*pos), member);	\
-         &pos->member != (head); 					\
-         pos = qlist_entry(pos->member.next, typeof(*pos), member))	\
+#define qlist_for_each_entry(pos, head, member)                                                    \
+    for (pos = qlist_entry((head)->next, typeof(*pos), member); &pos->member != (head);            \
+         pos = qlist_entry(pos->member.next, typeof(*pos), member))
 
 /**
  * qlist_for_each_entry_safe - iterate over list of given type safe against removal of list entry
@@ -240,37 +223,32 @@ static __inline__ void qlist_splice(struct qlist_head *qlist, struct qlist_head 
  * @head:	the head for your list.
  * @member:	the name of the list_struct within the struct.
  */
-#define qlist_for_each_entry_safe(pos, n, head, member)			\
-    for (pos = qlist_entry((head)->next, typeof(*pos), member),	\
-         n = qlist_entry(pos->member.next, typeof(*pos), member);	\
-         &pos->member != (head); 					\
-         pos = n, n = qlist_entry(n->member.next, typeof(*n), member))
+#define qlist_for_each_entry_safe(pos, n, head, member)                                            \
+    for (pos = qlist_entry((head)->next, typeof(*pos), member),                                    \
+        n = qlist_entry(pos->member.next, typeof(*pos), member);                                   \
+         &pos->member != (head); pos = n, n = qlist_entry(n->member.next, typeof(*n), member))
 
-static inline int qlist_exists(struct qlist_head *list, struct qlist_head *qlink)
-{
-    struct qlist_head *pos;
+static inline int qlist_exists(struct qlist_head* list, struct qlist_head* qlink) {
+    struct qlist_head* pos;
 
-    if(qlist_empty(list)) return 0;
+    if (qlist_empty(list))
+        return 0;
 
-    qlist_for_each(pos, list)
-    {
-        if(pos == qlink)
-        {
+    qlist_for_each(pos, list) {
+        if (pos == qlink) {
             return 1;
         }
     }
     return 0;
 }
 
-static inline int qlist_count(struct qlist_head const *list)
-{
-    struct qlist_head *pos;
+static inline int qlist_count(struct qlist_head const* list) {
+    struct qlist_head* pos;
     int count = 0;
 
     pos = list->next;
 
-    while(pos != list)
-    {
+    while (pos != list) {
         ++count;
         pos = pos->next;
     }
@@ -278,35 +256,24 @@ static inline int qlist_count(struct qlist_head const *list)
     return count;
 }
 
-static inline void qlist_add_at_index(struct qlist_head *newi, struct qlist_head *list, int index)
-{
-    if (index < 0)
-    {
-        while(index++)
-        {
+static inline void qlist_add_at_index(struct qlist_head* newi, struct qlist_head* list, int index) {
+    if (index < 0) {
+        while (index++) {
             list = list->prev;
         }
-    }
-    else
-    {
-        while(index--)
-        {
+    } else {
+        while (index--) {
             list = list->next;
         }
     }
     __qlist_add(newi, list, list->next);
 }
 
-static inline struct qlist_head * qlist_find(
-    struct qlist_head *list,
-    int (*compare)(struct qlist_head *, void *),
-    void *ptr)
-{
-    struct qlist_head *pos;
-    qlist_for_each(pos, list)
-    {
-        if(compare(pos, ptr))
-        {
+static inline struct qlist_head* qlist_find(struct qlist_head* list,
+                                            int (*compare)(struct qlist_head*, void*), void* ptr) {
+    struct qlist_head* pos;
+    qlist_for_each(pos, list) {
+        if (compare(pos, ptr)) {
             return pos;
         }
     }
@@ -316,7 +283,8 @@ static inline struct qlist_head * qlist_find(
 /**
  * are_qlist_equal - determine if two qlists have the same elements
  */
-static inline bool are_qlist_equal(struct qlist_head const * left, struct qlist_head const * right, unsigned int offset_ql, bool (cmp) (void *, void *)) {
+static inline bool are_qlist_equal(struct qlist_head const* left, struct qlist_head const* right,
+                                   unsigned int offset_ql, bool(cmp)(void*, void*)) {
     int const num_elems = qlist_count(left);
     if (num_elems != qlist_count(right)) {
         return false;
@@ -324,11 +292,11 @@ static inline bool are_qlist_equal(struct qlist_head const * left, struct qlist_
 
     // Checking element by element
     int i = 0;
-    struct qlist_head * elem_left = left->next;
-    struct qlist_head * elem_right = right->next;
+    struct qlist_head* elem_left = left->next;
+    struct qlist_head* elem_right = right->next;
     while (elem_left != left) {
-        char * entry_left = (char *)(elem_left) - offset_ql;
-        char * entry_right = (char *)(elem_right) - offset_ql;
+        char* entry_left = (char*)(elem_left)-offset_ql;
+        char* entry_right = (char*)(elem_right)-offset_ql;
 
         if (!cmp(entry_left, entry_right)) {
             return false;
@@ -343,15 +311,6 @@ static inline bool are_qlist_equal(struct qlist_head const * left, struct qlist_
 
     return true;
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ts=8 sts=4 sw=4 expandtab
- */
 
 #ifdef __cplusplus
 }

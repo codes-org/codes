@@ -23,35 +23,29 @@
 #include "codes-workload-test-svr-lp.h"
 #include "codes-workload-test-cn-lp.h"
 
-#define NUM_SERVERS 16  /* number of servers */
-#define NUM_CLIENTS 48  /* number of clients */
+#define NUM_SERVERS 16 /* number of servers */
+#define NUM_CLIENTS 48 /* number of clients */
 
-const tw_optdef app_opt[] = {
-    TWOPT_GROUP("CODES Workload Test Model"),
-    TWOPT_END()
-};
+const tw_optdef app_opt[] = {TWOPT_GROUP("CODES Workload Test Model"), TWOPT_END()};
 
 static int num_clients_per_lp = -1;
 
-void workload_set_params()
-{
+void workload_set_params() {
     char io_kernel_meta_path[MAX_NAME_LENGTH_WKLD];
-    
-    configuration_get_value(&config, "PARAMS", "workload_type", NULL, workload_type, MAX_NAME_LENGTH_WKLD);
-    if(strcmp(workload_type,"iolang_workload") == 0)
-    {
-        strcpy(ioparams.io_kernel_path,"");
-	    ioparams.num_cns = NUM_CLIENTS;
 
-        configuration_get_value(&config, "PARAMS", "io_kernel_meta_path", NULL, io_kernel_meta_path, MAX_NAME_LENGTH_WKLD);
+    configuration_get_value(&config, "PARAMS", "workload_type", NULL, workload_type,
+                            MAX_NAME_LENGTH_WKLD);
+    if (strcmp(workload_type, "iolang_workload") == 0) {
+        strcpy(ioparams.io_kernel_path, "");
+        ioparams.num_cns = NUM_CLIENTS;
+
+        configuration_get_value(&config, "PARAMS", "io_kernel_meta_path", NULL, io_kernel_meta_path,
+                                MAX_NAME_LENGTH_WKLD);
         strcpy(ioparams.io_kernel_meta_path, io_kernel_meta_path);
     }
 }
 
-int main(
-    int argc,
-    char **argv)
-{
+int main(int argc, char** argv) {
     int nprocs;
     int rank;
     int lps_per_proc;
@@ -59,27 +53,28 @@ int main(
     int ret;
     lp_io_handle handle;
 
-    g_tw_ts_end = 60*60*24*365;
+    g_tw_ts_end = 60 * 60 * 24 * 365;
 
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
- 
+
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
-  
-    if((NUM_SERVERS + NUM_CLIENTS) % nprocs)
-    {
-        fprintf(stderr, "Error: number of server (or nw-lp) LPs (%d total) is not evenly divisible by the number of MPI processes (%d)\n", NUM_SERVERS+NUM_CLIENTS, nprocs);
+
+    if ((NUM_SERVERS + NUM_CLIENTS) % nprocs) {
+        fprintf(stderr,
+                "Error: number of server (or nw-lp) LPs (%d total) is not evenly divisible by the "
+                "number of MPI processes (%d)\n",
+                NUM_SERVERS + NUM_CLIENTS, nprocs);
         exit(-1);
     }
 
-    if(argc < 2)
-    {
+    if (argc < 2) {
         printf("\n Usage: mpirun <args> --sync=2/3 mapping_file_name.conf (optional --nkp) ");
         exit(-1);
     }
 
-    lps_per_proc = (NUM_SERVERS+NUM_CLIENTS) / nprocs;
+    lps_per_proc = (NUM_SERVERS + NUM_CLIENTS) / nprocs;
 
     num_clients_per_lp = NUM_CLIENTS / nprocs;
 
@@ -88,9 +83,8 @@ int main(
 
     tw_define_lps(lps_per_proc, 512);
 
-    for(i=0; i<lps_per_proc; i++)
-    {
-        if((rank*lps_per_proc + i) < NUM_CLIENTS)
+    for (i = 0; i < lps_per_proc; i++) {
+        if ((rank * lps_per_proc + i) < NUM_CLIENTS)
             tw_lp_settype(i, &client_lp);
         else
             tw_lp_settype(i, &svr_lp);
@@ -101,9 +95,8 @@ int main(
     g_tw_lookahead = 100;
 
     ret = lp_io_prepare("codes-workload-test-results", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD);
-    if(ret < 0)
-    {
-       return(-1); 
+    if (ret < 0) {
+        return (-1);
     }
 
     struct codes_workload_method dummy_method = {"foo", NULL, NULL, NULL, NULL, NULL, NULL, NULL};
@@ -119,12 +112,3 @@ int main(
 
     return 0;
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

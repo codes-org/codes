@@ -24,7 +24,7 @@
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
 
-#define NUM_REQS 5  /* number of requests sent by each server */
+#define NUM_REQS 5      /* number of requests sent by each server */
 #define PAYLOAD_SZ 2048 /* size of simulated data payload, bytes  */
 
 static int net_id = 0;
@@ -43,110 +43,69 @@ typedef struct svr_msg svr_msg;
 typedef struct svr_state svr_state;
 
 /* types of events that will constitute triton requests */
-enum svr_event
-{
-    KICKOFF,    /* initial event */
-    REQ,        /* request event */
-    ACK,        /* ack event */
-    LOCAL      /* local event */
+enum svr_event {
+    KICKOFF, /* initial event */
+    REQ,     /* request event */
+    ACK,     /* ack event */
+    LOCAL    /* local event */
 };
 
-struct svr_state
-{
-    int msg_sent_count;   /* requests sent */
-    int msg_recvd_count;  /* requests recvd */
+struct svr_state {
+    int msg_sent_count;    /* requests sent */
+    int msg_recvd_count;   /* requests recvd */
     int local_recvd_count; /* number of local messages received */
-    tw_stime start_ts;    /* time that we started sending requests */
-    tw_stime end_ts;      /* time that we ended sending requests */
+    tw_stime start_ts;     /* time that we started sending requests */
+    tw_stime end_ts;       /* time that we ended sending requests */
 };
 
-struct svr_msg
-{
+struct svr_msg {
     enum svr_event svr_event_type;
-//    enum net_event net_event_type;
-    tw_lpid src;          /* source of this request or ack */
+    //    enum net_event net_event_type;
+    tw_lpid src; /* source of this request or ack */
 
     model_net_event_return ret;
 
     int incremented_flag; /* helper for reverse computation */
 };
 
-static void svr_init(
-    svr_state * ns,
-    tw_lp * lp);
-static void svr_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp);
-static void svr_rev_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp);
-static void svr_finalize(
-    svr_state * ns,
-    tw_lp * lp);
+static void svr_init(svr_state* ns, tw_lp* lp);
+static void svr_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp);
+static void svr_rev_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp);
+static void svr_finalize(svr_state* ns, tw_lp* lp);
 
 tw_lptype svr_lp = {
-    (init_f) svr_init,
-    (pre_run_f) NULL,
-    (event_f) svr_event,
-    (revent_f) svr_rev_event,
-    (commit_f) NULL,
-    (final_f)  svr_finalize,
-    (map_f) codes_mapping,
-    sizeof(svr_state),
+    (init_f)svr_init, (pre_run_f)NULL,       (event_f)svr_event,   (revent_f)svr_rev_event,
+    (commit_f)NULL,   (final_f)svr_finalize, (map_f)codes_mapping, sizeof(svr_state),
 };
 
 extern const tw_lptype* svr_get_lp_type();
 static void svr_add_lp_type();
 static tw_stime ns_to_s(tw_stime ns);
 static tw_stime s_to_ns(tw_stime ns);
-static void handle_kickoff_event(
-    svr_state * ns,
-    svr_msg * m,
-    tw_lp * lp);
-static void handle_req_event(
-    svr_state * ns,
-    svr_msg * m,
-    tw_lp * lp);
-static void handle_local_event(svr_state * ns);
-static void handle_local_rev_event(svr_state * ns);
-static void handle_kickoff_rev_event(
-    svr_state * ns,
-    svr_msg * m,
-    tw_lp * lp);
-static void handle_req_rev_event(
-    svr_state * ns,
-    svr_msg * m,
-    tw_lp * lp);
+static void handle_kickoff_event(svr_state* ns, svr_msg* m, tw_lp* lp);
+static void handle_req_event(svr_state* ns, svr_msg* m, tw_lp* lp);
+static void handle_local_event(svr_state* ns);
+static void handle_local_rev_event(svr_state* ns);
+static void handle_kickoff_rev_event(svr_state* ns, svr_msg* m, tw_lp* lp);
+static void handle_req_rev_event(svr_state* ns, svr_msg* m, tw_lp* lp);
 
-const tw_optdef app_opt [] =
-{
-	TWOPT_GROUP("Model net test case" ),
-	TWOPT_END()
-};
+const tw_optdef app_opt[] = {TWOPT_GROUP("Model net test case"), TWOPT_END()};
 
-int main(
-    int argc,
-    char **argv)
-{
+int main(int argc, char** argv) {
     int nprocs;
     int rank;
     int num_nets, *net_ids;
     //printf("\n Config count %d ",(int) config.lpgroups_count);
-    g_tw_ts_end = s_to_ns(60*60*24*365); /* one year, in nsecs */
+    g_tw_ts_end = s_to_ns(60 * 60 * 24 * 365); /* one year, in nsecs */
     lp_io_handle handle;
 
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
 
-    if(argc < 2)
-    {
-	    printf("\n Usage: mpirun <args> --sync=2/3 mapping_file_name.conf (optional --nkp) ");
-	    MPI_Finalize();
-	    return 0;
+    if (argc < 2) {
+        printf("\n Usage: mpirun <args> --sync=2/3 mapping_file_name.conf (optional --nkp) ");
+        MPI_Finalize();
+        return 0;
     }
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
@@ -157,52 +116,42 @@ int main(
     codes_mapping_setup();
 
     net_ids = model_net_configure(&num_nets);
-    assert(num_nets==1);
+    assert(num_nets == 1);
     net_id = *net_ids;
     free(net_ids);
 
-    num_servers = codes_mapping_get_lp_count("MODELNET_GRP", 0, "nw-lp",
-            NULL, 1);
-    if(net_id == DRAGONFLY)
-    {
-	  num_routers = codes_mapping_get_lp_count("MODELNET_GRP", 0,
-                  "dragonfly_router", NULL, 1);
-	  offset = 1;
+    num_servers = codes_mapping_get_lp_count("MODELNET_GRP", 0, "nw-lp", NULL, 1);
+    if (net_id == DRAGONFLY) {
+        num_routers = codes_mapping_get_lp_count("MODELNET_GRP", 0, "dragonfly_router", NULL, 1);
+        offset = 1;
     }
 
-    if(lp_io_prepare("modelnet-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD) < 0)
-    {
-        return(-1);
+    if (lp_io_prepare("modelnet-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD) < 0) {
+        return (-1);
     }
 
     tw_run();
     model_net_report_stats(net_id);
 
-    if(lp_io_flush(handle, MPI_COMM_WORLD) < 0)
-    {
-        return(-1);
+    if (lp_io_flush(handle, MPI_COMM_WORLD) < 0) {
+        return (-1);
     }
 
     tw_end();
     return 0;
 }
 
-const tw_lptype* svr_get_lp_type()
-{
-	    return(&svr_lp);
+const tw_lptype* svr_get_lp_type() {
+    return (&svr_lp);
 }
 
-static void svr_add_lp_type()
-{
-  lp_type_register("nw-lp", svr_get_lp_type());
+static void svr_add_lp_type() {
+    lp_type_register("nw-lp", svr_get_lp_type());
 }
 
-static void svr_init(
-    svr_state * ns,
-    tw_lp * lp)
-{
-    tw_event *e;
-    svr_msg *m;
+static void svr_init(svr_state* ns, tw_lp* lp) {
+    tw_event* e;
+    svr_msg* m;
     tw_stime kickoff_time;
 
     memset(ns, 0, sizeof(*ns));
@@ -224,88 +173,72 @@ static void svr_init(
     return;
 }
 
-static void svr_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp)
-{
+static void svr_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp) {
     (void)b;
-   switch (m->svr_event_type)
-    {
-        case REQ:
-            handle_req_event(ns, m, lp);
-            break;
-        case KICKOFF:
-            handle_kickoff_event(ns, m, lp);
-            break;
-	case LOCAL:
-	   handle_local_event(ns);
-	 break;
-        default:
-	    printf("\n Invalid message type %d ", m->svr_event_type);
-            assert(0);
+    switch (m->svr_event_type) {
+    case REQ:
+        handle_req_event(ns, m, lp);
+        break;
+    case KICKOFF:
+        handle_kickoff_event(ns, m, lp);
+        break;
+    case LOCAL:
+        handle_local_event(ns);
+        break;
+    default:
+        printf("\n Invalid message type %d ", m->svr_event_type);
+        assert(0);
         break;
     }
 }
 
-static void svr_rev_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp)
-{
+static void svr_rev_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp) {
     (void)b;
-    switch (m->svr_event_type)
-    {
-        case REQ:
-            handle_req_rev_event(ns, m, lp);
-            break;
-        case KICKOFF:
-            handle_kickoff_rev_event(ns, m, lp);
-            break;
-	case LOCAL:
-	    handle_local_rev_event(ns);
-	    break;
-        default:
-            assert(0);
-            break;
+    switch (m->svr_event_type) {
+    case REQ:
+        handle_req_rev_event(ns, m, lp);
+        break;
+    case KICKOFF:
+        handle_kickoff_rev_event(ns, m, lp);
+        break;
+    case LOCAL:
+        handle_local_rev_event(ns);
+        break;
+    default:
+        assert(0);
+        break;
     }
 
     return;
 }
 
-static void svr_finalize(
-    svr_state * ns,
-    tw_lp * lp)
-{
-    printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d local_count %d \n", (unsigned long long)lp->gid, PAYLOAD_SZ*ns->msg_recvd_count, ns_to_s(ns->end_ts-ns->start_ts),
-        ((double)(PAYLOAD_SZ*NUM_REQS)/(double)(1024*1024)/ns_to_s(ns->end_ts-ns->start_ts)), ns->msg_sent_count, ns->msg_recvd_count, ns->local_recvd_count);
+static void svr_finalize(svr_state* ns, tw_lp* lp) {
+    printf("server %llu recvd %d bytes in %f seconds, %f MiB/s sent_count %d recvd_count %d "
+           "local_count %d \n",
+           (unsigned long long)lp->gid, PAYLOAD_SZ * ns->msg_recvd_count,
+           ns_to_s(ns->end_ts - ns->start_ts),
+           ((double)(PAYLOAD_SZ * NUM_REQS) / (double)(1024 * 1024) /
+            ns_to_s(ns->end_ts - ns->start_ts)),
+           ns->msg_sent_count, ns->msg_recvd_count, ns->local_recvd_count);
     return;
 }
 
 /* convert ns to seconds */
-static tw_stime ns_to_s(tw_stime ns)
-{
-    return(ns / (1000.0 * 1000.0 * 1000.0));
+static tw_stime ns_to_s(tw_stime ns) {
+    return (ns / (1000.0 * 1000.0 * 1000.0));
 }
 
 /* convert seconds to ns */
-static tw_stime s_to_ns(tw_stime ns)
-{
-    return(ns * (1000.0 * 1000.0 * 1000.0));
+static tw_stime s_to_ns(tw_stime ns) {
+    return (ns * (1000.0 * 1000.0 * 1000.0));
 }
 
 /* handle initial event */
-static void handle_kickoff_event(
-    svr_state * ns,
-    svr_msg * m,
-    tw_lp * lp)
-{
-    svr_msg * m_local = malloc(sizeof(svr_msg));
-    svr_msg * m_remote = malloc(sizeof(svr_msg));
+static void handle_kickoff_event(svr_state* ns, svr_msg* m, tw_lp* lp) {
+    svr_msg* m_local = malloc(sizeof(svr_msg));
+    svr_msg* m_remote = malloc(sizeof(svr_msg));
 
-//    m_local->svr_event_type = REQ;
+    //    m_local->svr_event_type = REQ;
     m_local->svr_event_type = LOCAL;
     m_local->src = lp->gid;
 
@@ -316,52 +249,45 @@ static void handle_kickoff_event(
     /* record when transfers started on this server */
     ns->start_ts = tw_now(lp);
 
-    num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1,
-            "nw-lp", NULL, 1);
-    num_routers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1,
-            "dragonfly_router", NULL, 1);
+    num_servers_per_rep = codes_mapping_get_lp_count("MODELNET_GRP", 1, "nw-lp", NULL, 1);
+    num_routers_per_rep =
+        codes_mapping_get_lp_count("MODELNET_GRP", 1, "dragonfly_router", NULL, 1);
 
     lps_per_rep = num_servers_per_rep * 2 + num_routers_per_rep;
 
     int opt_offset = 0;
     int total_lps = num_servers * 2 + num_routers;
 
-    if(net_id == DRAGONFLY && (lp->gid % lps_per_rep == num_servers_per_rep - 1))
-          opt_offset = num_servers_per_rep + num_routers_per_rep; /* optional offset due to dragonfly mapping */
+    if (net_id == DRAGONFLY && (lp->gid % lps_per_rep == num_servers_per_rep - 1))
+        opt_offset = num_servers_per_rep +
+                     num_routers_per_rep; /* optional offset due to dragonfly mapping */
 
     /* each server sends a request to the next highest server */
-    int dest_id = (lp->gid + offset + opt_offset)%total_lps;
-    if (do_pull){
-        m->ret = model_net_pull_event(net_id, "test", dest_id, PAYLOAD_SZ, 0.0,
-                sizeof(svr_msg), (const void*)m_remote, lp);
-    }
-    else{
-        m->ret = model_net_event(net_id, "test", dest_id, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
+    int dest_id = (lp->gid + offset + opt_offset) % total_lps;
+    if (do_pull) {
+        m->ret = model_net_pull_event(net_id, "test", dest_id, PAYLOAD_SZ, 0.0, sizeof(svr_msg),
+                                      (const void*)m_remote, lp);
+    } else {
+        m->ret = model_net_event(net_id, "test", dest_id, PAYLOAD_SZ, 0.0, sizeof(svr_msg),
+                                 (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
     }
     ns->msg_sent_count++;
 }
 
-static void handle_local_event(svr_state * ns)
-{
+static void handle_local_event(svr_state* ns) {
     ns->local_recvd_count++;
 }
 
-static void handle_local_rev_event(svr_state * ns)
-{
-   ns->local_recvd_count--;
+static void handle_local_rev_event(svr_state* ns) {
+    ns->local_recvd_count--;
 }
 /* reverse handler for req event */
-static void handle_req_rev_event(
-    svr_state * ns,
-    svr_msg * m,
-    tw_lp * lp)
-{
-   ns->msg_recvd_count--;
+static void handle_req_rev_event(svr_state* ns, svr_msg* m, tw_lp* lp) {
+    ns->msg_recvd_count--;
 
-   if(m->incremented_flag)
-   {
-       ns->msg_sent_count--;
-       model_net_event_collective_rc(net_id, PAYLOAD_SZ, lp);
+    if (m->incremented_flag) {
+        ns->msg_sent_count--;
+        model_net_event_collective_rc(net_id, PAYLOAD_SZ, lp);
     }
 
     return;
@@ -369,11 +295,7 @@ static void handle_req_rev_event(
 
 
 /* reverse handler for kickoff */
-static void handle_kickoff_rev_event(
-    svr_state * ns,
-    svr_msg * m,
-    tw_lp * lp)
-{
+static void handle_kickoff_rev_event(svr_state* ns, svr_msg* m, tw_lp* lp) {
     ns->msg_sent_count--;
     model_net_event_rc2(lp, &m->ret);
 
@@ -383,14 +305,10 @@ static void handle_kickoff_rev_event(
 /* handle receiving request
  * (note: this should never be called when doing the "pulling" version of
  * the program) */
-static void handle_req_event(
-    svr_state * ns,
-    svr_msg * m,
-    tw_lp * lp)
-{
+static void handle_req_event(svr_state* ns, svr_msg* m, tw_lp* lp) {
     assert(!do_pull);
-    svr_msg * m_local = malloc(sizeof(svr_msg));
-    svr_msg * m_remote = malloc(sizeof(svr_msg));
+    svr_msg* m_local = malloc(sizeof(svr_msg));
+    svr_msg* m_remote = malloc(sizeof(svr_msg));
 
     m_local->svr_event_type = LOCAL;
     m_local->src = lp->gid;
@@ -400,7 +318,7 @@ static void handle_req_event(
     //printf("handle_req_event(), lp %llu src %llu .\n", (unsigned long long)lp->gid, (unsigned long long) m->src);
 
     /* safety check that this request got to the right server */
-//    printf("\n m->src %d lp->gid %d ", m->src, lp->gid);
+    //    printf("\n m->src %d lp->gid %d ", m->src, lp->gid);
     //assert(lp->gid == (m->src + offset + opt_offset)%(num_servers*2 + num_routers));
     ns->msg_recvd_count++;
 
@@ -409,28 +327,17 @@ static void handle_req_event(
     /* also trigger a local event for completion of payload msg */
     /* remote host will get an ack event */
 
-   // mm Q: What should be the size of an ack message? may be a few bytes? or larger..?
-   if(ns->msg_sent_count < NUM_REQS)
-     {
+    // mm Q: What should be the size of an ack message? may be a few bytes? or larger..?
+    if (ns->msg_sent_count < NUM_REQS) {
         ns->msg_sent_count++;
-        model_net_event_collective(net_id, "test", PAYLOAD_SZ, sizeof(svr_msg), (const void*)m_remote, lp);
-	m->incremented_flag = 1;
-     }
-   else
-    {
+        model_net_event_collective(net_id, "test", PAYLOAD_SZ, sizeof(svr_msg),
+                                   (const void*)m_remote, lp);
+        m->incremented_flag = 1;
+    } else {
         ns->end_ts = tw_now(lp);
         m->incremented_flag = 0;
     }
     //m->ret = model_net_event(net_id, "test", m->src, PAYLOAD_SZ, 0.0, sizeof(svr_msg), (const void*)m_remote, sizeof(svr_msg), (const void*)m_local, lp);
-//    printf("\n Sending ack to LP %d %d ", m->src, m_remote->src);
+    //    printf("\n Sending ack to LP %d %d ", m->src, m_remote->src);
     return;
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

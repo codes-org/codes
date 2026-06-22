@@ -24,19 +24,17 @@ extern "C" {
 // building up one big buffer to hold entity names. Pointers are set after the
 // initialization process during configuration_load
 typedef union {
-    char const * ptr;
+    char const* ptr;
     int offset;
 } config_name_u;
 
-typedef struct config_lptype_s
-{
+typedef struct config_lptype_s {
     config_name_u name;
     config_name_u anno;
     int count;
 } config_lptype_t;
 
-typedef struct config_lpgroup_s
-{
+typedef struct config_lpgroup_s {
     config_name_u name;
     int repetitions;
     int lptypes_count;
@@ -44,9 +42,8 @@ typedef struct config_lpgroup_s
 } config_lpgroup_t;
 
 // mapping of lp type to the list of annotations used. Used for convenience when
-// models are performing configuraiton code 
-typedef struct config_anno_map_s
-{
+// models are performing configuraiton code
+typedef struct config_anno_map_s {
     config_name_u lp_name;
     // only explicit annotations tracked here - use a flag to indicate a
     // non-annotated LP type
@@ -56,13 +53,12 @@ typedef struct config_anno_map_s
     // the unannotated lp type is first
     int is_unanno_first;
     int num_annos;
-    // maintain the number of lps that have the particular annotation 
+    // maintain the number of lps that have the particular annotation
     int num_anno_lps[CONFIGURATION_MAX_ANNOS];
     config_name_u annotations[CONFIGURATION_MAX_ANNOS];
 } config_anno_map_t;
 
-typedef struct config_lpgroups_s
-{
+typedef struct config_lpgroups_s {
     // counts for the underlying structures, not the number of string entities
     int lpgroups_count;
     int lpannos_count;
@@ -71,15 +67,15 @@ typedef struct config_lpgroups_s
     int num_uniq_lptypes;
     int num_uniq_annos;
     // ptrs into the name buffers
-    char const ** group_names;
-    char const ** lp_names;
-    char const ** anno_names;
-    char * group_names_buf;
-    char * lp_names_buf;
-    char * anno_names_buf;
+    char const** group_names;
+    char const** lp_names;
+    char const** anno_names;
+    char* group_names_buf;
+    char* lp_names_buf;
+    char* anno_names_buf;
 } config_lpgroups_t;
 
-typedef struct ConfigVTable * ConfigHandle;
+typedef struct ConfigVTable* ConfigHandle;
 
 /*
  * Load a configuration on the system (collectively)
@@ -90,16 +86,14 @@ typedef struct ConfigVTable * ConfigHandle;
  *
  * return 0 on success
  */
-int configuration_load (const char * filepath,
-                        MPI_Comm comm,
-                        ConfigHandle *handle);
+int configuration_load(const char* filepath, MPI_Comm comm, ConfigHandle* handle);
 
 /*
  * Free any resources allocated on load.
  *
  * handle - configuration handle
  */
-int configuration_free (ConfigHandle *handle);
+int configuration_free(ConfigHandle* handle);
 
 /*
  * Get's the value for a give section/key pair.
@@ -113,12 +107,8 @@ int configuration_free (ConfigHandle *handle);
  * value - pointer to string
  * length - maximum length of string
  */
-int configuration_get_value(ConfigHandle *handle,
-                            const char * section_name,
-                            const char * key_name,
-                            const char * annotation,
-                            char *value,
-                            size_t length);
+int configuration_get_value(ConfigHandle* handle, const char* section_name, const char* key_name,
+                            const char* annotation, char* value, size_t length);
 
 /*
  * Gets the value for a given section/key pair, and interprets it as a path
@@ -132,13 +122,9 @@ int configuration_get_value(ConfigHandle *handle,
  * annotation - optional annotation to look for (NULL -> no annotation)
  * value - pointer to string
  * length - maximum length of string */
-int configuration_get_value_relpath(
-        ConfigHandle *handle,
-        const char * section_name,
-        const char * key_name,
-        const char * annotation,
-        char *value,
-        size_t length);
+int configuration_get_value_relpath(ConfigHandle* handle, const char* section_name,
+                                    const char* key_name, const char* annotation, char* value,
+                                    size_t length);
 
 
 /*
@@ -153,12 +139,9 @@ int configuration_get_value_relpath(
  * values - array of points to values (must be freed by caller)
  * length - number of value items
  */
-int configuration_get_multivalue(ConfigHandle *handle,
-                                 const char * section_name,
-                                 const char * key_name,
-                                 const char * annotation,
-                                 char ***values,
-                                 size_t *length);
+int configuration_get_multivalue(ConfigHandle* handle, const char* section_name,
+                                 const char* key_name, const char* annotation, char*** values,
+                                 size_t* length);
 
 /*
  * Get's the value for a give section/key pair and converts it to an int.
@@ -170,11 +153,8 @@ int configuration_get_multivalue(ConfigHandle *handle,
  * annotation - optional annotation to look for (NULL -> no annotation)
  * value - returned as a pointer to an integer
  */
-int configuration_get_value_int (ConfigHandle *handle,
-                                 const char *section_name,
-                                 const char *key_name,
-                                 const char * annotation,
-                                 int *value);
+int configuration_get_value_int(ConfigHandle* handle, const char* section_name,
+                                const char* key_name, const char* annotation, int* value);
 
 /*
  * Get's the value for a give section/key pair and converts it to an
@@ -187,11 +167,8 @@ int configuration_get_value_int (ConfigHandle *handle,
  * annotation - optional annotation to look for (NULL -> no annotation)
  * value - returned as a pointer to an unsigned integer
  */
-int configuration_get_value_uint (ConfigHandle *handle,
-                                  const char *section_name,
-                                  const char *key_name,
-                                  const char * annotation,
-                                  unsigned int *value);
+int configuration_get_value_uint(ConfigHandle* handle, const char* section_name,
+                                 const char* key_name, const char* annotation, unsigned int* value);
 
 /*
  * Get's the value for a give section/key pair and converts it to a long int.
@@ -203,11 +180,8 @@ int configuration_get_value_uint (ConfigHandle *handle,
  * annotation - optional annotation to look for (NULL -> no annotation)
  * value - returned as a pointer to a long integer
  */
-int configuration_get_value_longint (ConfigHandle *handle,
-                                     const char *section_name,
-                                     const char *key_name,
-                                     const char * annotation,
-                                     long int *value);
+int configuration_get_value_longint(ConfigHandle* handle, const char* section_name,
+                                    const char* key_name, const char* annotation, long int* value);
 
 /*
  * Get's the value for a give section/key pair and converts it to a double.
@@ -219,11 +193,8 @@ int configuration_get_value_longint (ConfigHandle *handle,
  * annotation - optional annotation to look for (NULL -> no annotation)
  * value - returned as a pointer to a double
  */
-int configuration_get_value_double (ConfigHandle *handle,
-                                    const char *section_name,
-                                    const char *key_name,
-                                    const char * annotation,
-                                    double *value);
+int configuration_get_value_double(ConfigHandle* handle, const char* section_name,
+                                   const char* key_name, const char* annotation, double* value);
 
 /*
  * Get the LPGROUPS configuration from the config file which is stored
@@ -233,9 +204,8 @@ int configuration_get_value_double (ConfigHandle *handle,
  * section_name - name of section which has the lptypes
  * lpgroups - data structure to hold the lpgroup info
  */
-int configuration_get_lpgroups (ConfigHandle *handle,
-                                const char *section_name,
-                                config_lpgroups_t *lpgroups);
+int configuration_get_lpgroups(ConfigHandle* handle, const char* section_name,
+                               config_lpgroups_t* lpgroups);
 
 /*
  * Helper function - get the position in the LP annotation list of the
@@ -243,8 +213,7 @@ int configuration_get_lpgroups (ConfigHandle *handle,
  * configuration values is generated based on the annotations in
  * config_anno_map_t
  * If annotation is not found, -1 is returned */
-int configuration_get_annotation_index(const char *              anno,
-                                       const config_anno_map_t * anno_map);
+int configuration_get_annotation_index(const char* anno, const config_anno_map_t* anno_map);
 
 /*
  * Forward reference to the configuration handle
@@ -258,12 +227,3 @@ extern config_lpgroups_t lpconf;
 #endif
 
 #endif
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ts=8 sts=4 sw=4 expandtab
- */

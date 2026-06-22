@@ -13,30 +13,30 @@ typedef enum { typeCon, typeId, typeOpr } nodeEnum;
 
 /* constants */
 typedef struct {
-    int64_t value;                  /* value of constant */
+    int64_t value; /* value of constant */
 } conNodeType;
 
 /* identifiers */
 typedef struct {
-    int i;                      /* subscript to sym array */
+    int i; /* subscript to sym array */
 } idNodeType;
 
 /* operators */
 typedef struct {
-    int oper;                   /* operator */
-    int nops;                   /* number of operands */
-    struct nodeTypeTag *op[1];  /* operands (expandable) */
+    int oper;                  /* operator */
+    int nops;                  /* number of operands */
+    struct nodeTypeTag* op[1]; /* operands (expandable) */
 } oprNodeType;
 
 typedef struct nodeTypeTag {
-    nodeEnum type;              /* type of node */
+    nodeEnum type; /* type of node */
 
     /* union must be last entry in nodeType */
     /* because operNodeType may dynamically increase */
     union {
-        conNodeType con;        /* constants */
-        idNodeType id;          /* identifiers */
-        oprNodeType opr;        /* operators */
+        conNodeType con; /* constants */
+        idNodeType id;   /* identifiers */
+        oprNodeType opr; /* operators */
     };
 } nodeType;
 
@@ -46,17 +46,16 @@ typedef void* yyscan_t;
 #endif
 
 typedef union codesYYType {
-    int64_t iValue;                 /* integer value */
-    int sIndex;              /* symbol table index */
-    nodeType *nPtr;             /* node pointer */
+    int64_t iValue; /* integer value */
+    int sIndex;     /* symbol table index */
+    nodeType* nPtr; /* node pointer */
 } codesYYType;
-#define YYSTYPE codesYYType 
+#define YYSTYPE codesYYType
 
-typedef struct codesParserParam
-{
-        yyscan_t scanner;
-        void * nPtr;
-}codesParserParam;
+typedef struct codesParserParam {
+    yyscan_t scanner;
+    void* nPtr;
+} codesParserParam;
 
 // the parameter name (of the reentrant 'yyparse' function)
 // data is a pointer to a 'codesParserParam' structure
@@ -65,20 +64,11 @@ typedef struct codesParserParam
 // the argument for the 'yylex' function
 //#define YYLEX_PARAM   ((codesParserParam *)data)->scanner
 
-extern int64_t * sym;
-extern int64_t * var;
-extern int * inst_ready;
-extern int * group_rank;
-extern int * group_size;
+extern int64_t* sym;
+extern int64_t* var;
+extern int* inst_ready;
+extern int* group_rank;
+extern int* group_size;
 extern int temp_group_rank;
 extern int temp_group_size;
 #endif
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ts=8 sts=4 sw=4 expandtab
- */

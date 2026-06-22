@@ -19,70 +19,37 @@
 typedef struct svr_msg svr_msg;
 typedef struct svr_state svr_state;
 
-enum svr_event_type
-{
+enum svr_event_type {
     SVR_OP = 128,
 };
 
-struct svr_state
-{
+struct svr_state {
     tw_stime next_idle;
 };
 
-struct svr_msg
-{
+struct svr_msg {
     enum svr_event_type event_type;
     struct codes_workload_op op;
-    tw_lpid src;          /* source of this request or ack */
+    tw_lpid src; /* source of this request or ack */
     tw_stime next_idle_rc;
 };
 
-static void svr_init(
-    svr_state * ns,
-    tw_lp * lp);
-static void svr_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp);
-static void svr_rev_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp);
-static void svr_finalize(
-    svr_state * ns,
-    tw_lp * lp);
-static tw_peid node_mapping(
-    tw_lpid gid);
+static void svr_init(svr_state* ns, tw_lp* lp);
+static void svr_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp);
+static void svr_rev_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp);
+static void svr_finalize(svr_state* ns, tw_lp* lp);
+static tw_peid node_mapping(tw_lpid gid);
 
 tw_lptype svr_lp = {
-    (init_f) svr_init,
-    (pre_run_f) NULL,
-    (event_f) svr_event,
-    (revent_f) svr_rev_event,
-    (commit_f) NULL,
-    (final_f) svr_finalize,
-    (map_f) node_mapping,
-    sizeof(svr_state),
+    (init_f)svr_init, (pre_run_f)NULL,       (event_f)svr_event,  (revent_f)svr_rev_event,
+    (commit_f)NULL,   (final_f)svr_finalize, (map_f)node_mapping, sizeof(svr_state),
 };
 
-static void handle_svr_op_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp);
-static void handle_svr_op_event_rc(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp);
+static void handle_svr_op_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp);
+static void handle_svr_op_event_rc(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp);
 
 
-static void svr_init(
-    svr_state * ns,
-    tw_lp * lp)
-{
+static void svr_init(svr_state* ns, tw_lp* lp) {
     memset(ns, 0, sizeof(*ns));
 
     ns->next_idle = tw_now(lp);
@@ -90,47 +57,31 @@ static void svr_init(
     return;
 }
 
-static void svr_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp)
-{
-
-    switch (m->event_type)
-    {
-        case SVR_OP:
-            handle_svr_op_event(ns, b, m, lp);
-            break;
-        default:
-            assert(0);
-            break;
+static void svr_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp) {
+    switch (m->event_type) {
+    case SVR_OP:
+        handle_svr_op_event(ns, b, m, lp);
+        break;
+    default:
+        assert(0);
+        break;
     }
 }
 
-static void svr_rev_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp)
-{
-    switch (m->event_type)
-    {
-        case SVR_OP:
-            handle_svr_op_event_rc(ns, b, m, lp);
-            break;
-        default:
-            assert(0);
-            break;
+static void svr_rev_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp) {
+    switch (m->event_type) {
+    case SVR_OP:
+        handle_svr_op_event_rc(ns, b, m, lp);
+        break;
+    default:
+        assert(0);
+        break;
     }
 
     return;
 }
 
-static void svr_finalize(
-    svr_state * ns,
-    tw_lp * lp)
-{
+static void svr_finalize(svr_state* ns, tw_lp* lp) {
     char buffer[256];
     int ret;
 
@@ -139,22 +90,19 @@ static void svr_finalize(
      */
     sprintf(buffer, "svr_lp:%ld\tcompletion_time:%f\n", (long)lp->gid, ns->next_idle);
 
-    ret = lp_io_write(lp->gid, "servers", strlen(buffer)+1, buffer);
+    ret = lp_io_write(lp->gid, "servers", strlen(buffer) + 1, buffer);
     assert(ret == 0);
 
     return;
 }
 
-static tw_peid node_mapping(
-    tw_lpid gid)
-{
-    return (tw_peid) gid / g_tw_nlp;
+static tw_peid node_mapping(tw_lpid gid) {
+    return (tw_peid)gid / g_tw_nlp;
 }
 
-void svr_op_start(tw_lp *lp, tw_lpid gid, const struct codes_workload_op *op)
-{
-    tw_event *e;
-    svr_msg *m;
+void svr_op_start(tw_lp* lp, tw_lpid gid, const struct codes_workload_op* op) {
+    tw_event* e;
+    svr_msg* m;
 
     e = tw_event_new(gid, codes_local_latency(lp), lp);
     m = tw_event_data(e);
@@ -164,17 +112,11 @@ void svr_op_start(tw_lp *lp, tw_lpid gid, const struct codes_workload_op *op)
     tw_event_send(e);
 }
 
-void svr_op_start_rc(tw_lp *lp)
-{
+void svr_op_start_rc(tw_lp* lp) {
     codes_local_latency_reverse(lp);
 }
 
-static void handle_svr_op_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp)
-{
+static void handle_svr_op_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp) {
     (void)b;
     printf("handle_svr_op_event at lp %llu, type %d\n", LLU(lp->gid), m->op.op_type);
 
@@ -185,35 +127,21 @@ static void handle_svr_op_event(
      * purposes we use the value of the op_type field as the amount of
      * elapsed time for the operation to consume.
      */
-    if(ns->next_idle > tw_now(lp))
+    if (ns->next_idle > tw_now(lp))
         ns->next_idle += m->op.op_type;
     else
         ns->next_idle = tw_now(lp) + m->op.op_type;
 
     /* send event back to cn to let it know the operation is done */
-    cn_op_complete(lp, ns->next_idle-tw_now(lp), m->src);
+    cn_op_complete(lp, ns->next_idle - tw_now(lp), m->src);
 
     return;
 }
 
-static void handle_svr_op_event_rc(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp)
-{
+static void handle_svr_op_event_rc(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp) {
     ns->next_idle = m->next_idle_rc;
     cn_op_complete_rc(lp);
     (void)b;
     (void)m;
     return;
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

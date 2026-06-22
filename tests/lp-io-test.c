@@ -18,76 +18,39 @@
 #include "codes/lp-io.h"
 #include "codes/codes.h"
 
-#define NUM_SERVERS 16  /* number of servers */
+#define NUM_SERVERS 16 /* number of servers */
 
 typedef struct svr_msg svr_msg;
 typedef struct svr_state svr_state;
 
-enum svr_event_type
-{
-    KICKOFF,    /* initial event */
+enum svr_event_type {
+    KICKOFF, /* initial event */
 };
 
-struct svr_state
-{
-};
+struct svr_state {};
 
-struct svr_msg
-{
+struct svr_msg {
     enum svr_event_type event_type;
-    tw_lpid src;          /* source of this request or ack */
+    tw_lpid src; /* source of this request or ack */
 };
 
-const tw_optdef app_opt[] = {
-    TWOPT_GROUP("lp-io Test Model"),
-    TWOPT_END()
-};
+const tw_optdef app_opt[] = {TWOPT_GROUP("lp-io Test Model"), TWOPT_END()};
 
-static void svr_init(
-    svr_state * ns,
-    tw_lp * lp);
-static void svr_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp);
-static void svr_rev_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp);
-static void svr_finalize(
-    svr_state * ns,
-    tw_lp * lp);
-static tw_peid svr_node_mapping(
-    tw_lpid gid);
+static void svr_init(svr_state* ns, tw_lp* lp);
+static void svr_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp);
+static void svr_rev_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp);
+static void svr_finalize(svr_state* ns, tw_lp* lp);
+static tw_peid svr_node_mapping(tw_lpid gid);
 
 tw_lptype svr_lp = {
-    (init_f) svr_init,
-    (pre_run_f) NULL,
-    (event_f) svr_event,
-    (revent_f) svr_rev_event,
-    (commit_f) NULL,
-    (final_f) svr_finalize,
-    (map_f) svr_node_mapping,
-    sizeof(svr_state),
+    (init_f)svr_init, (pre_run_f)NULL,       (event_f)svr_event,      (revent_f)svr_rev_event,
+    (commit_f)NULL,   (final_f)svr_finalize, (map_f)svr_node_mapping, sizeof(svr_state),
 };
 
-static void handle_kickoff_rev_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp);
-static void handle_kickoff_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp);
+static void handle_kickoff_rev_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp);
+static void handle_kickoff_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp);
 
-int main(
-    int argc,
-    char **argv)
-{
+int main(int argc, char** argv) {
     int nprocs;
     int rank;
     int lps_per_proc;
@@ -95,7 +58,7 @@ int main(
     int ret;
     lp_io_handle handle;
 
-    g_tw_ts_end = 60*60*24*365;
+    g_tw_ts_end = 60 * 60 * 24 * 365;
 
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
@@ -103,9 +66,11 @@ int main(
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &nprocs);
 
-    if((NUM_SERVERS) % nprocs)
-    {
-        fprintf(stderr, "Error: number of server (or nw-lp) LPs (%d total) is not evenly divisible by the number of MPI processes (%d)\n", NUM_SERVERS, nprocs);
+    if ((NUM_SERVERS) % nprocs) {
+        fprintf(stderr,
+                "Error: number of server (or nw-lp) LPs (%d total) is not evenly divisible by the "
+                "number of MPI processes (%d)\n",
+                NUM_SERVERS, nprocs);
         exit(-1);
     }
 
@@ -113,17 +78,15 @@ int main(
 
     tw_define_lps(lps_per_proc, sizeof(struct svr_msg));
 
-    for(i=0; i<lps_per_proc; i++)
-    {
+    for (i = 0; i < lps_per_proc; i++) {
         tw_lp_settype(i, &svr_lp);
     }
 
     g_tw_lookahead = 100;
 
     ret = lp_io_prepare("lp-io-test-results", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD);
-    if(ret < 0)
-    {
-       return(-1);
+    if (ret < 0) {
+        return (-1);
     }
 
     tw_run();
@@ -136,12 +99,9 @@ int main(
     return 0;
 }
 
-static void svr_init(
-    svr_state * ns,
-    tw_lp * lp)
-{
-    tw_event *e;
-    svr_msg *m;
+static void svr_init(svr_state* ns, tw_lp* lp) {
+    tw_event* e;
+    svr_msg* m;
     tw_stime kickoff_time;
 
     memset(ns, 0, sizeof(*ns));
@@ -159,47 +119,31 @@ static void svr_init(
     return;
 }
 
-static void svr_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp)
-{
-
-    switch (m->event_type)
-    {
-        case KICKOFF:
-            handle_kickoff_event(ns, b, m, lp);
-            break;
-        default:
-            assert(0);
-            break;
+static void svr_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp) {
+    switch (m->event_type) {
+    case KICKOFF:
+        handle_kickoff_event(ns, b, m, lp);
+        break;
+    default:
+        assert(0);
+        break;
     }
 }
 
-static void svr_rev_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp)
-{
-    switch (m->event_type)
-    {
-        case KICKOFF:
-            handle_kickoff_rev_event(ns, b, m, lp);
-            break;
-        default:
-            assert(0);
-            break;
+static void svr_rev_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp) {
+    switch (m->event_type) {
+    case KICKOFF:
+        handle_kickoff_rev_event(ns, b, m, lp);
+        break;
+    default:
+        assert(0);
+        break;
     }
 
     return;
 }
 
-static void svr_finalize(
-    svr_state * ns,
-    tw_lp * lp)
-{
+static void svr_finalize(svr_state* ns, tw_lp* lp) {
     (void)ns;
     char buffer[256];
     int ret;
@@ -207,39 +151,30 @@ static void svr_finalize(
     sprintf(buffer, "LP %llu finalize data\n", LLU(lp->gid));
 
     /* test having everyone write to same identifier */
-    ret = lp_io_write(lp->gid, "node_state_pointers", strlen(buffer)+1, buffer);
+    ret = lp_io_write(lp->gid, "node_state_pointers", strlen(buffer) + 1, buffer);
     assert(ret == 0);
 
     /* test having only one lp write to a particular identifier */
-    if(lp->gid == 3)
-    {
-        ret = lp_io_write(lp->gid, "subset_example", strlen(buffer)+1, buffer);
+    if (lp->gid == 3) {
+        ret = lp_io_write(lp->gid, "subset_example", strlen(buffer) + 1, buffer);
         assert(ret == 0);
     }
 
     /* test having one lp write two buffers to the same id */
-    if(lp->gid == 5)
-    {
+    if (lp->gid == 5) {
         sprintf(buffer, "LP %llu finalize data (intentional duplicate)\n", LLU(lp->gid));
-        ret = lp_io_write(lp->gid, "node_state_pointers", strlen(buffer)+1, buffer);
+        ret = lp_io_write(lp->gid, "node_state_pointers", strlen(buffer) + 1, buffer);
         assert(ret == 0);
     }
 
     return;
 }
 
-static tw_peid svr_node_mapping(
-    tw_lpid gid)
-{
-    return (tw_peid) gid / g_tw_nlp;
+static tw_peid svr_node_mapping(tw_lpid gid) {
+    return (tw_peid)gid / g_tw_nlp;
 }
 
-static void handle_kickoff_rev_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp)
-{
+static void handle_kickoff_rev_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp) {
     assert(0);
     (void)ns;
     (void)b;
@@ -250,12 +185,7 @@ static void handle_kickoff_rev_event(
 }
 
 /* handle initial event */
-static void handle_kickoff_event(
-    svr_state * ns,
-    tw_bf * b,
-    svr_msg * m,
-    tw_lp * lp)
-{
+static void handle_kickoff_event(svr_state* ns, tw_bf* b, svr_msg* m, tw_lp* lp) {
     //printf("handle_kickoff_event(), lp %llu.\n", (unsigned long long)lp->gid);
 
     /* do nothing */
@@ -264,12 +194,3 @@ static void handle_kickoff_event(
     (void)m;
     (void)lp;
 }
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- * End:
- *
- * vim: ft=c ts=8 sts=4 sw=4 expandtab
- */

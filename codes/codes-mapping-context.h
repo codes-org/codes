@@ -22,7 +22,7 @@ extern "C" {
 
 /* for convenience - an annotation-ignoring "group_modulo" context,
  * matching previous mapping behavior in most interfaces (modelnet and such) */
-extern struct codes_mctx const * const CODES_MCTX_DEFAULT;
+extern struct codes_mctx const* const CODES_MCTX_DEFAULT;
 
 /* types of map contexts */
 enum codes_mctx_type {
@@ -80,63 +80,41 @@ struct codes_mctx {
     enum codes_mctx_type type;
     union {
         struct codes_mctx_global_direct global_direct;
-        struct codes_mctx_group_ratio    group_ratio;
-        struct codes_mctx_group_modulo  group_modulo;
-        struct codes_mctx_group_direct  group_direct;
+        struct codes_mctx_group_ratio group_ratio;
+        struct codes_mctx_group_modulo group_modulo;
+        struct codes_mctx_group_direct group_direct;
     } u;
 };
 
 /* simple setter functions */
 struct codes_mctx codes_mctx_set_global_direct(tw_lpid lpid);
 
-struct codes_mctx codes_mctx_set_group_ratio(
-        char const * annotation,
-        bool ignore_annotations);
+struct codes_mctx codes_mctx_set_group_ratio(char const* annotation, bool ignore_annotations);
 
-struct codes_mctx codes_mctx_set_group_ratio_reverse(
-        char const * annotation,
-        bool ignore_annotations);
+struct codes_mctx codes_mctx_set_group_ratio_reverse(char const* annotation,
+                                                     bool ignore_annotations);
 
-struct codes_mctx codes_mctx_set_group_modulo(
-        char const * annotation,
-        bool ignore_annotations);
+struct codes_mctx codes_mctx_set_group_modulo(char const* annotation, bool ignore_annotations);
 
-struct codes_mctx codes_mctx_set_group_modulo_reverse(
-        char const * annotation,
-        bool ignore_annotations);
+struct codes_mctx codes_mctx_set_group_modulo_reverse(char const* annotation,
+                                                      bool ignore_annotations);
 
-struct codes_mctx codes_mctx_set_group_direct(
-        int offset,
-        char const * annotation,
-        bool ignore_annotations);
+struct codes_mctx codes_mctx_set_group_direct(int offset, char const* annotation,
+                                              bool ignore_annotations);
 
 /* helper function to do a codes mapping - this function is subject to change
  * based on what types of ctx exist
  * NOTE: in GLOBAL_DIRECT mode, dest_lp_name and sender_gid are ignored */
-tw_lpid codes_mctx_to_lpid(
-        struct codes_mctx const * ctx,
-        char const * dest_lp_name,
-        tw_lpid sender_gid);
+tw_lpid codes_mctx_to_lpid(struct codes_mctx const* ctx, char const* dest_lp_name,
+                           tw_lpid sender_gid);
 
 /* helper function to extract which annotation a various map context maps to.
  * annotation is allocated or NULL if unused */
-char const * codes_mctx_get_annotation(
-        struct codes_mctx const *ctx,
-        char const * dest_lp_name,
-        tw_lpid sender_id);
+char const* codes_mctx_get_annotation(struct codes_mctx const* ctx, char const* dest_lp_name,
+                                      tw_lpid sender_id);
 
 #ifdef __cplusplus
 }
 #endif
 
 #endif /* end of include guard: CODES_MAPPING_CONTEXT_H */
-
-/*
- * Local variables:
- *  c-indent-level: 4
- *  c-basic-offset: 4
- *  indent-tabs-mode: nil
- * End:
- *
- * vim: ts=8 sts=4 sw=4 expandtab
- */
