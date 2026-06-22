@@ -103,70 +103,6 @@ def model_identity_from_real_args(
 
 
 
-class ScopedIterationTimeModelRegistry:
-    """Compatibility facade that keeps iteration-time unscoped.
-
-    Event-time uses scoped models, but iteration-time should remain the original
-    client/app-level model. The surrounding unified Director request code may
-    still pass model_scope/model_key arguments; this facade deliberately ignores
-    them and routes all iteration-time records/inference to one plain
-    IterationTimeModelRegistry.
-    """
-
-    def __init__(self, kwargs: dict):
-        self.kwargs = dict(kwargs)
-        self.registry = IterationTimeModelRegistry(**self.kwargs)
-        self.debug = False
-
-    def set_debug(self, enabled: bool) -> None:
-        self.debug = bool(enabled)
-        self.registry.set_debug(self.debug)
-
-    def get_registry(self, model_scope: str | None = None, model_key: str | None = None) -> IterationTimeModelRegistry:
-        return self.registry
-
-    def get(self, client_id: int, model_scope: str | None = None, model_key: str | None = None):
-        return self.registry.get(client_id)
-
-    def set_client_app_id(self, client_id: int, app_id: int, model_scope: str | None = None, model_key: str | None = None) -> None:
-        self.registry.set_client_app_id(client_id, app_id)
-
-    def predict(self, client_id: int, requested_horizon: int | None = None, model_scope: str | None = None, model_key: str | None = None):
-        return self.registry.predict(client_id, requested_horizon)
-
-    def train_or_update(self, model_scope: str | None = None, model_key: str | None = None) -> bool:
-        return self.registry.train_or_update()
-
-    def save(self, path: str) -> None:
-        self.registry.save(path)
-
-    def load(self, path: str) -> None:
-        self.registry.load(path)
-        self.registry.set_debug(self.debug)
-
-    def status(self, model_scope: str | None = None, model_key: str | None = None) -> dict:
-        client_ids = sorted(self.registry.models.keys())
-        total_clients = len(client_ids)
-        trained_clients = 0
-        total_records = 0
-        client_summaries = []
-
-        for client_id in client_ids:
-            model = self.registry.get(client_id)
-            records = len(model.records)
-            trained = bool(model.trained)
-            total_records += records
-            trained_clients += int(trained)
-            client_summaries.append(
-                f"{client_id}:records={records},trained={int(trained)}"
-            )
-
-        return {
-            "total_clients": str(total_clients),
-            "trained_clients": str(trained_clients),
-            "total_records": str(total_records),
-            "clients": ";".join(client_summaries),
-        }
 
 class ScopedEventTimeModelRegistry:
     def __init__(self, kwargs: dict):
@@ -293,7 +229,6 @@ class ScopedEventTimeModelRegistry:
 iteration_time_models = IterationTimeModelRegistry(**ITERATION_MODEL_KWARGS)
 event_time_models = ScopedEventTimeModelRegistry(EVENT_TIME_MODEL_KWARGS)
 
-# Compatibility alias for old helper code that still references event_time_model.
 event_time_model = event_time_models.get()
 iteration_model_path = os.environ.get("ZMQML_ITERATION_MODEL_PATH", "").strip()
 event_time_model_path = os.environ.get("ZMQML_EVENT_TIME_MODEL_PATH", "").strip()
@@ -303,10 +238,7 @@ record_format = os.environ.get("ZMQML_RECORD_FORMAT", "app_id,client,iteration,v
 app_alloc_path = os.environ.get("ZMQML_APP_ALLOC_PATH", "").strip()
 
 auto_train_on_records = os.environ.get(
-    "ZMQML_AUTO_TRAIN_ON_RECORDS", "1"
-).strip().lower() in ("1", "true", "yes", "on")
-event_time_auto_train_on_records = os.environ.get(
-    "ZMQML_EVENT_TIME_AUTO_TRAIN_ON_RECORDS", "0"
+    "ZMQML_AUTO_TRAIN_ON_RECORDS", "0"
 ).strip().lower() in ("1", "true", "yes", "on")
 
 iteration_model_version = 0
@@ -811,7 +743,7 @@ def receive_event_time_records(args, bindata):
         loaded_rows += accepted
         per_model_loaded[model_id] = accepted
 
-        if accepted > 0 and event_time_auto_train_on_records:
+        if accepted > 0 and auto_train_on_records:
             model.train_or_update()
 
     if loaded_rows > 0:
@@ -1363,11 +1295,6 @@ def director_request_command(msg, bindata):
     family = str(msg.get("surrogate_family", "iteration-time")).strip()
     operation = str(msg.get("operation", "")).strip()
     backend = str(msg.get("surrogate_backend", "")).strip()
-    # Do not normalize here.  Each command handler normalizes exactly once.
-    #
-    # Normalizing here and again in receiverecords()/inference breaks client 1:
-    #   ["2", "1", "9"] -> ["1", "9"] -> ["9"]
-    # so the server drops client 1 records and later returns empty predictions.
     args = msg.get("args", [])
 
     operation_aliases = {

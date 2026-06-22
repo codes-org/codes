@@ -2716,14 +2716,8 @@ static void dragonfly_read_config(const char* anno, dragonfly_param* params) {
     char event_time_inference_enabled_str[MAX_NAME_LENGTH];
     event_time_inference_enabled_str[0] = '\0';
 
-    char const* inferencing_enabled_env = getenv("INFERENCING_ENABLED");
-    if (inferencing_enabled_env && strlen(inferencing_enabled_env) > 0) {
-        snprintf(event_time_inference_enabled_str, sizeof(event_time_inference_enabled_str), "%s",
-                 inferencing_enabled_env);
-    } else {
-        configuration_get_value(&config, "DIRECTOR", "inferencing_enabled", anno,
-                                event_time_inference_enabled_str, MAX_NAME_LENGTH);
-    }
+    configuration_get_value(&config, "DIRECTOR", "inferencing_enabled", anno,
+            event_time_inference_enabled_str, MAX_NAME_LENGTH);
 
     /*
      * Do not expose a separate event-time inference flag.
@@ -2758,14 +2752,8 @@ static void dragonfly_read_config(const char* anno, dragonfly_param* params) {
     char event_time_training_enabled_str[MAX_NAME_LENGTH];
     event_time_training_enabled_str[0] = '\0';
 
-    char const* training_enabled_env = getenv("TRAINING_ENABLED");
-    if (training_enabled_env && strlen(training_enabled_env) > 0) {
-        snprintf(event_time_training_enabled_str, sizeof(event_time_training_enabled_str), "%s",
-                 training_enabled_env);
-    } else {
-        configuration_get_value(&config, "DIRECTOR", "training_enabled", anno,
-                                event_time_training_enabled_str, MAX_NAME_LENGTH);
-    }
+    configuration_get_value(&config, "DIRECTOR", "training_enabled", anno,
+            event_time_training_enabled_str, MAX_NAME_LENGTH);
 
     event_time_surrogate_family_selected =
         strcmp(event_time_surrogate_family_str, "event-time") == 0;
@@ -2785,15 +2773,6 @@ static void dragonfly_read_config(const char* anno, dragonfly_param* params) {
         atexit(dfdally_event_time_zmq_flush_atexit);
         event_time_zmq_flush_registered = 1;
     }
-
-    if (dfdally_surrogate_debug_prints) {
-        fprintf(stderr,
-                "[event-time records] family=%s training_enabled=%s send_to_zmq=%d batch_size=%d\n",
-                event_time_surrogate_family_str, event_time_training_enabled_str,
-                event_time_training_records_enabled, event_time_zmq_batch_size);
-        fflush(stderr);
-    }
-
 
     // START Surrogate configuration
     char enable_str[MAX_NAME_LENGTH];
@@ -2818,6 +2797,18 @@ static void dragonfly_read_config(const char* anno, dragonfly_param* params) {
     }
 
     dfdally_surrogate_debug_prints = dfdally_string_is_true(debug_prints_str);
+
+    if(dfdally_surrogate_debug_prints) {
+        fprintf(
+            stderr,
+            "[event-time records] family=%s training_enabled=%s send_to_zmq=%d batch_size=%d\n",
+            event_time_surrogate_family_str,
+            event_time_training_enabled_str,
+            event_time_training_records_enabled,
+            event_time_zmq_batch_size
+        );
+        fflush(stderr);
+    }
 
     // if surrogate mode has been set up
     if (enable_network_surrogate) {
