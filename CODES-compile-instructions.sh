@@ -133,8 +133,8 @@ else
 fi
 # ---- end CODES CUDA arch autodetection ----
 
-cmake .. -DCMAKE_C_COMPILER=mpicc -DCMAKE_CXX_COMPILER=mpicxx -DROSS_BUILD_MODELS=ON -DCMAKE_INSTALL_PREFIX="$(realpath ./bin)" \
-  -DCMAKE_C_COMPILER=mpicc -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-g -Wall"
+cmake .. -DROSS_BUILD_MODELS=ON -DCMAKE_INSTALL_PREFIX="$(realpath ./bin)" \
+  -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-g -Wall"
 #make VERBOSE=1
 make install -j4
 err=$?
@@ -358,7 +358,6 @@ fi
 
 make_args_codes=(
     -DCMAKE_PREFIX_PATH="${cmake_prefix_path}"
-    -DCMAKE_CXX_COMPILER=mpicxx -DCMAKE_C_COMPILER=mpicc
     -DCMAKE_C_FLAGS="-g -Wall"
     -DCMAKE_CXX_FLAGS="-g -Wall"
     -DTHREADS_PREFER_PTHREAD_FLAG=ON

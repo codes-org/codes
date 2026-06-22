@@ -53,8 +53,6 @@ cd codes && mkdir build && cd build
 # 3. Configure with CMake
 cmake .. \
   -DCMAKE_PREFIX_PATH=$HOME/ross \
-  -DCMAKE_C_COMPILER=mpicc \
-  -DCMAKE_CXX_COMPILER=mpicxx \
   -DCMAKE_BUILD_TYPE=Debug \
   -DBUILD_TESTING=ON
 
@@ -62,6 +60,11 @@ cmake .. \
 make -j
 ctest
 ```
+
+MPI is auto-discovered via `find_package(MPI)` — do **not** set `CC=mpicc` or
+`-DCMAKE_C_COMPILER=mpicc`. Just make sure an MPI implementation is installed and
+its wrapper (`mpicc`) is on your `PATH` (e.g. `module load mpich`). For a
+non-standard install, hint with `-DMPI_HOME=/path/to/mpi`.
 
 ## Testing
 

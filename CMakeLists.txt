@@ -6,9 +6,6 @@ project(codes LANGUAGES C CXX VERSION 2.0)
 include(CMakePrintHelpers)
 cmake_print_variables(CMAKE_CURRENT_SOURCE_DIR)
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/src/cmake/")
-cmake_print_variables(CMAKE_MODULE_PATH)
-
 set(CMAKE_INSTALL_PREFIX "${PROJECT_BINARY_DIR}" CACHE PATH "Where to install CODES")
 
 # C++17 is the project-wide baseline (was previously only enabled when Torch
@@ -35,16 +32,12 @@ find_package(PkgConfig REQUIRED)
 set(ENV{PKG_CONFIG_PATH} "${ROSS_PKG_CONFIG_PATH}:${SWM_PKG_CONFIG_PATH}:${UNION_PKG_CONFIG_PATH}:${ARGOBOTS_PKG_CONFIG_PATH}")
 pkg_check_modules(ROSS REQUIRED IMPORTED_TARGET ross)
 
-# MPI
-include(SetupMPI)
-if(MPI_C_FOUND)
-        include_directories(${MPI_C_INCLUDE_PATH})
-        list(APPEND CODES_EXTERNAL_LIBS ${MPI_C_LIBRARIES})
-else(MPI_C_FOUND)
-        message("WARNING: Could not find MPI!")
-        message("         Either add an MPI compiler to your path (using modules)")
-        message("         Or force CMake to build using the correct compiler (`export CC=mpicc`)")
-endif(MPI_C_FOUND)
+# MPI — modern imported-target discovery. find_package(MPI) provides the
+# MPI::MPI_C / MPI::MPI_CXX imported targets, which carry the include dirs,
+# compile flags, and link libraries; targets link them directly (see
+# src/CMakeLists.txt). No need to set CC=mpicc — FindMPI locates the wrapper
+# compiler automatically and derives the flags from it.
+find_package(MPI REQUIRED)
 
 
 ## DUMPI

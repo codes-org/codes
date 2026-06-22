@@ -143,8 +143,10 @@ endif()
 
 add_library(codes STATIC ${SRCS})
 
-list(APPEND LIBS_TO_LINK ${MPI_C_LIBRARIES})
-target_include_directories(codes INTERFACE ${MPI_C_INCLUDE_PATH})
+# MPI imported targets carry the include dirs, compile flags, and link libs.
+# Linked PUBLIC (via LIBS_TO_LINK below) so codes' own sources and every
+# consumer (executables, tests) inherit them.
+list(APPEND LIBS_TO_LINK MPI::MPI_C MPI::MPI_CXX)
 
 # set(LIBS_TO_LINK
 #     PkgConfig::ROSS

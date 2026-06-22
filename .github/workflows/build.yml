@@ -97,8 +97,6 @@ jobs:
           -DBUILD_TESTING=ON
           -DUSE_TORCH=OFF
           -DUSE_ZMQML=OFF
-          -DCMAKE_C_COMPILER=mpicc
-          -DCMAKE_CXX_COMPILER=mpicxx
           -DROSS_PKG_CONFIG_PATH=$PWD/ross-install/lib/pkgconfig
 
       - name: Build CODES
