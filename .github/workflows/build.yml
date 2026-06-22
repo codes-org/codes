@@ -8,25 +8,37 @@ on:
       - master
   schedule:
     # Daily at 07:00 UTC. Catches drift between pin bumps — runner image
-    # updates, apt package bumps, and ROSS @ master moving forward. The
+    # updates, apt/brew package bumps, and ROSS @ master moving forward. The
     # scheduled run intentionally ignores ROSS_REF and builds against
     # ROSS-org/ROSS@master so a stale pin still surfaces problems.
     - cron: "0 7 * * *"
 
-# Bootstrap CI for CODES
+# CI for CODES.
 #
-# Today: one minimal Linux job — ubuntu-24.04 + system MPICH + a freshly
-# built ROSS pinned to a SHA. Heavy optional deps (SWM, UNION, DUMPI,
-# TORCH, ZMQML) stay OFF so this job runs on a stock runner with no
-# custom image. macOS, OpenMPI, the compiler matrix, coverage tracking,
-# and the heavy-deps "full" job are tracked separately as 1b followups.
+# Today: an OS matrix — ubuntu-24.04 (apt MPICH) and macos-14 / Apple Silicon
+# (Homebrew MPICH) — each building a freshly built ROSS pinned to a SHA, then
+# CODES, then ctest. Heavy optional deps (SWM, UNION, DUMPI, TORCH, ZMQML)
+# stay OFF so both legs run on stock runners with no custom image.
+#
+# The macOS leg is the safety net for Mac-specific link/include breakage, which
+# has historically reached master and had to be hand-fixed on a developer Mac.
+#
+# Still deferred: OpenMPI alongside MPICH, ubuntu-22.04, a
+# gcc/clang compiler matrix, coverage tracking, and a heavy-deps "full" job.
 #
 # Symmetric with ROSS's codes-contract.yml: ROSS pins CODES, CODES pins
 # ROSS, each catches consumer-API regressions in the other.
 
 jobs:
-  build-linux:
-    runs-on: ubuntu-24.04
+  build:
+    name: build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Don't let one platform's failure cancel the other — we want to see
+      # both Linux and macOS results on every run.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-24.04, macos-14]
     env:
       # ross-org/ROSS @ master as of 2026-06-17.
       # Bump this SHA whenever CODES needs to track ROSS forward — that
@@ -49,13 +61,24 @@ jobs:
           ref: ${{ github.event_name == 'schedule' && 'master' || env.ROSS_REF }}
           path: ross
 
-      - name: Install system dependencies
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             mpich libmpich-dev \
             cmake ninja-build pkg-config \
             flex bison
+
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install mpich cmake ninja pkg-config flex bison
+          # Homebrew flex/bison are keg-only and the macOS system ones are
+          # too old for flex_target/bison_target — put the brew versions
+          # ahead of /usr/bin on PATH for subsequent steps.
+          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
 
       - name: Configure ROSS
         run: >
@@ -88,7 +111,8 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: build-logs
+          # Artifact names must be unique across matrix legs (upload-artifact@v4).
+          name: build-logs-${{ matrix.os }}
           path: |
             codes/build/Testing/Temporary/LastTest.log
             codes/build/Testing/Temporary/LastTestsFailed.log
