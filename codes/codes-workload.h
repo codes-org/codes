@@ -18,8 +18,9 @@ extern "C" {
 
 #include <ross.h>
 #include "configuration.h"
+#include "codes_config.h"
 
-#ifdef USE_ONLINE
+#if CODES_HAVE_ONLINE
 #include "abt.h"
 #endif
 #define MAX_NAME_LENGTH_WKLD 512

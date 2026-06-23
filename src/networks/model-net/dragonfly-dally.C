@@ -15,6 +15,7 @@
  */
 
 #include <ross.h>
+#include "codes_config.h"
 
 #include "codes/jenkins-hash.h"
 #include "codes/codes_mapping.h"
@@ -22,7 +23,7 @@
 #include "codes/model-net-method.h"
 #include "codes/model-net-lp.h"
 #include "codes/surrogate/init.h"
-#ifdef USE_TORCH
+#if CODES_HAVE_TORCH
 #include "codes/surrogate/packet-latency-predictor/torch-jit.h"
 #endif
 #include "codes/net/dragonfly-dally.h"
@@ -47,8 +48,8 @@
 /*
  * Optional ZeroMQ Director requester.
  *
- * These symbols are defined only when CODES is built with USE_ZEROMQ=ON
- * (src/surrogate/director-client.C + libzmqmlrequester). USE_ZEROMQ is
+ * These symbols are defined only when CODES is built with CODES_HAVE_ZEROMQ=ON
+ * (src/surrogate/director-client.C + libzmqmlrequester). CODES_HAVE_ZEROMQ is
  * all-or-nothing for a given build: src/CMakeLists.txt links libzmqmlrequester
  * into *every* CODES executable when ON and into none when OFF. So whether the
  * requester is available is a compile-time fact, not a runtime one — the
@@ -56,14 +57,14 @@
  * checks could only ever take their "available" branch under ON and their
  * "null" branch under OFF.
  *
- * The declarations and every reference are therefore #ifdef USE_ZEROMQ-guarded:
+ * The declarations and every reference are therefore #if CODES_HAVE_ZEROMQ-guarded:
  * the ON build calls the requester directly, the OFF build compiles in only
  * the original-PDES fallback and emits no reference to the symbol. (Without
  * the guard the OFF build fails to link on macOS/Mach-O, where ld64 rejects an
  * undefined weak symbol with no providing library; Linux/ELF happens to
  * resolve it to null.)
  */
-#ifdef USE_ZEROMQ
+#if CODES_HAVE_ZEROMQ
 extern std::vector<std::string> zmqml_director_request(const std::string& surrogate_family,
                                                        const std::string& surrogate_backend,
                                                        const std::string& operation,
@@ -285,7 +286,7 @@ static std::vector<std::string> dfdally_event_time_director_request_with_latency
     struct timespec start, finish;
     clock_gettime(CLOCK_MONOTONIC, &start);
 
-#ifdef USE_ZEROMQ
+#if CODES_HAVE_ZEROMQ
     ret = zmqml_director_request("event-time", "dragonfly-dally", op, args, bindata);
 #else
     ret.push_back("failed");
@@ -296,7 +297,7 @@ static std::vector<std::string> dfdally_event_time_director_request_with_latency
     double local_latency_sec = (double)(finish.tv_sec - start.tv_sec) +
                                (double)(finish.tv_nsec - start.tv_nsec) / 1000000000.0;
 
-#ifdef USE_ZEROMQ
+#if CODES_HAVE_ZEROMQ
     director_record_zmq_latency_stats(label, ret, local_latency_sec);
 #endif
 
@@ -3569,7 +3570,7 @@ static void dfdally_event_time_zmq_flush(void) {
         return;
     }
 
-#ifndef USE_ZEROMQ
+#if !CODES_HAVE_ZEROMQ
     if (dfdally_surrogate_debug_prints) {
         fprintf(stderr,
                 "[event-time records] zmqml_director_request unavailable; dropping %llu "
@@ -3786,7 +3787,7 @@ static double dfdally_event_time_predict_or_original(tw_lp* lp, int current_lp_t
     std::vector<std::string> args;
     args.push_back("1");
 
-#ifndef USE_ZEROMQ
+#if !CODES_HAVE_ZEROMQ
     if (dfdally_surrogate_debug_prints) {
         fprintf(stderr,
                 "[event-time inference] zmqml_director_request unavailable; "
@@ -7595,7 +7596,7 @@ static void router_packet_send(router_state* s, tw_bf* bf, terminal_dally_messag
         maxd(0.0, s->next_output_available_time[output_port] - cur_entry->msg.this_router_arrival) +
         propagation_delay;
     bool router_timing_prediction_used = false;
-#ifdef USE_TORCH
+#if CODES_HAVE_TORCH
     if (is_dally_surrogate_on && surrogate_torch_router_timing_model_enabled()) {
         struct router_timing_prediction_start timing_start = {
             .router_id = (float)s->router_id,

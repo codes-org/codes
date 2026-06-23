@@ -11,6 +11,7 @@
 #include <sys/resource.h>
 #include "codes/codes-workload.h"
 #include "codes/codes.h"
+#include "codes_config.h"
 #include "codes/configuration.h"
 #include "codes/codes_mapping.h"
 #include "codes/model-net.h"
@@ -4194,7 +4195,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv) {
         if (g_st_ev_trace || g_st_model_stats || g_st_use_analysis_lps)
             nw_lp_register_model();
 
-#ifdef USE_ZEROMQ
+#if CODES_HAVE_ZEROMQ
         director_lp_register_model("dir-nw-lp");
 #endif
 

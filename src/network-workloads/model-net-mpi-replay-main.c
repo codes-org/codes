@@ -4,8 +4,9 @@
  *
  */
 #include <mpi.h>
+#include "codes_config.h"
 
-#ifdef USE_ONLINE
+#if CODES_HAVE_ONLINE
 #include <abt.h>
 #endif
 
@@ -14,7 +15,7 @@
 
 int main(int argc, char** argv) {
     MPI_Init(&argc, &argv);
-#ifdef USE_ONLINE
+#if CODES_HAVE_ONLINE
     ABT_init(argc, argv);
 #endif
     //  int rank, size;
@@ -29,7 +30,7 @@ int main(int argc, char** argv) {
 
     modelnet_mpi_replay(MPI_COMM_WORLD, &argc, &argv);
     int flag;
-#ifdef USE_ONLINE
+#if CODES_HAVE_ONLINE
     ABT_finalize();
 #endif
 

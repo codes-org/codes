@@ -133,10 +133,9 @@ endif()
 
 add_library(codes STATIC ${SRCS})
 
-# Compile definitions accumulated from optional-dep detection in the top-level
-# CMakeLists (USE_DUMPI, USE_ONLINE, USE_SWM, USE_UNION, USE_RECORDER, USE_TORCH).
-# PUBLIC so codes' sources and every consumer (executables, tests) see them.
-target_compile_definitions(codes PUBLIC ${CODES_COMPILE_DEFINITIONS})
+# Optional-feature state is exposed through the generated codes_config.h
+# (CODES_HAVE_<X>), included by sources that need it — no -DUSE_<X> compile
+# definitions, so nothing leaks onto consumers' command lines.
 
 # MPI imported targets carry the include dirs, compile flags, and link libs.
 # Linked PUBLIC (via LIBS_TO_LINK below) so codes' own sources and every
@@ -168,7 +167,6 @@ if(USE_ZEROMQ)
     set_target_properties(zmqmlrequester PROPERTIES
         IMPORTED_LOCATION "${ZEROMQ_BUILD_PATH}/libzmqmlrequester.so"
         INTERFACE_INCLUDE_DIRECTORIES "${ZEROMQ_BUILD_PATH}")
-    target_compile_definitions(codes PUBLIC USE_ZEROMQ)
 endif()
 
 target_include_directories(codes PUBLIC
@@ -233,6 +231,10 @@ endforeach()
 # configure_file(modelconfig/configparser.h ${CMAKE_CURRENT_BINARY_DIR}/modelconfig/configparser.h COPYONLY)
 
 install(DIRECTORY "${CMAKE_SOURCE_DIR}/codes" DESTINATION include)
+
+# The generated config header is public now — codes-workload.h includes it for
+# CODES_HAVE_* feature queries — so install it next to the other codes/ headers.
+install(FILES "${PROJECT_BINARY_DIR}/codes_config.h" DESTINATION include/codes)
 
 install(TARGETS ${CODES_TARGETS} DESTINATION bin)
 

@@ -18,6 +18,13 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED True)
 
+# Build CODES's own targets with -Wundef so the generated config-header feature
+# macros (CODES_HAVE_<X>, always 0/1 — see codes_config.h.cmake.in) flag a
+# forgotten `#include "codes_config.h"` or a typo'd name as a warning instead of
+# a silently-disabled feature. Applies only to this project's compiles, not to
+# consumers; ROSS/MPI headers arrive via -isystem and are exempt.
+add_compile_options(-Wundef)
+
 #prevent cmake from stripping the runtime path (important if shared libraries are imported)
 SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
@@ -54,7 +61,7 @@ find_package(MPI REQUIRED)
 #   ON   : probe; hard error if not found.
 #   OFF  : don't probe; feature disabled.
 # Each resolves to an internal USE_<X> bool (names unchanged) consumed by
-# src/CMakeLists.txt and the C sources' #ifdef sites.
+# src/CMakeLists.txt and the C sources' #if sites.
 # ============================================================================
 
 set(DUMPI_BUILD_PATH "" CACHE PATH "Directory where dumpi include and lib are installed")
@@ -107,7 +114,6 @@ codes_resolve_dep(DUMPI "${DUMPI_LIB}" USE_DUMPI)
 if(USE_DUMPI)
     message(STATUS "DUMPI trace workloads enabled (${DUMPI_LIB})")
     set(DUMPI_INCLUDE "${DUMPI_BUILD_PATH}/include" CACHE PATH "Dumpi library include")
-    list(APPEND CODES_COMPILE_DEFINITIONS USE_DUMPI=1)
 else()
     message(STATUS "DUMPI trace workloads disabled")
 endif()
@@ -128,7 +134,6 @@ codes_resolve_dep(SWM "${_swm_ok}" USE_ONLINE)
 
 if(USE_ONLINE)
     message(STATUS "SWM online workloads enabled (${SWM_LIBRARIES})")
-    list(APPEND CODES_COMPILE_DEFINITIONS USE_ONLINE=1)
     pkg_get_variable(SWM_DATAROOTDIR swm datarootdir)
 
     set(_union_found FALSE)
@@ -139,10 +144,8 @@ if(USE_ONLINE)
     codes_resolve_dep(UNION "${_union_found}" USE_UNION)
     if(USE_UNION)
         message(STATUS "UNION online workloads enabled (${UNION_LIBRARIES})")
-        list(APPEND CODES_COMPILE_DEFINITIONS USE_UNION=1)
         pkg_get_variable(UNION_DATAROOTDIR union datarootdir)
     else()
-        list(APPEND CODES_COMPILE_DEFINITIONS USE_SWM=1)
         set(USE_SWM TRUE)
     endif()
 else()
@@ -155,9 +158,6 @@ endif()
 
 ## RECORDER — built-in I/O workload, no external dependency
 codes_resolve_dep(RECORDER TRUE USE_RECORDER)
-if(USE_RECORDER)
-    list(APPEND CODES_COMPILE_DEFINITIONS USE_RECORDER=1)
-endif()
 
 
 ## DARSHAN — stub: the probe + the commented darshan source in src/ aren't
@@ -181,7 +181,6 @@ endif()
 codes_resolve_dep(TORCH "${Torch_FOUND}" USE_TORCH)
 if(USE_TORCH)
     message(STATUS "Torch ML models enabled")
-    list(APPEND CODES_COMPILE_DEFINITIONS USE_TORCH)
 else()
     message(STATUS "Torch ML models disabled")
 endif()
@@ -207,6 +206,19 @@ endif()
 
 add_subdirectory(src)
 
+
+# Feature-availability macros consumed by codes_config.h.cmake.in. CODES_HAVE_<X>
+# mirrors the resolved USE_<X> bool; #cmakedefine emits the #define only when set.
+# This replaces the old -DUSE_<X> command-line defines: feature state now lives in
+# the namespaced, installed codes_config.h instead of leaking onto compile lines.
+set(CODES_HAVE_DUMPI    ${USE_DUMPI})
+set(CODES_HAVE_ONLINE   ${USE_ONLINE})
+set(CODES_HAVE_SWM      ${USE_SWM})
+set(CODES_HAVE_UNION    ${USE_UNION})
+set(CODES_HAVE_RECORDER ${USE_RECORDER})
+set(CODES_HAVE_TORCH    ${USE_TORCH})
+set(CODES_HAVE_ZEROMQ   ${USE_ZEROMQ})
+set(CODES_HAVE_DARSHAN  ${USE_DARSHAN})
 
 configure_file(codes_config.h.cmake.in codes_config.h)
 
