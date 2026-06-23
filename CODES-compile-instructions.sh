@@ -367,7 +367,7 @@ make_args_codes=(
     -DCMAKE_USE_WIN32_THREADS_INIT=0
     -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
     -DCMAKE_INSTALL_PREFIX="$(realpath bin)"
-    -DZMQML_BUILD_PATH="$(realpath "$CUR_DIR/codes/src/surrogate/zmqml")"
+    -DZEROMQ_BUILD_PATH="$(realpath "$CUR_DIR/codes/src/surrogate/zmqml")"
     -DZeroMQ_INCLUDE_DIR=/usr/include
     -DZeroMQ_LIBRARY=/usr/lib/x86_64-linux-gnu/libzmq.so
 )
@@ -387,7 +387,7 @@ fi
 if [ "$torch_enable" = 1 ]; then
     make_args_codes=(
         "${make_args_codes[@]}"
-        -DUSE_TORCH=true
+        -DCODES_USE_TORCH=ON
         -DTorch_DIR="${torch_dir}"
     )
 
@@ -411,7 +411,7 @@ if [ "$torch_enable" = 1 ]; then
         )
     fi
 else
-    make_args_codes=("${make_args_codes[@]}" -DUSE_TORCH=false)
+    make_args_codes=("${make_args_codes[@]}" -DCODES_USE_TORCH=OFF)
 fi
 
 cmake .. "${make_args_codes[@]}"

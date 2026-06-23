@@ -47,66 +47,125 @@ set(ENV{PKG_CONFIG_PATH} "${SWM_PKG_CONFIG_PATH}:${UNION_PKG_CONFIG_PATH}:${ARGO
 find_package(MPI REQUIRED)
 
 
-## DUMPI
+# ============================================================================
+# Optional dependencies — tri-state CODES_USE_<X> (AUTO / ON / OFF)
+# ----------------------------------------------------------------------------
+#   AUTO : probe; enable if found, disable quietly if not.
+#   ON   : probe; hard error if not found.
+#   OFF  : don't probe; feature disabled.
+# Each resolves to an internal USE_<X> bool (names unchanged) consumed by
+# src/CMakeLists.txt and the C sources' #ifdef sites.
+# ============================================================================
+
 set(DUMPI_BUILD_PATH "" CACHE PATH "Directory where dumpi include and lib are installed")
-find_library(DUMPI_LIB undumpi PATHS ${DUMPI_BUILD_PATH}/lib)
-if(NOT DUMPI_LIB)
-        message(STATUS "Undumpi library not found, DUMPI trace workloads disabled")
-        unset(USE_DUMPI)
-else(DUMPI_LIB)
-        message(STATUS "Undumpi library found ${DUMPI_LIB}")
-        set(DUMPI_INCLUDE "${DUMPI_BUILD_PATH}/include" CACHE PATH "Dumpi library include")
-        list(APPEND CODES_COMPILE_DEFINITIONS USE_DUMPI=1)
-        set(USE_DUMPI true)
+set(ZEROMQ_BUILD_PATH "" CACHE PATH "Directory containing libzmqmlrequester.so (for CODES_USE_ZEROMQ)")
+
+set(CODES_USE_DUMPI    AUTO CACHE STRING "DUMPI trace workloads (AUTO/ON/OFF)")
+set(CODES_USE_SWM      AUTO CACHE STRING "SWM online workloads; requires argobots (AUTO/ON/OFF)")
+set(CODES_USE_UNION    AUTO CACHE STRING "UNION online workloads; implies SWM (AUTO/ON/OFF)")
+set(CODES_USE_RECORDER AUTO CACHE STRING "Recorder I/O workload, no external dep (AUTO/ON/OFF)")
+set(CODES_USE_TORCH    AUTO CACHE STRING "Torch ML models (AUTO/ON/OFF)")
+set(CODES_USE_DARSHAN  OFF  CACHE STRING "Darshan I/O workload — not yet wired (AUTO/ON/OFF)")
+set(CODES_USE_ZEROMQ   AUTO CACHE STRING "ZeroMQ director-client surrogate; needs ZEROMQ_BUILD_PATH (AUTO/ON/OFF)")
+foreach(_dep DUMPI SWM UNION RECORDER TORCH DARSHAN ZEROMQ)
+    set_property(CACHE CODES_USE_${_dep} PROPERTY STRINGS AUTO ON OFF)
+endforeach()
+
+# Back-compat: the pre-rename option names map onto CODES_USE_* for one
+# deprecation cycle. Remove once downstream invocations have migrated.
+foreach(_old TORCH RECORDER)
+    if(DEFINED USE_${_old})
+        message(WARNING "USE_${_old} is deprecated; use CODES_USE_${_old} (AUTO/ON/OFF).")
+        if(USE_${_old})
+            set(CODES_USE_${_old} ON CACHE STRING "" FORCE)
+        else()
+            set(CODES_USE_${_old} OFF CACHE STRING "" FORCE)
+        endif()
+    endif()
+endforeach()
+
+# Resolve a tri-state CODES_USE_<name> against a probe result (found = a path,
+# a *_FOUND var, or a bool). Sets the internal ${out_var} bool in the caller.
+function(codes_resolve_dep name found out_var)
+    if(CODES_USE_${name} STREQUAL "OFF")
+        set(${out_var} FALSE PARENT_SCOPE)
+    elseif(found)
+        set(${out_var} TRUE PARENT_SCOPE)
+    elseif(CODES_USE_${name} STREQUAL "ON")
+        message(FATAL_ERROR "CODES_USE_${name}=ON but ${name} could not be found/enabled.")
+    else()
+        set(${out_var} FALSE PARENT_SCOPE)
+    endif()
+endfunction()
+
+
+## DUMPI — trace workloads
+if(NOT CODES_USE_DUMPI STREQUAL "OFF")
+    find_library(DUMPI_LIB undumpi PATHS ${DUMPI_BUILD_PATH}/lib)
+endif()
+codes_resolve_dep(DUMPI "${DUMPI_LIB}" USE_DUMPI)
+if(USE_DUMPI)
+    message(STATUS "DUMPI trace workloads enabled (${DUMPI_LIB})")
+    set(DUMPI_INCLUDE "${DUMPI_BUILD_PATH}/include" CACHE PATH "Dumpi library include")
+    list(APPEND CODES_COMPILE_DEFINITIONS USE_DUMPI=1)
+else()
+    message(STATUS "DUMPI trace workloads disabled")
 endif()
 
-# SWM and UNION (both require ARGOBOTS to function)
-pkg_check_modules(SWM IMPORTED_TARGET swm)
-if(NOT SWM_FOUND)
-    message(STATUS "SWM Library Not Found, Online workloads disabled")
 
-else(SWM_FOUND)
-    message(STATUS "SWM Library Found: ${SWM_LIBRARIES}")
-    pkg_check_modules(ARGOBOTS REQUIRED IMPORTED_TARGET argobots)
-    if(NOT ARGOBOTS_FOUND)
-        message(STATUS "Argobots Library Not Found, Online workloads disabled")
-
-    else(ARGOBOTS_FOUND)
-        message(STATUS "Argobots Library Found: ${ARGOBOTS_LIBRARIES}")
-
-        pkg_get_variable(SWM_DATAROOTDIR swm datarootdir)
-        cmake_print_variables(SWM_DATAROOTDIR)
-
-        list(APPEND CODES_COMPILE_DEFINITIONS USE_ONLINE=1)
-        set(USE_ONLINE true)
-
-        pkg_check_modules(UNION IMPORTED_TARGET union)
-        if(NOT UNION_FOUND)
-            message(STATUS "UNION Library Not Found, SWM-only online workloads enabled")
-            list(APPEND CODES_COMPILE_DEFINITIONS USE_SWM=1)
-            set(USE_SWM true)
-        else(UNION_FOUND)
-            message(STATUS "UNION Library Found: ${UNION_LIBRARIES}")
-            pkg_get_variable(UNION_DATAROOTDIR union datarootdir)
-            cmake_print_variables(UNION_DATAROOTDIR)
-            
-            list(APPEND CODES_COMPILE_DEFINITIONS USE_UNION=1)
-            set(USE_UNION true)
+## SWM / UNION — online workloads (UNION ⇒ SWM ⇒ argobots)
+set(_swm_ok FALSE)
+if(NOT CODES_USE_SWM STREQUAL "OFF")
+    pkg_check_modules(SWM IMPORTED_TARGET swm)
+    if(SWM_FOUND)
+        pkg_check_modules(ARGOBOTS IMPORTED_TARGET argobots)
+        if(ARGOBOTS_FOUND)
+            set(_swm_ok TRUE)
         endif()
+    endif()
+endif()
+codes_resolve_dep(SWM "${_swm_ok}" USE_ONLINE)
+
+if(USE_ONLINE)
+    message(STATUS "SWM online workloads enabled (${SWM_LIBRARIES})")
+    list(APPEND CODES_COMPILE_DEFINITIONS USE_ONLINE=1)
+    pkg_get_variable(SWM_DATAROOTDIR swm datarootdir)
+
+    set(_union_found FALSE)
+    if(NOT CODES_USE_UNION STREQUAL "OFF")
+        pkg_check_modules(UNION IMPORTED_TARGET union)
+        set(_union_found ${UNION_FOUND})
+    endif()
+    codes_resolve_dep(UNION "${_union_found}" USE_UNION)
+    if(USE_UNION)
+        message(STATUS "UNION online workloads enabled (${UNION_LIBRARIES})")
+        list(APPEND CODES_COMPILE_DEFINITIONS USE_UNION=1)
+        pkg_get_variable(UNION_DATAROOTDIR union datarootdir)
+    else()
+        list(APPEND CODES_COMPILE_DEFINITIONS USE_SWM=1)
+        set(USE_SWM TRUE)
+    endif()
+else()
+    message(STATUS "SWM/UNION online workloads disabled")
+    if(CODES_USE_UNION STREQUAL "ON")
+        message(FATAL_ERROR "CODES_USE_UNION=ON requires SWM/online (set CODES_USE_SWM and provide SWM+argobots).")
     endif()
 endif()
 
 
-## RECORDER
-option(USE_RECORDER "use recorder io workload" ON)
+## RECORDER — built-in I/O workload, no external dependency
+codes_resolve_dep(RECORDER TRUE USE_RECORDER)
 if(USE_RECORDER)
-        list(APPEND CODES_COMPILE_DEFINITIONS USE_RECORDER=1)
+    list(APPEND CODES_COMPILE_DEFINITIONS USE_RECORDER=1)
 endif()
 
-## DARSHAN
+
+## DARSHAN — stub: the probe + the commented darshan source in src/ aren't
+## wired up yet, so this resolves OFF today (CODES_USE_DARSHAN=ON errors).
+codes_resolve_dep(DARSHAN FALSE USE_DARSHAN)
 
 
-## DAMARIS
+## DAMARIS — build support intentionally absent (cleanup tracked separately).
 # pkg_check_modules(DAMARIS IMPORTED_TARGET)
 # if(NOT DAMARIS_FOUND)
 #         message(STATUS "DAMARIS Library not found, Damaris disabled")
@@ -114,19 +173,36 @@ endif()
 #         set(USE_DAMARIS true)
 # endif()
 
-## TORCH loading ML models
-if((NOT DEFINED USE_TORCH) OR USE_TORCH)
-    find_package(Torch)
-    if(Torch_FOUND)
-        list(APPEND CODES_COMPILE_DEFINITIONS USE_TORCH)
-        set(USE_TORCH true)
-        message(STATUS "Loading TORCH models enabled.")
-    else()
-        set(USE_TORCH false)
-        message(STATUS "Torch library not found. Loading TORCH models disabled.")
-    endif()
+
+## TORCH — ML models
+if(NOT CODES_USE_TORCH STREQUAL "OFF")
+    find_package(Torch QUIET)
+endif()
+codes_resolve_dep(TORCH "${Torch_FOUND}" USE_TORCH)
+if(USE_TORCH)
+    message(STATUS "Torch ML models enabled")
+    list(APPEND CODES_COMPILE_DEFINITIONS USE_TORCH)
 else()
-    message(STATUS "Loading TORCH models NOT enabled.")
+    message(STATUS "Torch ML models disabled")
+endif()
+
+
+## ZeroMQ — director-client surrogate (opt-in; needs ZEROMQ_BUILD_PATH).
+## "found" = a build path was provided; the imported target + linkage live in
+## src/CMakeLists.txt, gated on the internal USE_ZEROMQ bool.
+if(CODES_USE_ZEROMQ STREQUAL "ON" AND NOT ZEROMQ_BUILD_PATH)
+    message(FATAL_ERROR
+        "CODES_USE_ZEROMQ=ON requires ZEROMQ_BUILD_PATH. Build "
+        "src/surrogate/zmqml/libzmqmlrequester.so first, then reconfigure with "
+        "-DZEROMQ_BUILD_PATH=<dir containing the .so>.")
+endif()
+set(_zeromq_found FALSE)
+if(ZEROMQ_BUILD_PATH)
+    set(_zeromq_found TRUE)
+endif()
+codes_resolve_dep(ZEROMQ "${_zeromq_found}" USE_ZEROMQ)
+if(USE_ZEROMQ)
+    message(STATUS "ZeroMQ director-client surrogate enabled (${ZEROMQ_BUILD_PATH})")
 endif()
 
 add_subdirectory(src)

@@ -47,8 +47,8 @@
 /*
  * Optional ZeroMQ Director requester.
  *
- * These symbols are defined only when CODES is built with USE_ZMQML=ON
- * (src/surrogate/director-client.C + libzmqmlrequester). USE_ZMQML is
+ * These symbols are defined only when CODES is built with USE_ZEROMQ=ON
+ * (src/surrogate/director-client.C + libzmqmlrequester). USE_ZEROMQ is
  * all-or-nothing for a given build: src/CMakeLists.txt links libzmqmlrequester
  * into *every* CODES executable when ON and into none when OFF. So whether the
  * requester is available is a compile-time fact, not a runtime one — the
@@ -56,14 +56,14 @@
  * checks could only ever take their "available" branch under ON and their
  * "null" branch under OFF.
  *
- * The declarations and every reference are therefore #ifdef USE_ZMQML-guarded:
+ * The declarations and every reference are therefore #ifdef USE_ZEROMQ-guarded:
  * the ON build calls the requester directly, the OFF build compiles in only
  * the original-PDES fallback and emits no reference to the symbol. (Without
  * the guard the OFF build fails to link on macOS/Mach-O, where ld64 rejects an
  * undefined weak symbol with no providing library; Linux/ELF happens to
  * resolve it to null.)
  */
-#ifdef USE_ZMQML
+#ifdef USE_ZEROMQ
 extern std::vector<std::string> zmqml_director_request(const std::string& surrogate_family,
                                                        const std::string& surrogate_backend,
                                                        const std::string& operation,
@@ -285,7 +285,7 @@ static std::vector<std::string> dfdally_event_time_director_request_with_latency
     struct timespec start, finish;
     clock_gettime(CLOCK_MONOTONIC, &start);
 
-#ifdef USE_ZMQML
+#ifdef USE_ZEROMQ
     ret = zmqml_director_request("event-time", "dragonfly-dally", op, args, bindata);
 #else
     ret.push_back("failed");
@@ -296,7 +296,7 @@ static std::vector<std::string> dfdally_event_time_director_request_with_latency
     double local_latency_sec = (double)(finish.tv_sec - start.tv_sec) +
                                (double)(finish.tv_nsec - start.tv_nsec) / 1000000000.0;
 
-#ifdef USE_ZMQML
+#ifdef USE_ZEROMQ
     director_record_zmq_latency_stats(label, ret, local_latency_sec);
 #endif
 
@@ -3569,7 +3569,7 @@ static void dfdally_event_time_zmq_flush(void) {
         return;
     }
 
-#ifndef USE_ZMQML
+#ifndef USE_ZEROMQ
     if (dfdally_surrogate_debug_prints) {
         fprintf(stderr,
                 "[event-time records] zmqml_director_request unavailable; dropping %llu "
@@ -3786,7 +3786,7 @@ static double dfdally_event_time_predict_or_original(tw_lp* lp, int current_lp_t
     std::vector<std::string> args;
     args.push_back("1");
 
-#ifndef USE_ZMQML
+#ifndef USE_ZEROMQ
     if (dfdally_surrogate_debug_prints) {
         fprintf(stderr,
                 "[event-time inference] zmqml_director_request unavailable; "

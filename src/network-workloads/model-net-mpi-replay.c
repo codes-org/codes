@@ -4194,7 +4194,7 @@ int modelnet_mpi_replay(MPI_Comm comm, int* argc, char*** argv) {
         if (g_st_ev_trace || g_st_model_stats || g_st_use_analysis_lps)
             nw_lp_register_model();
 
-#ifdef USE_ZMQML
+#ifdef USE_ZEROMQ
         director_lp_register_model("dir-nw-lp");
 #endif
 

@@ -17,7 +17,7 @@ on:
 #
 # Today: an OS matrix — ubuntu-24.04 (apt MPICH) and macos-14 / Apple Silicon
 # (Homebrew MPICH) — each building a freshly built ROSS pinned to a SHA, then
-# CODES, then ctest. Heavy optional deps (SWM, UNION, DUMPI, TORCH, ZMQML)
+# CODES, then ctest. Heavy optional deps (SWM, UNION, DUMPI, TORCH, ZEROMQ)
 # stay OFF so both legs run on stock runners with no custom image.
 #
 # The macOS leg is the safety net for Mac-specific link/include breakage, which
@@ -95,8 +95,8 @@ jobs:
           cmake -S codes -B codes/build -G Ninja
           -DCMAKE_BUILD_TYPE=Debug
           -DBUILD_TESTING=ON
-          -DUSE_TORCH=OFF
-          -DUSE_ZMQML=OFF
+          -DCODES_USE_TORCH=OFF
+          -DCODES_USE_ZEROMQ=OFF
           -DCMAKE_PREFIX_PATH=$PWD/ross-install
 
       - name: Build CODES
