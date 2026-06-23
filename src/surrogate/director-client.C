@@ -1005,8 +1005,8 @@ void director_get_surrogate_prediction(director_state* s, tw_bf* bf, director_me
             char args[DIR_ZMQ_ARG_LENGTH];
 
             sprintf(commandstr, "%s", "director-request");
-            sprintf(args, "%d;%llu;%d;", 3, (unsigned long long)s->director_id,
-                    DIR_MAX_PREDICTION); // num-of-args;num-record
+            sprintf(args, "%d;%llu;%d;", 2, (unsigned long long)s->director_id,
+                    DIR_MAX_PREDICTION); // num-of-args;client-id;num-predictions
 
             // The Python side primarily uses records previously sent through
             // send-records. Keep the payload empty for now rather than sending
