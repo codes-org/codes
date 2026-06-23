@@ -15,20 +15,20 @@ on:
 
 # CI for CODES.
 #
-# Matrix: {ubuntu-24.04, macos-14 / Apple Silicon} x {MPICH, OpenMPI}. Each leg
-# builds a freshly built ROSS pinned to a SHA, then CODES, then ctest. MPI is
-# auto-discovered via find_package(MPI), so the same CMake works for both impls
-# — the matrix just installs one MPI per leg (apt/brew). Heavy optional deps
-# (SWM, UNION, DUMPI, TORCH, ZEROMQ) stay OFF so every leg runs on a stock
-# runner with no custom image.
+# Matrix: {ubuntu-22.04, ubuntu-24.04, macos-14 / Apple Silicon} x {MPICH,
+# OpenMPI}. Each leg builds a freshly built ROSS pinned to a SHA, then CODES,
+# then ctest. MPI is auto-discovered via find_package(MPI), so the same CMake
+# works for both impls — the matrix just installs one MPI per leg (apt/brew).
+# Heavy optional deps (SWM, UNION, DUMPI, TORCH, ZEROMQ) stay OFF so every leg
+# runs on a stock runner with no custom image. ubuntu-22.04 covers the older
+# glibc / gcc-11 / cmake-3.22 toolchain (both minimums — CODES 3.17, ROSS 3.16 —
+# are satisfied).
 #
 # The macOS leg is the safety net for Mac-specific link/include breakage, which
 # has historically reached master and had to be hand-fixed on a developer Mac.
 #
-# Still deferred: OpenMPI alongside MPICH, ubuntu-22.04, a
-# gcc/clang compiler matrix, coverage tracking, and a heavy-deps "full" job.
-# Still deferred: ubuntu-22.04, a gcc/clang compiler matrix,
-# coverage tracking, and a heavy-deps "full" job.
+# Still deferred: a gcc/clang compiler matrix, coverage
+# tracking, and a heavy-deps "full" job.
 #
 # Symmetric with ROSS's codes-contract.yml: ROSS pins CODES, CODES pins
 # ROSS, each catches consumer-API regressions in the other.
@@ -42,7 +42,7 @@ jobs:
       # OS x MPI result on every run.
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-14]
+        os: [ubuntu-22.04, ubuntu-24.04, macos-14]
         mpi: [mpich, openmpi]
     env:
       # ross-org/ROSS @ master as of 2026-06-17.
