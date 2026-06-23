@@ -31,7 +31,6 @@ SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 set(SWM_PKG_CONFIG_PATH "" CACHE PATH "Where is the SWM PKG_CONFIG installed?")
 set(UNION_PKG_CONFIG_PATH "" CACHE PATH "Where is the Union PKG_CONFIG installed?")
 set(ARGOBOTS_PKG_CONFIG_PATH "" CACHE PATH "Where is argobots PKG_COPNFIG installed? Necessary for SWM")
-set(DAMARIS_PKG_CONFIG_PATH "" CACHE PATH "Where is the damaris PKG_CONFIG installed?")
 
 
 # ROSS — modern CMake-config discovery. find_package(ROSS) resolves
@@ -163,15 +162,6 @@ codes_resolve_dep(RECORDER TRUE USE_RECORDER)
 ## DARSHAN — stub: the probe + the commented darshan source in src/ aren't
 ## wired up yet, so this resolves OFF today (CODES_USE_DARSHAN=ON errors).
 codes_resolve_dep(DARSHAN FALSE USE_DARSHAN)
-
-
-## DAMARIS — build support intentionally absent (cleanup tracked separately).
-# pkg_check_modules(DAMARIS IMPORTED_TARGET)
-# if(NOT DAMARIS_FOUND)
-#         message(STATUS "DAMARIS Library not found, Damaris disabled")
-# else(DAMARIS_FOUND)
-#         set(USE_DAMARIS true)
-# endif()
 
 
 ## TORCH — ML models
