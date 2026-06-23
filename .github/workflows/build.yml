@@ -15,35 +15,49 @@ on:
 
 # CI for CODES.
 #
-# Matrix: {ubuntu-22.04, ubuntu-24.04, macos-14 / Apple Silicon} x {MPICH,
-# OpenMPI}. Each leg builds a freshly built ROSS pinned to a SHA, then CODES,
-# then ctest. MPI is auto-discovered via find_package(MPI), so the same CMake
-# works for both impls — the matrix just installs one MPI per leg (apt/brew).
-# Heavy optional deps (SWM, UNION, DUMPI, TORCH, ZEROMQ) stay OFF so every leg
-# runs on a stock runner with no custom image. ubuntu-22.04 covers the older
-# glibc / gcc-11 / cmake-3.22 toolchain (both minimums — CODES 3.17, ROSS 3.16 —
-# are satisfied).
+# Matrix: OS x MPI x compiler, pruned via `exclude` to 8 legs:
+#   - ubuntu-24.04 : gcc + clang  (full compiler coverage on the modern toolchain)
+#   - ubuntu-22.04 : gcc only     (its job is the older glibc / gcc-11 / cmake-3.22
+#                                  toolchain; clang divergence is covered on 24.04)
+#   - macos-14     : Apple clang  (a "gcc" leg there is just clang again)
+# ...each crossed with {MPICH, OpenMPI}. Each leg builds a freshly built ROSS
+# pinned to a SHA, then CODES, then ctest. MPI is auto-discovered via
+# find_package(MPI) and the base compiler comes from CC/CXX, so the same CMake
+# serves every leg — the matrix only changes which packages get installed. Heavy
+# optional deps (SWM, UNION, DUMPI, TORCH, ZEROMQ) stay OFF so every leg runs on
+# a stock runner with no custom image. Both cmake minimums (CODES 3.17, ROSS
+# 3.16) are satisfied on 22.04's cmake 3.22.
 #
 # The macOS leg is the safety net for Mac-specific link/include breakage, which
 # has historically reached master and had to be hand-fixed on a developer Mac.
 #
-# Still deferred: a gcc/clang compiler matrix, coverage
-# tracking, and a heavy-deps "full" job.
+# Still deferred: coverage tracking and a heavy-deps "full" job.
 #
 # Symmetric with ROSS's codes-contract.yml: ROSS pins CODES, CODES pins
 # ROSS, each catches consumer-API regressions in the other.
 
 jobs:
   build:
-    name: build (${{ matrix.os }}, ${{ matrix.mpi }})
+    name: build (${{ matrix.os }}, ${{ matrix.mpi }}, ${{ matrix.cc }})
     runs-on: ${{ matrix.os }}
     strategy:
       # Don't let one leg's failure cancel the others — we want to see every
-      # OS x MPI result on every run.
+      # OS x MPI x compiler result on every run.
       fail-fast: false
       matrix:
         os: [ubuntu-22.04, ubuntu-24.04, macos-14]
         mpi: [mpich, openmpi]
+        cc: [gcc, clang]
+        exclude:
+          # macOS only ships (Apple) clang — a "gcc" leg there is just clang
+          # again under a different name.
+          - os: macos-14
+            cc: gcc
+          # ubuntu-22.04 exists to test the older glibc / gcc-11 toolchain; the
+          # gcc-vs-clang divergence signal comes from the newest, strictest
+          # toolchain, so clang is exercised on ubuntu-24.04 instead.
+          - os: ubuntu-22.04
+            cc: clang
     env:
       # ross-org/ROSS @ master as of 2026-06-17.
       # Bump this SHA whenever CODES needs to track ROSS forward — that
@@ -84,6 +98,9 @@ jobs:
           else
             sudo apt-get install -y mpich libmpich-dev
           fi
+          if [ "${{ matrix.cc }}" = "clang" ]; then
+            sudo apt-get install -y clang
+          fi
 
       - name: Install system dependencies (macOS)
         if: runner.os == 'macOS'
@@ -101,6 +118,21 @@ jobs:
           # ahead of /usr/bin on PATH for subsequent steps.
           echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
           echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
+
+      - name: Select compiler
+        # Drive the base compiler for both ROSS and CODES via CC/CXX.
+        # find_package(MPI) layers the MPI include/link flags on top (the mpicc
+        # wrapper is only probed for flags, never used as the compiler), so this
+        # is what actually makes a gcc vs clang build. On the macOS leg CC=clang
+        # resolves to Apple clang.
+        run: |
+          if [ "${{ matrix.cc }}" = "clang" ]; then
+            echo "CC=clang"   >> "$GITHUB_ENV"
+            echo "CXX=clang++" >> "$GITHUB_ENV"
+          else
+            echo "CC=gcc" >> "$GITHUB_ENV"
+            echo "CXX=g++" >> "$GITHUB_ENV"
+          fi
 
       - name: Configure ROSS
         run: >
@@ -132,7 +164,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           # Artifact names must be unique across matrix legs (upload-artifact@v4).
-          name: build-logs-${{ matrix.os }}-${{ matrix.mpi }}
+          name: build-logs-${{ matrix.os }}-${{ matrix.mpi }}-${{ matrix.cc }}
           path: |
             codes/build/Testing/Temporary/LastTest.log
             codes/build/Testing/Temporary/LastTestsFailed.log
