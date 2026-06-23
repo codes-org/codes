@@ -122,7 +122,7 @@ extern void director_record_zmq_latency_stats(const char* label,
 #define ALWAYS_DETERMINISTIC_NETWORK 0
 
 #define num_chunks_for(message_size, chunk_size)                                                   \
-    ((message_size) ? ((message_size) + (chunk_size)-1) / (chunk_size) : 1)
+    ((message_size) ? ((message_size) + (chunk_size) - 1) / (chunk_size) : 1)
 
 /* handles terminal and router events like packet generate/send/receive/buffer */
 typedef struct terminal_state terminal_state;
@@ -7266,7 +7266,7 @@ static void router_packet_receive(router_state* s, tw_bf* bf, terminal_dally_mes
     if (output_chan >= s->params->num_vcs || output_chan < 0)
         tw_error(TW_LOC, "\n Output channel %d great than available VCs %d", output_chan,
                  s->params->num_vcs - 1);
-        //cur_chunk->msg.packet_ID, output_chan, output_port, s->router_id, dest_router_id, cur_chunk->msg.path_type, src_grp_id, dest_grp_id, msg->src_terminal_id);
+    //cur_chunk->msg.packet_ID, output_chan, output_port, s->router_id, dest_router_id, cur_chunk->msg.path_type, src_grp_id, dest_grp_id, msg->src_terminal_id);
 
 #if DEBUG == 1
     if (cur_chunk->msg.packet_ID == LLU(TRACK_PKT) && cur_chunk->msg.src_terminal_id == T_ID)
