@@ -142,23 +142,27 @@ add_library(codes STATIC ${SRCS})
 # consumer (executables, tests) inherit them.
 list(APPEND LIBS_TO_LINK MPI::MPI_C MPI::MPI_CXX)
 
+# Optional-dep include paths are absolute build-machine paths, so they are
+# BUILD_INTERFACE-only — they keep install(EXPORT) relocatable. (Re-exposing
+# them to installed consumers of a heavy-deps build is deferred; see
+# cmake/codesConfig.cmake.in.)
 if(USE_DUMPI)
-    target_include_directories(codes PUBLIC ${DUMPI_INCLUDE})
+    target_include_directories(codes PUBLIC "$<BUILD_INTERFACE:${DUMPI_INCLUDE}>")
 endif()
 
 #LINK ARGOBOTS, SWM and UNION
 # target_link_libraries(codes PUBLIC PkgConfig::ARGOBOTS)
 if(USE_ONLINE)
     if(USE_SWM)
-        target_include_directories(codes PUBLIC ${ARGOBOTS_INCLUDE_DIRS})
+        target_include_directories(codes PUBLIC "$<BUILD_INTERFACE:${ARGOBOTS_INCLUDE_DIRS}>")
         # target_link_libraries(codes PUBLIC PkgConfig::SWM)
-        target_include_directories(codes PUBLIC ${SWM_INCLUDE_DIRS})
+        target_include_directories(codes PUBLIC "$<BUILD_INTERFACE:${SWM_INCLUDE_DIRS}>")
     endif()
     if(USE_UNION)
-        target_include_directories(codes PUBLIC ${ARGOBOTS_INCLUDE_DIRS})
+        target_include_directories(codes PUBLIC "$<BUILD_INTERFACE:${ARGOBOTS_INCLUDE_DIRS}>")
         # target_link_libraries(codes PUBLIC PkgConfig::SWM)
-        target_include_directories(codes PUBLIC ${SWM_INCLUDE_DIRS})
-        target_include_directories(codes PUBLIC ${UNION_INCLUDE_DIRS})
+        target_include_directories(codes PUBLIC "$<BUILD_INTERFACE:${SWM_INCLUDE_DIRS}>")
+        target_include_directories(codes PUBLIC "$<BUILD_INTERFACE:${UNION_INCLUDE_DIRS}>")
     endif()
 endif()
 
@@ -169,14 +173,21 @@ if(USE_ZEROMQ)
         INTERFACE_INCLUDE_DIRECTORIES "${ZEROMQ_BUILD_PATH}")
 endif()
 
+# Public include dirs travel with the target. BUILD_INTERFACE entries serve
+# CODES's own compilation and in-tree consumers; INSTALL_INTERFACE entries serve
+# installed consumers — include/ for `<codes/...>` and include/codes/ for the
+# sibling codes_config.h and bare codes headers. The src/ paths are build-only:
+# they are CODES-internal and not part of the installed surface.
 target_include_directories(codes PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${PROJECT_BINARY_DIR}
-    ${PROJECT_SOURCE_DIR}
-    ${PROJECT_SOURCE_DIR}/codes
-    ${PROJECT_SOURCE_DIR}/src
-    ${PROJECT_SOURCE_DIR}/src/modelconfig
-    $<$<BOOL:${USE_ZEROMQ}>:$<TARGET_PROPERTY:zmqmlrequester,INTERFACE_INCLUDE_DIRECTORIES>>
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+    $<BUILD_INTERFACE:${PROJECT_BINARY_DIR}>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/codes>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/modelconfig>
+    $<INSTALL_INTERFACE:include>
+    $<INSTALL_INTERFACE:include/codes>
+    $<BUILD_INTERFACE:$<$<BOOL:${USE_ZEROMQ}>:${ZEROMQ_BUILD_PATH}>>
 )
 
 target_link_libraries(codes PUBLIC ${LIBS_TO_LINK})
@@ -230,13 +241,53 @@ endforeach()
 # configure_file(modelconfig/configparser.c ${CMAKE_CURRENT_BINARY_DIR}/modelconfig/configparser.c COPYONLY)
 # configure_file(modelconfig/configparser.h ${CMAKE_CURRENT_BINARY_DIR}/modelconfig/configparser.h COPYONLY)
 
-install(DIRECTORY "${CMAKE_SOURCE_DIR}/codes" DESTINATION include)
+# ---------------------------------------------------------------------------
+# Install + CMake package export (find_package(codes) -> codes::codes)
+# ---------------------------------------------------------------------------
+include(CMakePackageConfigHelpers)
 
-# The generated config header is public now — codes-workload.h includes it for
-# CODES_HAVE_* feature queries — so install it next to the other codes/ headers.
+# Public headers under <prefix>/include/codes/. The generated config header is
+# public (codes-workload.h includes it for CODES_HAVE_* queries), so it ships
+# alongside them.
+install(DIRECTORY "${CMAKE_SOURCE_DIR}/codes" DESTINATION include)
 install(FILES "${PROJECT_BINARY_DIR}/codes_config.h" DESTINATION include/codes)
 
-install(TARGETS ${CODES_TARGETS} DESTINATION bin)
+# Application binaries — not part of the exported package.
+install(TARGETS ${CODES_TARGETS} RUNTIME DESTINATION bin)
 
-install(TARGETS codes ARCHIVE DESTINATION lib LIBRARY DESTINATION lib)
+# Library target + namespaced export. codes::codes carries the public include
+# dirs (INSTALL_INTERFACE) and the ROSS / MPI usage requirements.
+install(TARGETS codes
+    EXPORT codesTargets
+    ARCHIVE DESTINATION lib
+    LIBRARY DESTINATION lib
+    RUNTIME DESTINATION bin)
+
+install(EXPORT codesTargets
+    FILE codesTargets.cmake
+    NAMESPACE codes::
+    DESTINATION lib/cmake/codes)
+
+# codesConfig.cmake re-finds ROSS + MPI via find_dependency and pulls in the
+# targets file; the version file gates on SameMajorVersion.
+configure_package_config_file(
+    ${CMAKE_SOURCE_DIR}/cmake/codesConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/codesConfig.cmake
+    INSTALL_DESTINATION lib/cmake/codes)
+
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/codesConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion)
+
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/codesConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/codesConfigVersion.cmake
+    DESTINATION lib/cmake/codes)
+
+# Build-tree export so a superbuild / FetchContent consumer can
+# find_package(codes) against the build dir without installing.
+export(EXPORT codesTargets
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/codesTargets.cmake
+    NAMESPACE codes::)
 

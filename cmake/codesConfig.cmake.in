@@ -1,0 +1,28 @@
+@PACKAGE_INIT@
+
+# codesConfig.cmake — CODES package configuration for find_package(codes)
+#
+# Usage:
+#     find_package(codes CONFIG REQUIRED)
+#     target_link_libraries(mymodel PRIVATE codes::codes)
+#
+# The codes::codes imported target carries the public include dirs and the
+# propagated ROSS / MPI usage requirements — there are no legacy
+# CODES_LIBRARIES / CODES_INCLUDE_DIRS variables to read.
+
+include(CMakeFindDependencyMacro)
+
+# CODES links ROSS (find_package(ROSS CONFIG)) and MPI (C + CXX) PUBLIC, so a
+# consumer must be able to resolve both. Point CMAKE_PREFIX_PATH at the ROSS
+# install prefix the same way the CODES build itself did.
+find_dependency(ROSS CONFIG REQUIRED)
+find_dependency(MPI REQUIRED COMPONENTS C CXX)
+
+include("${CMAKE_CURRENT_LIST_DIR}/codesTargets.cmake")
+
+# NOTE: heavy optional deps a CODES build may have linked (SWM, UNION, DUMPI,
+# ZeroMQ) are NOT re-resolved here — a consumer of such a build must supply those
+# include/link paths itself. The common deps-off build needs only ROSS + MPI;
+# full optional-dep re-export is deferred.
+
+check_required_components(codes)
