@@ -65,18 +65,13 @@
  * resolve it to null.)
  */
 #ifdef USE_ZMQML
-extern std::vector<std::string> zmqml_director_request(
-    const std::string& surrogate_family,
-    const std::string& surrogate_backend,
-    const std::string& operation,
-    const std::vector<std::string>& args,
-    const std::string& bindata
-) __attribute__((weak));
+extern std::vector<std::string>
+zmqml_director_request(const std::string& surrogate_family, const std::string& surrogate_backend,
+                       const std::string& operation, const std::vector<std::string>& args,
+                       const std::string& bindata) __attribute__((weak));
 
-extern "C" void director_record_external_zmq_latency(
-    double processing_sec,
-    double total_sec
-) __attribute__((weak));
+extern "C" void director_record_external_zmq_latency(double processing_sec, double total_sec)
+    __attribute__((weak));
 
 extern void director_record_zmq_latency_stats(const char* label,
                                               const std::vector<std::string>& ret,
@@ -127,7 +122,7 @@ extern void director_record_zmq_latency_stats(const char* label,
 #define ALWAYS_DETERMINISTIC_NETWORK 0
 
 #define num_chunks_for(message_size, chunk_size)                                                   \
-    ((message_size) ? ((message_size) + (chunk_size) - 1) / (chunk_size) : 1)
+    ((message_size) ? ((message_size) + (chunk_size)-1) / (chunk_size) : 1)
 
 /* handles terminal and router events like packet generate/send/receive/buffer */
 typedef struct terminal_state terminal_state;
@@ -308,7 +303,7 @@ static std::vector<std::string> dfdally_event_time_director_request_with_latency
     double zmq_processing_time = 0.0;
 
     if (ret.size() > 1) {
-        char *endptr = NULL;
+        char* endptr = NULL;
         double parsed = strtod(ret[1].c_str(), &endptr);
 
         if (endptr != ret[1].c_str() && isfinite(parsed) && parsed >= 0.0) {
@@ -2717,7 +2712,7 @@ static void dragonfly_read_config(const char* anno, dragonfly_param* params) {
     event_time_inference_enabled_str[0] = '\0';
 
     configuration_get_value(&config, "DIRECTOR", "inferencing_enabled", anno,
-            event_time_inference_enabled_str, MAX_NAME_LENGTH);
+                            event_time_inference_enabled_str, MAX_NAME_LENGTH);
 
     /*
      * Do not expose a separate event-time inference flag.
@@ -2753,7 +2748,7 @@ static void dragonfly_read_config(const char* anno, dragonfly_param* params) {
     event_time_training_enabled_str[0] = '\0';
 
     configuration_get_value(&config, "DIRECTOR", "training_enabled", anno,
-            event_time_training_enabled_str, MAX_NAME_LENGTH);
+                            event_time_training_enabled_str, MAX_NAME_LENGTH);
 
     event_time_surrogate_family_selected =
         strcmp(event_time_surrogate_family_str, "event-time") == 0;
@@ -2798,15 +2793,11 @@ static void dragonfly_read_config(const char* anno, dragonfly_param* params) {
 
     dfdally_surrogate_debug_prints = dfdally_string_is_true(debug_prints_str);
 
-    if(dfdally_surrogate_debug_prints) {
-        fprintf(
-            stderr,
-            "[event-time records] family=%s training_enabled=%s send_to_zmq=%d batch_size=%d\n",
-            event_time_surrogate_family_str,
-            event_time_training_enabled_str,
-            event_time_training_records_enabled,
-            event_time_zmq_batch_size
-        );
+    if (dfdally_surrogate_debug_prints) {
+        fprintf(stderr,
+                "[event-time records] family=%s training_enabled=%s send_to_zmq=%d batch_size=%d\n",
+                event_time_surrogate_family_str, event_time_training_enabled_str,
+                event_time_training_records_enabled, event_time_zmq_batch_size);
         fflush(stderr);
     }
 
@@ -7275,7 +7266,7 @@ static void router_packet_receive(router_state* s, tw_bf* bf, terminal_dally_mes
     if (output_chan >= s->params->num_vcs || output_chan < 0)
         tw_error(TW_LOC, "\n Output channel %d great than available VCs %d", output_chan,
                  s->params->num_vcs - 1);
-    //cur_chunk->msg.packet_ID, output_chan, output_port, s->router_id, dest_router_id, cur_chunk->msg.path_type, src_grp_id, dest_grp_id, msg->src_terminal_id);
+        //cur_chunk->msg.packet_ID, output_chan, output_port, s->router_id, dest_router_id, cur_chunk->msg.path_type, src_grp_id, dest_grp_id, msg->src_terminal_id);
 
 #if DEBUG == 1
     if (cur_chunk->msg.packet_ID == LLU(TRACK_PKT) && cur_chunk->msg.src_terminal_id == T_ID)

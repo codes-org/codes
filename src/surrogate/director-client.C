@@ -86,10 +86,7 @@ std::vector<std::string> director_client_request_family(const char* surrogate_fa
 int surrogate_enabled = 0;
 int inferencing_enabled = 1;
 
-static void director_record_zmq_latency_values(
-    double processing_sec,
-    double total_sec)
-{
+static void director_record_zmq_latency_values(double processing_sec, double total_sec) {
     if (evaluate_perf != 1) {
         return;
     }
@@ -106,50 +103,39 @@ static void director_record_zmq_latency_values(
     director_zmq_total_elapsed_times.push_back(total_sec);
 }
 
-static void director_record_zmq_latency_stats(
-    const char* label,
-    const std::vector<std::string>& ret,
-    double local_latency_sec)
-{
+static void director_record_zmq_latency_stats(const char* label,
+                                              const std::vector<std::string>& ret,
+                                              double local_latency_sec) {
     double zmq_processing_time = 0.0;
 
     if (ret.size() > 1) {
-        char *endptr = NULL;
+        char* endptr = NULL;
         double parsed = strtod(ret[1].c_str(), &endptr);
 
         if (endptr != ret[1].c_str() && std::isfinite(parsed) && parsed >= 0.0) {
             zmq_processing_time = parsed;
         } else if (director_debug_prints) {
-            fprintf(
-                stderr,
-                "[DIR] Warning: could not parse zmq processing time from reply field ret[1]=%s request=%s\n",
-                ret[1].c_str(),
-                label ? label : ""
-            );
+            fprintf(stderr,
+                    "[DIR] Warning: could not parse zmq processing time from reply field ret[1]=%s "
+                    "request=%s\n",
+                    ret[1].c_str(), label ? label : "");
             fflush(stderr);
         }
     } else if (director_debug_prints) {
-        fprintf(
-            stderr,
-            "[DIR] Warning: zmq reply too short for perf timing: ret.size()=%llu request=%s\n",
-            (unsigned long long)ret.size(),
-            label ? label : ""
-        );
+        fprintf(stderr,
+                "[DIR] Warning: zmq reply too short for perf timing: ret.size()=%llu request=%s\n",
+                (unsigned long long)ret.size(), label ? label : "");
         fflush(stderr);
     }
 
     director_record_zmq_latency_values(zmq_processing_time, local_latency_sec);
 }
 
-extern "C" void director_record_external_zmq_latency(
-    double processing_sec,
-    double total_sec)
-{
+extern "C" void director_record_external_zmq_latency(double processing_sec, double total_sec) {
     director_record_zmq_latency_values(processing_sec, total_sec);
 }
 
-static int director_surrogate_family_is(const char *family)
-{
+static int director_surrogate_family_is(const char* family) {
     return strcmp(director_config_global.surrogate_family, family) == 0;
 }
 
@@ -1362,8 +1348,7 @@ static void director_print_zmq_latency_stats_once(void) {
 }
 
 
-void director_finalize(director_state* s, tw_lp* lp)
-{
+void director_finalize(director_state* s, tw_lp* lp) {
     director_print_zmq_latency_stats_once();
 
     /*
@@ -1390,9 +1375,9 @@ tw_lptype dir_lp = {(init_f)director_init,
                     (map_f)codes_mapping,
                     sizeof(director_state)};
 
-extern void director_lp_register_model(const char * dir_lp_name){
+extern void director_lp_register_model(const char* dir_lp_name) {
     int num_dir_per_mgrp = codes_mapping_get_lp_count("MODELNET_GRP", 1, "dir-nw-lp", NULL, 0);
-    if(num_dir_per_mgrp > 0){
+    if (num_dir_per_mgrp > 0) {
         lp_type_register(dir_lp_name, &dir_lp);
     }
 }
