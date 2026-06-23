@@ -15,30 +15,35 @@ on:
 
 # CI for CODES.
 #
-# Today: an OS matrix — ubuntu-24.04 (apt MPICH) and macos-14 / Apple Silicon
-# (Homebrew MPICH) — each building a freshly built ROSS pinned to a SHA, then
-# CODES, then ctest. Heavy optional deps (SWM, UNION, DUMPI, TORCH, ZEROMQ)
-# stay OFF so both legs run on stock runners with no custom image.
+# Matrix: {ubuntu-24.04, macos-14 / Apple Silicon} x {MPICH, OpenMPI}. Each leg
+# builds a freshly built ROSS pinned to a SHA, then CODES, then ctest. MPI is
+# auto-discovered via find_package(MPI), so the same CMake works for both impls
+# — the matrix just installs one MPI per leg (apt/brew). Heavy optional deps
+# (SWM, UNION, DUMPI, TORCH, ZEROMQ) stay OFF so every leg runs on a stock
+# runner with no custom image.
 #
 # The macOS leg is the safety net for Mac-specific link/include breakage, which
 # has historically reached master and had to be hand-fixed on a developer Mac.
 #
 # Still deferred: OpenMPI alongside MPICH, ubuntu-22.04, a
 # gcc/clang compiler matrix, coverage tracking, and a heavy-deps "full" job.
+# Still deferred: ubuntu-22.04, a gcc/clang compiler matrix,
+# coverage tracking, and a heavy-deps "full" job.
 #
 # Symmetric with ROSS's codes-contract.yml: ROSS pins CODES, CODES pins
 # ROSS, each catches consumer-API regressions in the other.
 
 jobs:
   build:
-    name: build (${{ matrix.os }})
+    name: build (${{ matrix.os }}, ${{ matrix.mpi }})
     runs-on: ${{ matrix.os }}
     strategy:
-      # Don't let one platform's failure cancel the other — we want to see
-      # both Linux and macOS results on every run.
+      # Don't let one leg's failure cancel the others — we want to see every
+      # OS x MPI result on every run.
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, macos-14]
+        mpi: [mpich, openmpi]
     env:
       # ross-org/ROSS @ master as of 2026-06-17.
       # Bump this SHA whenever CODES needs to track ROSS forward — that
@@ -46,6 +51,14 @@ jobs:
       # TODO: promote to a workflow variable + cache the
       # built ROSS by SHA so unchanged pins skip the rebuild.
       ROSS_REF: 9b6ccb18f9b9db438bf41b5b221d0ef16a4dac48
+      # OpenMPI refuses to launch more ranks than detected slots. CODES test
+      # scripts invoke `mpirun -np N` directly (up to np=3 in the core config),
+      # so --oversubscribe can't be routed through CMake's MPIEXEC_PREFLAGS;
+      # these env vars enable oversubscription for OpenMPI 4 (OMPI_MCA_*, apt)
+      # and 5 (PRTE_MCA_*, brew). MPICH ignores them, so they're harmless on the
+      # MPICH legs.
+      OMPI_MCA_rmaps_base_oversubscribe: "1"
+      PRTE_MCA_rmaps_default_mapping_policy: ":oversubscribe"
     steps:
       - name: Checkout CODES
         uses: actions/checkout@v4
@@ -65,15 +78,24 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            mpich libmpich-dev \
-            cmake ninja-build pkg-config \
-            flex bison
+          sudo apt-get install -y cmake ninja-build pkg-config flex bison
+          if [ "${{ matrix.mpi }}" = "openmpi" ]; then
+            sudo apt-get install -y libopenmpi-dev openmpi-bin
+          else
+            sudo apt-get install -y mpich libmpich-dev
+          fi
 
       - name: Install system dependencies (macOS)
         if: runner.os == 'macOS'
         run: |
-          brew install mpich cmake ninja pkg-config flex bison
+          brew install cmake ninja pkg-config flex bison
+          # mpich and open-mpi conflict (both provide mpicc/mpirun), but each
+          # matrix leg runs on its own runner and installs only one.
+          if [ "${{ matrix.mpi }}" = "openmpi" ]; then
+            brew install open-mpi
+          else
+            brew install mpich
+          fi
           # Homebrew flex/bison are keg-only and the macOS system ones are
           # too old for flex_target/bison_target — put the brew versions
           # ahead of /usr/bin on PATH for subsequent steps.
@@ -110,7 +132,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           # Artifact names must be unique across matrix legs (upload-artifact@v4).
-          name: build-logs-${{ matrix.os }}
+          name: build-logs-${{ matrix.os }}-${{ matrix.mpi }}
           path: |
             codes/build/Testing/Temporary/LastTest.log
             codes/build/Testing/Temporary/LastTestsFailed.log
