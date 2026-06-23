@@ -25,6 +25,11 @@ set(CMAKE_C_STANDARD_REQUIRED True)
 # consumers; ROSS/MPI headers arrive via -isystem and are exempt.
 add_compile_options(-Wundef)
 
+# Optional gcov/--coverage instrumentation, applied to the `codes` target (and
+# propagated to the binaries/tests that link it) in src/CMakeLists.txt. Off by
+# default; the coverage CI job turns it on. gcc/clang only.
+option(CODES_ENABLE_COVERAGE "Instrument the codes library with --coverage (gcov)" OFF)
+
 #prevent cmake from stripping the runtime path (important if shared libraries are imported)
 SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 

@@ -133,6 +133,14 @@ endif()
 
 add_library(codes STATIC ${SRCS})
 
+# Coverage instrumentation (opt-in via CODES_ENABLE_COVERAGE). PUBLIC so the
+# library objects are instrumented AND every binary/test that links codes pulls
+# in the gcov runtime, so `ctest` emits .gcda files for them.
+if(CODES_ENABLE_COVERAGE)
+    target_compile_options(codes PUBLIC --coverage)
+    target_link_options(codes PUBLIC --coverage)
+endif()
+
 # Optional-feature state is exposed through the generated codes_config.h
 # (CODES_HAVE_<X>), included by sources that need it — no -DUSE_<X> compile
 # definitions, so nothing leaks onto consumers' command lines.

@@ -31,10 +31,18 @@ on:
 # The macOS leg is the safety net for Mac-specific link/include breakage, which
 # has historically reached master and had to be hand-fixed on a developer Mac.
 #
-# Still deferred: coverage tracking and a heavy-deps "full" job.
+# A separate `coverage` job (below) builds CODES with --coverage on
+# ubuntu-24.04/gcc and uploads to Codecov. Still deferred: a
+# heavy-deps "full" job.
 #
 # Symmetric with ROSS's codes-contract.yml: ROSS pins CODES, CODES pins
 # ROSS, each catches consumer-API regressions in the other.
+
+# Shared by every job: the pinned ROSS commit. Bump when CODES needs to track
+# ROSS forward — a one-line reviewed change. The nightly scheduled run ignores
+# this and builds ROSS @ master so pin drift surfaces within a day.
+env:
+  ROSS_REF: 9b6ccb18f9b9db438bf41b5b221d0ef16a4dac48
 
 jobs:
   build:
@@ -59,12 +67,6 @@ jobs:
           - os: ubuntu-22.04
             cc: clang
     env:
-      # ross-org/ROSS @ master as of 2026-06-17.
-      # Bump this SHA whenever CODES needs to track ROSS forward — that
-      # bump is a one-line reviewed change.
-      # TODO: promote to a workflow variable + cache the
-      # built ROSS by SHA so unchanged pins skip the rebuild.
-      ROSS_REF: 9b6ccb18f9b9db438bf41b5b221d0ef16a4dac48
       # OpenMPI refuses to launch more ranks than detected slots. CODES test
       # scripts invoke `mpirun -np N` directly (up to np=3 in the core config),
       # so --oversubscribe can't be routed through CMake's MPIEXEC_PREFLAGS;
@@ -174,5 +176,109 @@ jobs:
             ross/build/CMakeFiles/CMakeError.log
             ross/build/CMakeFiles/CMakeOutput.log
             ross/build/CMakeCache.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # Dedicated coverage build: instrument the codes library (--coverage), run the
+  # test suite, capture with lcov, and upload to Codecov. Single config
+  # (ubuntu-24.04 / gcc / MPICH) — coverage is about which lines run, not
+  # platform/MPI breakage (that's the matrix above).
+  #
+  # Uses lcov (like ROSS's coverage job), not gcovr: lcov 2.x reads gcov's JSON
+  # intermediate format and its --ignore-errors skips the generated iokernellang
+  # parser (codesparser.c, whose .y isn't committed) and other gcov hiccups —
+  # where gcovr's text parser aborts.
+  coverage:
+    name: coverage (ubuntu-24.04, gcc)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout CODES
+        uses: actions/checkout@v4
+        # No path: check out at the workspace root so the source paths lcov
+        # records are repo-relative and Codecov maps them onto the repo.
+
+      - name: Checkout ROSS
+        uses: actions/checkout@v4
+        with:
+          repository: ROSS-org/ROSS
+          ref: ${{ github.event_name == 'schedule' && 'master' || env.ROSS_REF }}
+          path: ross
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            mpich libmpich-dev \
+            cmake ninja-build pkg-config \
+            flex bison lcov
+
+      - name: Configure ROSS
+        run: >
+          cmake -S ross -B ross/build -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DROSS_BUILD_MODELS=ON
+          -DCMAKE_INSTALL_PREFIX=$PWD/ross-install
+
+      - name: Build and install ROSS
+        run: cmake --build ross/build --target install -j
+
+      - name: Configure CODES (with coverage)
+        run: >
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DBUILD_TESTING=ON
+          -DCODES_USE_TORCH=OFF
+          -DCODES_USE_ZEROMQ=OFF
+          -DCODES_ENABLE_COVERAGE=ON
+          -DCMAKE_PREFIX_PATH=$PWD/ross-install
+
+      - name: Build CODES
+        run: cmake --build build -j
+
+      - name: Run CODES tests
+        run: ctest --test-dir build --output-on-failure
+
+      - name: Collect coverage (lcov)
+        # --ignore-errors mismatch,gcov,source,unused tolerates the generated
+        # iokernellang parser whose .y/.l aren't committed (source/gcov), any
+        # gcov data/version mismatch, and unused --remove patterns. Then strip
+        # system + ROSS headers, the test harness, examples, and the generated
+        # flex/bison lexers + parsers from the metric.
+        run: |
+          lcov --capture --directory build --output-file coverage.info \
+               --ignore-errors mismatch,gcov,source,unused
+          lcov --remove coverage.info \
+               '/usr/*' \
+               '*/ross-install/*' \
+               '*/tests/*' \
+               '*/doc/*' \
+               '*configlex*' '*configparser*' \
+               '*codeslexer*' '*codesparser*' \
+               --output-file coverage.info \
+               --ignore-errors unused
+          lcov --list coverage.info
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.info
+          # Upload only the lcov report; don't let Codecov re-discover the raw
+          # .gcda and run its own gcov pass over them.
+          plugins: noop
+          disable_search: true
+          flags: ctest
+          # Coverage is informational for now. Don't fail the job
+          # on an upload hiccup.
+          fail_ci_if_error: false
+
+      - name: Upload coverage report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            coverage.info
+            build/Testing/Temporary/LastTest.log
           if-no-files-found: ignore
           retention-days: 14
