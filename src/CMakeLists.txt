@@ -231,15 +231,29 @@ if(USE_ZEROMQ)
     pkg_check_modules(PC_ZeroMQ QUIET zmq)
     find_path(ZeroMQ_INCLUDE_DIR NAMES zmq.hpp PATHS ${PC_ZeroMQ_INCLUDE_DIRS})
     find_library(ZeroMQ_LIBRARY NAMES zmq PATHS ${PC_ZeroMQ_LIBRARY_DIRS})
+
+    # The requester defines the zmqml_* symbols that codes' OWN objects
+    # (director-client.C, dragonfly-dally.C) reference, so it is a usage
+    # requirement of the codes library itself. Linking it PUBLIC here — rather
+    # than PRIVATE per-executable in the CODES_TARGETS loop below — fixes two
+    # things the old per-exe approach got wrong:
+    #   * Coverage: every consumer of codes inherits it, including the
+    #     doc/example targets and the tests targets, which are NOT in
+    #     CODES_TARGETS and so linked no requester at all (undefined zmqml_*).
+    #   * Order: it lands at the END of each consumer's link line, after
+    #     libcodes.a and codes' other transitive deps (ROSS, SWM, UNION, ...),
+    #     which is the order the references need. Linked ahead of those deps it
+    #     was dropped and zmqml_* went undefined on the heavy (UNION+ZeroMQ)
+    #     build. zmqmlrequester is an IMPORTED target, so — like PkgConfig::SWM
+    #     above — it's exempt from the install(EXPORT) "not in export set" error.
+    target_link_libraries(codes PUBLIC zmqmlrequester ${ZeroMQ_LIBRARY})
 endif()
 
-# Each executable links codes; its include dirs, MPI, ROSS, and optional-dep
-# libs all propagate transitively through codes' PUBLIC usage requirements.
+# Each executable links codes; its include dirs, MPI, ROSS, the optional-dep
+# libs, and (under USE_ZEROMQ) the zmqml requester all propagate transitively
+# through codes' PUBLIC usage requirements.
 foreach(tar IN LISTS CODES_TARGETS)
     target_link_libraries(${tar} PRIVATE codes)
-    if(USE_ZEROMQ)
-        target_link_libraries(${tar} PRIVATE zmqmlrequester ${ZeroMQ_LIBRARY})
-    endif()
 endforeach()
 
 
