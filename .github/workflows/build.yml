@@ -282,3 +282,96 @@ jobs:
             build/Testing/Temporary/LastTest.log
           if-no-files-found: ignore
           retention-days: 14
+
+  # Heavy-dependency "full" build: every optional subsystem ON (SWM, UNION,
+  # DUMPI, Torch, ZeroMQ). Runs INSIDE the prebuilt ghcr.io/codes-org/codes-ci-full
+  # image (built + published by full-ci-image.yml) so the slow dependency
+  # compiles happen once in that image instead of on every PR — this job only
+  # builds ROSS + the zmqml requester + CODES. The image ships MPICH, cmake,
+  # ninja, flex/bison, and each dep installed under /opt/<dep>.
+  #
+  # Bootstrap: the image must exist in GHCR before this job can pull it. Run the
+  # "Full CI image" workflow once (workflow_dispatch) to publish :latest.
+  full:
+    name: full (ubuntu-22.04 image, all deps)
+    runs-on: ubuntu-24.04
+    # The codes-ci-full GHCR package is public, so the image pulls anonymously —
+    # no credentials needed. This is also what lets fork-PR runs use it: a
+    # fork-PR GITHUB_TOKEN can't read the org's private packages, but a public
+    # image needs no token at all.
+    container:
+      image: ghcr.io/codes-org/codes-ci-full:latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout CODES
+        uses: actions/checkout@v4
+        with:
+          path: codes
+
+      - name: Checkout ROSS
+        uses: actions/checkout@v4
+        with:
+          repository: ROSS-org/ROSS
+          ref: ${{ github.event_name == 'schedule' && 'master' || env.ROSS_REF }}
+          path: ross
+
+      - name: Configure ROSS
+        # No CC=mpicc: the image's MPICH is auto-discovered by find_package(MPI).
+        run: >
+          cmake -S ross -B ross/build -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_INSTALL_PREFIX=$PWD/ross-install
+
+      - name: Build and install ROSS
+        run: cmake --build ross/build --target install -j
+
+      - name: Build the zmqml requester
+        # libzmqmlrequester.so is built from CODES source (the image only ships
+        # libzmq + rapidjson headers); ZEROMQ_BUILD_PATH points the CODES
+        # configure at it below.
+        run: make -C codes/src/surrogate/zmqml
+
+      - name: Configure CODES (all deps ON)
+        # Torch is discovered through the pip package's cmake prefix, matching
+        # CODES-compile-instructions.sh.
+        run: |
+          export Torch_DIR="$(python3 -c 'import torch; print(torch.utils.cmake_prefix_path)')/Torch"
+          cmake -S codes -B codes/build -G Ninja \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_TESTING=ON \
+            -DCODES_USE_UNION=ON \
+            -DCODES_USE_ZEROMQ=ON \
+            -DCODES_USE_DUMPI=ON \
+            -DCODES_USE_TORCH=ON \
+            -DSWM_PKG_CONFIG_PATH=/opt/swm/lib/pkgconfig \
+            -DUNION_PKG_CONFIG_PATH=/opt/union/lib/pkgconfig \
+            -DARGOBOTS_PKG_CONFIG_PATH=/opt/argobots/lib/pkgconfig \
+            -DDUMPI_BUILD_PATH=/opt/dumpi \
+            -DTorch_DIR="$Torch_DIR" \
+            -DZEROMQ_BUILD_PATH="$PWD/codes/src/surrogate/zmqml" \
+            -DCMAKE_PREFIX_PATH="$PWD/ross-install"
+
+      - name: Build CODES
+        run: cmake --build codes/build -j
+
+      - name: Run CODES tests
+        # Exclude the union-surrogate director tests: their *.sh harnesses set
+        # only ~8 of the ~20 config-template vars (DIRECTOR_* etc.) so these tests fail.
+        run: ctest --test-dir codes/build --output-on-failure -E "union-workload-test-surrogate"
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-full
+          path: |
+            codes/build/Testing/Temporary/LastTest.log
+            codes/build/Testing/Temporary/LastTestsFailed.log
+            codes/build/CMakeFiles/CMakeError.log
+            codes/build/CMakeFiles/CMakeOutput.log
+            codes/build/CMakeCache.txt
+            ross/build/CMakeFiles/CMakeError.log
+            ross/build/CMakeFiles/CMakeOutput.log
+          if-no-files-found: ignore
+          retention-days: 14
