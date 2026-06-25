@@ -41,7 +41,7 @@ jobs:
         # when paths are passed explicitly (as `find ... -exec` does).
         run: |
           find src codes doc tests \
-            -type f \( -name "*.c" -o -name "*.h" -o -name "*.C" \
+            -type f \( -name "*.c" -o -name "*.h" \
                       -o -name "*.cpp" -o -name "*.hpp" -o -name "*.cxx" \) \
             -not -path 'src/modelconfig/configlex.*' \
             -not -path 'src/modelconfig/configparser.*' \

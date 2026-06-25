@@ -19,17 +19,17 @@ list(APPEND SRCS
     networks/model-net/common-net.c
     networks/model-net/simplenet-upd.c
     networks/model-net/torus.c
-    networks/model-net/express-mesh.C
+    networks/model-net/express-mesh.cxx
     networks/model-net/dragonfly.c
-    networks/model-net/dragonfly-custom.C
-    networks/model-net/dragonfly-plus.C
-    networks/model-net/dragonfly-dally.C
+    networks/model-net/dragonfly-custom.cxx
+    networks/model-net/dragonfly-plus.cxx
+    networks/model-net/dragonfly-dally.cxx
     networks/model-net/slimfly.c
     networks/model-net/fattree.c
     networks/model-net/loggp.c
     networks/model-net/simplep2p.c
 
-    networks/model-net/network-managers/dragonfly-network-manager.C
+    networks/model-net/network-managers/dragonfly-network-manager.cxx
 
     workload/codes-workload.c
     workload/methods/codes-iolang-wrkld.c
@@ -53,7 +53,7 @@ list(APPEND SRCS
 	util/codes-mapping-context.c
   	util/codes-comm.c
     util/rc-stack.c
-    util/congestion-controller.C
+    util/congestion-controller.cxx
 
     surrogate/init.c
     surrogate/application-surrogate.c
@@ -98,12 +98,12 @@ endif()
 
 if(USE_ONLINE)
     if(USE_SWM)
-        list(APPEND SRCS workload/methods/codes-online-comm-wrkld.C)
+        list(APPEND SRCS workload/methods/codes-online-comm-wrkld.cxx)
         list(APPEND LIBS_TO_LINK PkgConfig::SWM)
         list(APPEND LIBS_TO_LINK PkgConfig::ARGOBOTS)
     endif()
     if(USE_UNION)
-        list(APPEND SRCS workload/methods/codes-conc-online-comm-wrkld.C)
+        list(APPEND SRCS workload/methods/codes-conc-online-comm-wrkld.cxx)
         list(APPEND LIBS_TO_LINK PkgConfig::SWM)
         list(APPEND LIBS_TO_LINK PkgConfig::UNION)
         list(APPEND LIBS_TO_LINK PkgConfig::ARGOBOTS)
@@ -120,7 +120,7 @@ endif()
 # endif()
 
 if(USE_TORCH)
-    list(APPEND SRCS surrogate/packet-latency-predictor/torch-jit.C)
+    list(APPEND SRCS surrogate/packet-latency-predictor/torch-jit.cxx)
     list(APPEND LIBS_TO_LINK ${TORCH_LIBRARIES})
 endif()
 
@@ -128,7 +128,7 @@ endif()
 # USE_ZEROMQ bool in the top-level CMakeLists, which also enforces that
 # ZEROMQ_BUILD_PATH is set). The imported target + linkage below are gated on it.
 if(USE_ZEROMQ)
-    list(APPEND SRCS surrogate/director-client.C)
+    list(APPEND SRCS surrogate/director-client.cxx)
 endif()
 
 add_library(codes STATIC ${SRCS})
@@ -233,7 +233,7 @@ if(USE_ZEROMQ)
     find_library(ZeroMQ_LIBRARY NAMES zmq PATHS ${PC_ZeroMQ_LIBRARY_DIRS})
 
     # The requester defines the zmqml_* symbols that codes' OWN objects
-    # (director-client.C, dragonfly-dally.C) reference, so it is a usage
+    # (director-client.cxx, dragonfly-dally.cxx) reference, so it is a usage
     # requirement of the codes library itself. Linking it PUBLIC here — rather
     # than PRIVATE per-executable in the CODES_TARGETS loop below — fixes two
     # things the old per-exe approach got wrong:

@@ -140,7 +140,7 @@ If you're using any of the following CODES models, you don't have to add anythin
 - fat tree server LP (model-net-synthetic-fattree.c)
 - slimfly server LP (model-net-synthetic-slimfly.c)
 - original dragonfly router and terminal LPs (dragonfly.c)
-- dragonfly custom router and terminal LPs (dragonfly-custom.C)
+- dragonfly custom router and terminal LPs (dragonfly-custom.cxx)
 - slimfly router and terminal LPs (slimfly.c)
 - fat tree switch and terminal LPs (fat-tree.c)
 - model-net-base-lp (model-net-lp.c)

@@ -5,12 +5,12 @@
  * Originally written by Misbah Mubarak
  * Updated by Neil McGlohon and Elkin Cruz-Camacho
  *
- * A 1D specific dragonfly custom model - diverged from dragonfly-custom.C
+ * A 1D specific dragonfly custom model - diverged from dragonfly-custom.cxx
  * Differs from dragonfly.C in that it allows for the custom features typically found in
- * dragonfly-custom.C.
+ * dragonfly-custom.cxx.
  *
  * This was not intended to be a long term solution, but enough changes had been made that merging
- * into dragonfly-custom.C wasn't feasible at the time of creation. Today, there is enough differences
+ * into dragonfly-custom.cxx wasn't feasible at the time of creation. Today, there is enough differences
  * in the two models that there is currently no plan to re-merge the two.
  */
 
@@ -49,7 +49,7 @@
  * Optional ZeroMQ Director requester.
  *
  * These symbols are defined only when CODES is built with CODES_HAVE_ZEROMQ=ON
- * (src/surrogate/director-client.C + libzmqmlrequester). CODES_HAVE_ZEROMQ is
+ * (src/surrogate/director-client.cxx + libzmqmlrequester). CODES_HAVE_ZEROMQ is
  * all-or-nothing for a given build: src/CMakeLists.txt links libzmqmlrequester
  * into *every* CODES executable when ON and into none when OFF. So whether the
  * requester is available is a compile-time fact, not a runtime one — the

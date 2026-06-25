@@ -22,7 +22,7 @@ torch.manual_seed(SEED)
 
 class PacketLatencyModel(nn.Module):
     """
-    TorchScript-compatible model for CODES torch-jit.C.
+    TorchScript-compatible model for CODES torch-jit.cxx.
 
     C++ passes a LongTensor shaped [1, 4]:
 
@@ -232,7 +232,7 @@ def main() -> None:
 
     model.eval()
 
-    # Exact shape/dtype sanity check for src/surrogate/packet-latency-predictor/torch-jit.C
+    # Exact shape/dtype sanity check for src/surrogate/packet-latency-predictor/torch-jit.cxx
     dummy = torch.zeros((1, 4), dtype=torch.long)
     with torch.no_grad():
         out = model(dummy)
