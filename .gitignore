@@ -1,49 +1,23 @@
-# automake artifacts
-/Makefile.in
-/aclocal.m4
-/autom4te.cache/
-/codes_config.h.in
-/compile
-/config.guess
-/config.sub
-/configure
-/depcomp
-/install-sh
-/missing
+# CMake / Ninja out-of-source build + install trees
+/build*/
+/build*
+/install*/
+.cache
+compile_commands.json
 
-# configure artifacts
-/config.log
-/config.status
-/Makefile
-/stamp-h1
-/codes_config.h
-/maint/codes.pc
-/test-driver
-.deps
-src/surrogate/zmqml/demozmqmlrequester
-src/surrogate/zmqml/libzmqmlrequester.so
+# CTest output
+Testing/
 
-# make generated artifacts
-.dirstamp
-*.o
-*.a
+# FLEX/BISON sources generated into the tree at build time (see
+# src/CMakeLists.txt; followup: emit these to the build dir instead)
 /src/modelconfig/configparser.h
 /src/modelconfig/configparser.c
 /src/modelconfig/configlex.h
 /src/modelconfig/configlex.c
-/tests/lp-io-test
-
-# hide backups
-*~
 
 # generated files from test runs
 ross.csv
 
-install-mastiff/include/codes/model-net-method.h
-
-# commonly used building stuff
-/build*/
-/build*
-.cache
-compile_commands.json
+# editor backups / python caches
+*~
 __pycache__/

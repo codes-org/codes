@@ -326,12 +326,6 @@ jobs:
       - name: Build and install ROSS
         run: cmake --build ross/build --target install -j
 
-      - name: Build the zmqml requester
-        # libzmqmlrequester.so is built from CODES source (the image only ships
-        # libzmq + rapidjson headers); ZEROMQ_BUILD_PATH points the CODES
-        # configure at it below.
-        run: make -C codes/src/surrogate/zmqml
-
       - name: Configure CODES (all deps ON)
         # Torch is discovered through the pip package's cmake prefix, matching
         # CODES-compile-instructions.sh.
@@ -349,7 +343,6 @@ jobs:
             -DARGOBOTS_PKG_CONFIG_PATH=/opt/argobots/lib/pkgconfig \
             -DDUMPI_BUILD_PATH=/opt/dumpi \
             -DTorch_DIR="$Torch_DIR" \
-            -DZEROMQ_BUILD_PATH="$PWD/codes/src/surrogate/zmqml" \
             -DCMAKE_PREFIX_PATH="$PWD/ross-install"
 
       - name: Build CODES

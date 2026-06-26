@@ -69,7 +69,6 @@ find_package(MPI REQUIRED)
 # ============================================================================
 
 set(DUMPI_BUILD_PATH "" CACHE PATH "Directory where dumpi include and lib are installed")
-set(ZEROMQ_BUILD_PATH "" CACHE PATH "Directory containing libzmqmlrequester.so (for CODES_USE_ZEROMQ)")
 
 set(CODES_USE_DUMPI    AUTO CACHE STRING "DUMPI trace workloads (AUTO/ON/OFF)")
 set(CODES_USE_SWM      AUTO CACHE STRING "SWM online workloads; requires argobots (AUTO/ON/OFF)")
@@ -77,7 +76,7 @@ set(CODES_USE_UNION    AUTO CACHE STRING "UNION online workloads; implies SWM (A
 set(CODES_USE_RECORDER AUTO CACHE STRING "Recorder I/O workload, no external dep (AUTO/ON/OFF)")
 set(CODES_USE_TORCH    AUTO CACHE STRING "Torch ML models (AUTO/ON/OFF)")
 set(CODES_USE_DARSHAN  OFF  CACHE STRING "Darshan I/O workload — not yet wired (AUTO/ON/OFF)")
-set(CODES_USE_ZEROMQ   AUTO CACHE STRING "ZeroMQ director-client surrogate; needs ZEROMQ_BUILD_PATH (AUTO/ON/OFF)")
+set(CODES_USE_ZEROMQ   AUTO CACHE STRING "ZeroMQ director-client/zmqml surrogate; needs libzmq + zmq.hpp + rapidjson (AUTO/ON/OFF)")
 foreach(_dep DUMPI SWM UNION RECORDER TORCH DARSHAN ZEROMQ)
     set_property(CACHE CODES_USE_${_dep} PROPERTY STRINGS AUTO ON OFF)
 endforeach()
@@ -181,22 +180,27 @@ else()
 endif()
 
 
-## ZeroMQ — director-client surrogate (opt-in; needs ZEROMQ_BUILD_PATH).
-## "found" = a build path was provided; the imported target + linkage live in
-## src/CMakeLists.txt, gated on the internal USE_ZEROMQ bool.
-if(CODES_USE_ZEROMQ STREQUAL "ON" AND NOT ZEROMQ_BUILD_PATH)
-    message(FATAL_ERROR
-        "CODES_USE_ZEROMQ=ON requires ZEROMQ_BUILD_PATH. Build "
-        "src/surrogate/zmqml/libzmqmlrequester.so first, then reconfigure with "
-        "-DZEROMQ_BUILD_PATH=<dir containing the .so>.")
-endif()
+## ZeroMQ — director-client / zmqml surrogate (the CLIENT half; the ML server is
+## a separate process reached over a socket). The requester needs the libzmq C++
+## binding (zmq.hpp) and the header-only rapidjson, both build-time only. AUTO-
+## probed like the other optional deps; the requester target + linkage live in
+## src/surrogate/zmqml + src/CMakeLists.txt, gated on the internal USE_ZEROMQ bool.
 set(_zeromq_found FALSE)
-if(ZEROMQ_BUILD_PATH)
-    set(_zeromq_found TRUE)
+if(NOT CODES_USE_ZEROMQ STREQUAL "OFF")
+    pkg_check_modules(ZeroMQ IMPORTED_TARGET libzmq)
+    # zmq.hpp (cppzmq) ships with libzmq-dev on some distros, separately on others.
+    find_path(ZMQ_CPP_INCLUDE_DIR zmq.hpp HINTS ${ZeroMQ_INCLUDE_DIRS})
+    find_path(RapidJSON_INCLUDE_DIR rapidjson/document.h)
+    if(ZeroMQ_FOUND AND ZMQ_CPP_INCLUDE_DIR AND RapidJSON_INCLUDE_DIR)
+        set(_zeromq_found TRUE)
+    endif()
 endif()
 codes_resolve_dep(ZEROMQ "${_zeromq_found}" USE_ZEROMQ)
 if(USE_ZEROMQ)
-    message(STATUS "ZeroMQ director-client surrogate enabled (${ZEROMQ_BUILD_PATH})")
+    message(STATUS "ZeroMQ director-client/zmqml surrogate enabled "
+        "(${ZeroMQ_LIBRARIES}; rapidjson at ${RapidJSON_INCLUDE_DIR})")
+else()
+    message(STATUS "ZeroMQ director-client/zmqml surrogate disabled")
 endif()
 
 add_subdirectory(src)

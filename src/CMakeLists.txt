@@ -125,10 +125,12 @@ if(USE_TORCH)
 endif()
 
 # ZeroMQ / director-client (opt-in via CODES_USE_ZEROMQ; resolved to the internal
-# USE_ZEROMQ bool in the top-level CMakeLists, which also enforces that
-# ZEROMQ_BUILD_PATH is set). The imported target + linkage below are gated on it.
+# USE_ZEROMQ bool in the top-level CMakeLists). director-client.cxx is part of
+# libcodes; the zmqml requester it calls is its own static lib (built in the
+# surrogate/zmqml subdir and linked into codes below).
 if(USE_ZEROMQ)
     list(APPEND SRCS surrogate/director-client.cxx)
+    add_subdirectory(surrogate/zmqml)
 endif()
 
 add_library(codes STATIC ${SRCS})
@@ -174,13 +176,6 @@ if(USE_ONLINE)
     endif()
 endif()
 
-if(USE_ZEROMQ)
-    add_library(zmqmlrequester SHARED IMPORTED GLOBAL)
-    set_target_properties(zmqmlrequester PROPERTIES
-        IMPORTED_LOCATION "${ZEROMQ_BUILD_PATH}/libzmqmlrequester.so"
-        INTERFACE_INCLUDE_DIRECTORIES "${ZEROMQ_BUILD_PATH}")
-endif()
-
 # Public include dirs travel with the target. BUILD_INTERFACE entries serve
 # CODES's own compilation and in-tree consumers; INSTALL_INTERFACE entries serve
 # installed consumers — include/ for `<codes/...>` and include/codes/ for the
@@ -195,7 +190,6 @@ target_include_directories(codes PUBLIC
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/modelconfig>
     $<INSTALL_INTERFACE:include>
     $<INSTALL_INTERFACE:include/codes>
-    $<BUILD_INTERFACE:$<$<BOOL:${USE_ZEROMQ}>:${ZEROMQ_BUILD_PATH}>>
 )
 
 target_link_libraries(codes PUBLIC ${LIBS_TO_LINK})
@@ -225,28 +219,15 @@ if(USE_DUMPI)
     list(APPEND CODES_TARGETS model-net-dumpi-traces-dump)
 endif()
 
-# ZMQ — only resolved + linked when USE_ZEROMQ is on; otherwise nothing
-# in the codes library calls into libzmq.
+# The zmqml requester defines the zmqml_* symbols that codes' OWN objects
+# (director-client.cxx, dragonfly-dally.cxx) reference, so it is a usage
+# requirement of the codes library itself — link it PUBLIC so every consumer of
+# codes (the CODES_TARGETS executables AND the doc/example + tests targets, which
+# are not in CODES_TARGETS) inherits it and resolves zmqml_*. As a real target it
+# lands at the end of each consumer's link line after libcodes.a, the order the
+# references need, and carries libzmq + its include dirs transitively.
 if(USE_ZEROMQ)
-    pkg_check_modules(PC_ZeroMQ QUIET zmq)
-    find_path(ZeroMQ_INCLUDE_DIR NAMES zmq.hpp PATHS ${PC_ZeroMQ_INCLUDE_DIRS})
-    find_library(ZeroMQ_LIBRARY NAMES zmq PATHS ${PC_ZeroMQ_LIBRARY_DIRS})
-
-    # The requester defines the zmqml_* symbols that codes' OWN objects
-    # (director-client.cxx, dragonfly-dally.cxx) reference, so it is a usage
-    # requirement of the codes library itself. Linking it PUBLIC here — rather
-    # than PRIVATE per-executable in the CODES_TARGETS loop below — fixes two
-    # things the old per-exe approach got wrong:
-    #   * Coverage: every consumer of codes inherits it, including the
-    #     doc/example targets and the tests targets, which are NOT in
-    #     CODES_TARGETS and so linked no requester at all (undefined zmqml_*).
-    #   * Order: it lands at the END of each consumer's link line, after
-    #     libcodes.a and codes' other transitive deps (ROSS, SWM, UNION, ...),
-    #     which is the order the references need. Linked ahead of those deps it
-    #     was dropped and zmqml_* went undefined on the heavy (UNION+ZeroMQ)
-    #     build. zmqmlrequester is an IMPORTED target, so — like PkgConfig::SWM
-    #     above — it's exempt from the install(EXPORT) "not in export set" error.
-    target_link_libraries(codes PUBLIC zmqmlrequester ${ZeroMQ_LIBRARY})
+    target_link_libraries(codes PUBLIC zmqmlrequester)
 endif()
 
 # Each executable links codes; its include dirs, MPI, ROSS, the optional-dep
@@ -278,8 +259,15 @@ install(FILES "${PROJECT_BINARY_DIR}/codes_config.h" DESTINATION include/codes)
 install(TARGETS ${CODES_TARGETS} RUNTIME DESTINATION bin)
 
 # Library target + namespaced export. codes::codes carries the public include
-# dirs (INSTALL_INTERFACE) and the ROSS / MPI usage requirements.
-install(TARGETS codes
+# dirs (INSTALL_INTERFACE) and the ROSS / MPI usage requirements. Under
+# USE_ZEROMQ the zmqml requester is a real PUBLIC dependency of codes, so it must
+# join the export set too (its imported PkgConfig::ZeroMQ dep stays exempt, like
+# the SWM/UNION imported targets codes already exports).
+set(CODES_EXPORT_TARGETS codes)
+if(USE_ZEROMQ)
+    list(APPEND CODES_EXPORT_TARGETS zmqmlrequester)
+endif()
+install(TARGETS ${CODES_EXPORT_TARGETS}
     EXPORT codesTargets
     ARCHIVE DESTINATION lib
     LIBRARY DESTINATION lib

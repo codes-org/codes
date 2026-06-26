@@ -49,9 +49,9 @@
  * Optional ZeroMQ Director requester.
  *
  * These symbols are defined only when CODES is built with CODES_HAVE_ZEROMQ=ON
- * (src/surrogate/director-client.cxx + libzmqmlrequester). CODES_HAVE_ZEROMQ is
- * all-or-nothing for a given build: src/CMakeLists.txt links libzmqmlrequester
- * into *every* CODES executable when ON and into none when OFF. So whether the
+ * (src/surrogate/director-client.cxx + the zmqml requester lib). CODES_HAVE_ZEROMQ
+ * is all-or-nothing for a given build: src/CMakeLists.txt links the zmqmlrequester
+ * target into *every* CODES executable when ON and into none when OFF. So whether the
  * requester is available is a compile-time fact, not a runtime one — the
  * original __attribute__((weak)) + runtime `if (!zmqml_director_request)`
  * checks could only ever take their "available" branch under ON and their

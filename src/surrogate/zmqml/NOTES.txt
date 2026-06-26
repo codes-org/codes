@@ -7,9 +7,8 @@ You need to open two terminals for this demo.
 In the first terminal,
 $ ./zmqmlserver.py
 
-In the second terminal,
-$ ./runcppdemo.sh
-
-
-
-
+In the second terminal, build the demo (off by default) and run it from this
+directory so it finds model/ and the server socket:
+$ cmake -S . -B build -DCODES_USE_ZEROMQ=ON -DCODES_BUILD_ZMQML_DEMO=ON ...
+$ cmake --build build --target demozmqmlrequester
+$ cd src/surrogate/zmqml && <build>/src/surrogate/zmqml/demozmqmlrequester
