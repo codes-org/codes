@@ -223,8 +223,12 @@ configure_file(codes_config.h.cmake.in codes_config.h)
 
 add_subdirectory(doc/example)
 
-string(COMPARE NOTEQUAL "RELEASE" "${CMAKE_BUILD_TYPE}" not_release)
-if(BUILD_TESTING AND not_release)
+# Tests are gated solely on BUILD_TESTING (the canonical CTest knob). A
+# $<CONFIG:...> genex can't gate this since add_subdirectory() runs at
+# configure time, and the old `STREQUAL "RELEASE"` compare never matched the
+# conventional `Release` spelling anyway, so tests already built in every
+# standard config.
+if(BUILD_TESTING)
     include(CTest)
     set(CODES_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
     set(CODES_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}")
