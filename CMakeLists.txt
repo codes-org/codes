@@ -139,6 +139,15 @@ if(USE_ONLINE)
     message(STATUS "SWM online workloads enabled (${SWM_LIBRARIES})")
     pkg_get_variable(SWM_DATAROOTDIR swm datarootdir)
 
+    # The online-workload sources (codes-online-comm-wrkld.cxx,
+    # codes-conc-online-comm-wrkld.cxx) include SWM model headers that pull in
+    # Boost's header-only property_tree / foreach. Declare it explicitly so a
+    # missing Boost fails here with a clear message instead of as a cryptic
+    # mid-compile error, and so its include dir is attached to the codes target
+    # deliberately (via Boost::headers in src/CMakeLists.txt) rather than relying
+    # on Boost sitting on the default system include path.
+    find_package(Boost REQUIRED)
+
     set(_union_found FALSE)
     if(NOT CODES_USE_UNION STREQUAL "OFF")
         pkg_check_modules(UNION IMPORTED_TARGET union)

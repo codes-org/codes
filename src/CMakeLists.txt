@@ -97,6 +97,11 @@ if(USE_DUMPI)
 endif()
 
 if(USE_ONLINE)
+    # Boost (header-only property_tree / foreach) is pulled in by the SWM model
+    # headers both online sources include — needed on either the SWM-only or the
+    # UNION path. Boost::headers is an INTERFACE IMPORTED target: it carries the
+    # include dir and, being imported, contributes it as SYSTEM.
+    list(APPEND LIBS_TO_LINK Boost::headers)
     if(USE_SWM)
         list(APPEND SRCS workload/methods/codes-online-comm-wrkld.cxx)
         list(APPEND LIBS_TO_LINK PkgConfig::SWM)
@@ -152,28 +157,20 @@ endif()
 # consumer (executables, tests) inherit them.
 list(APPEND LIBS_TO_LINK MPI::MPI_C MPI::MPI_CXX)
 
-# Optional-dep include paths are absolute build-machine paths, so they are
-# BUILD_INTERFACE-only — they keep install(EXPORT) relocatable. (Re-exposing
-# them to installed consumers of a heavy-deps build is deferred; see
-# cmake/codesConfig.cmake.in.)
+# SWM / UNION / argobots / Boost / ZeroMQ include dirs are NOT added by hand:
+# each rides its imported target (PkgConfig::SWM/UNION/ARGOBOTS, Boost::headers,
+# and PkgConfig::ZeroMQ via zmqmlrequester), all linked PUBLIC above. Because
+# those targets are IMPORTED, CMake contributes their include dirs as SYSTEM
+# (-isystem), which also keeps the project's -Wundef build clean of third-party
+# header noise. codesConfig.cmake recreates the same targets via find_dependency
+# so installed consumers inherit these paths too.
+#
+# DUMPI is the exception: it's located by absolute path (find_library), not an
+# imported target, so its include is attached here — SYSTEM for -Wundef hygiene,
+# BUILD_INTERFACE for the in-tree build. codesConfig.cmake re-attaches it for
+# installed heavy-deps consumers.
 if(USE_DUMPI)
-    target_include_directories(codes PUBLIC "$<BUILD_INTERFACE:${DUMPI_INCLUDE}>")
-endif()
-
-#LINK ARGOBOTS, SWM and UNION
-# target_link_libraries(codes PUBLIC PkgConfig::ARGOBOTS)
-if(USE_ONLINE)
-    if(USE_SWM)
-        target_include_directories(codes PUBLIC "$<BUILD_INTERFACE:${ARGOBOTS_INCLUDE_DIRS}>")
-        # target_link_libraries(codes PUBLIC PkgConfig::SWM)
-        target_include_directories(codes PUBLIC "$<BUILD_INTERFACE:${SWM_INCLUDE_DIRS}>")
-    endif()
-    if(USE_UNION)
-        target_include_directories(codes PUBLIC "$<BUILD_INTERFACE:${ARGOBOTS_INCLUDE_DIRS}>")
-        # target_link_libraries(codes PUBLIC PkgConfig::SWM)
-        target_include_directories(codes PUBLIC "$<BUILD_INTERFACE:${SWM_INCLUDE_DIRS}>")
-        target_include_directories(codes PUBLIC "$<BUILD_INTERFACE:${UNION_INCLUDE_DIRS}>")
-    endif()
+    target_include_directories(codes SYSTEM PUBLIC "$<BUILD_INTERFACE:${DUMPI_INCLUDE}>")
 endif()
 
 # Public include dirs travel with the target. BUILD_INTERFACE entries serve
