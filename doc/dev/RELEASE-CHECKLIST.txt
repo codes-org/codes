@@ -17,10 +17,11 @@ Notes on how to release a new version of CODES
     'git log --topo-order --format="** %h %s <%an>%+b" 0.5.2..master > release-log.out'
     (replace the release tag as appropriate)
     See 'man git-log' for other options.
-- Update doc/BUILD_STEPS (if necessary) and doc/GETTING_STARTED
+- Update README.md (build instructions) and doc/GETTING_STARTED
   - GETTING_STARTED is more of a feature and usage overview now, so new
     features should be documented at a high level there.
-  - Update the ROSS commit hash used to build codes in BUILD_STEPS
+  - The ROSS commit CODES builds against is pinned via ROSS_REF in CI, not in
+    the docs; see doc/dev/ci.md for the bump procedure.
 - Point to misc. documentation. We have scattered documents around, make sure
   people can find them.
 - Update version number in configure.ac

@@ -9,7 +9,6 @@ doc_example_heterogeneous_example_SOURCES = doc/example_heterogeneous/example.c
 doc_example_tutorial_synthetic_ping_pong_SOURCES = doc/example/tutorial-synthetic-ping-pong.c
 
 EXTRA_DIST += \
- doc/BUILD_STEPS \
  doc/GETTING_STARTED \
  doc/RELEASE_NOTES \
  doc/acmsmall.cls \

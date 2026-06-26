@@ -23,10 +23,10 @@ The script will create a new directory with all dependencies and CODES compiled 
 
 ## Prerequisites
 
-- **MPI**: MPICH for parallel execution (OpenMPI is not supported by Union, a dependency)
-- **CMake**: Version 3.12 or higher
+- **MPI**: MPICH or OpenMPI (UNION, an optional workload dependency, requires MPICH)
+- **CMake**: Version 3.17 or higher
 - **ROSS**: Rensselaer Optimistic Simulation System (handled by script)
-- **C/C++ compiler**: GCC or Clang with C++11 support
+- **C/C++ compiler**: GCC or Clang with C++17 support
 
 Optional dependencies (automatically handled by script if enabled):
 - **UNION**: For advanced workload generation

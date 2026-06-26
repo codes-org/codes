@@ -41,6 +41,7 @@ on:
 # Shared by every job: the pinned ROSS commit. Bump when CODES needs to track
 # ROSS forward — a one-line reviewed change. The nightly scheduled run ignores
 # this and builds ROSS @ master so pin drift surfaces within a day.
+# See doc/dev/ci.md for when and how to bump this pin.
 env:
   ROSS_REF: 9b6ccb18f9b9db438bf41b5b221d0ef16a4dac48
 
