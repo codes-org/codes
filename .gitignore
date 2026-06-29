@@ -11,13 +11,6 @@ CMakeUserPresets.json
 # CTest output
 Testing/
 
-# FLEX/BISON sources generated into the tree at build time (see
-# src/CMakeLists.txt; followup: emit these to the build dir instead)
-/src/modelconfig/configparser.h
-/src/modelconfig/configparser.c
-/src/modelconfig/configlex.h
-/src/modelconfig/configlex.c
-
 # generated files from test runs
 ross.csv
 

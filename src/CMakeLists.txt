@@ -3,8 +3,13 @@ cmake_print_variables(CMAKE_CURRENT_SOURCE_DIR)
 find_package(FLEX REQUIRED)
 find_package(BISON REQUIRED)
 
-flex_target(codes_lexer ${CMAKE_CURRENT_SOURCE_DIR}/modelconfig/configlex.l ${CMAKE_CURRENT_SOURCE_DIR}/modelconfig/configlex.c DEFINES_FILE ${CMAKE_CURRENT_SOURCE_DIR}/modelconfig/configlex.h)
-bison_target(codes_parser ${CMAKE_CURRENT_SOURCE_DIR}/modelconfig/configparser.y ${CMAKE_CURRENT_SOURCE_DIR}/modelconfig/configparser.c DEFINES_FILE ${CMAKE_CURRENT_SOURCE_DIR}/modelconfig/configparser.h)
+# FLEX/BISON emit their generated sources into the build tree, not the source
+# tree, so the repo never carries generated artifacts. The generated headers
+# are reached via "src/modelconfig/..." includes, which resolve against
+# PROJECT_BINARY_DIR (already on codes' include path below).
+file(MAKE_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/modelconfig)
+flex_target(codes_lexer ${CMAKE_CURRENT_SOURCE_DIR}/modelconfig/configlex.l ${CMAKE_CURRENT_BINARY_DIR}/modelconfig/configlex.c DEFINES_FILE ${CMAKE_CURRENT_BINARY_DIR}/modelconfig/configlex.h)
+bison_target(codes_parser ${CMAKE_CURRENT_SOURCE_DIR}/modelconfig/configparser.y ${CMAKE_CURRENT_BINARY_DIR}/modelconfig/configparser.c DEFINES_FILE ${CMAKE_CURRENT_BINARY_DIR}/modelconfig/configparser.h)
 ADD_FLEX_BISON_DEPENDENCY(codes_lexer codes_parser)
 
 cmake_print_variables(FLEX_codes_lexer_OUTPUTS)
@@ -234,12 +239,6 @@ foreach(tar IN LISTS CODES_TARGETS)
     target_link_libraries(${tar} PRIVATE codes)
 endforeach()
 
-
-# configure_file(modelconfig/configlex.c ${CMAKE_CURRENT_BINARY_DIR}/modelconfig/configlex.c COPYONLY)
-# configure_file(modelconfig/configlex.h ${CMAKE_CURRENT_BINARY_DIR}/modelconfig/configlex.h COPYONLY)
-
-# configure_file(modelconfig/configparser.c ${CMAKE_CURRENT_BINARY_DIR}/modelconfig/configparser.c COPYONLY)
-# configure_file(modelconfig/configparser.h ${CMAKE_CURRENT_BINARY_DIR}/modelconfig/configparser.h COPYONLY)
 
 # ---------------------------------------------------------------------------
 # Install + CMake package export (find_package(codes) -> codes::codes)

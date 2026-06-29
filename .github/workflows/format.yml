@@ -36,13 +36,8 @@ jobs:
           clang-format-20 --version
 
       - name: Check formatting
-        # Excludes are duplicated from .clang-format-ignore because
-        # clang-format only honors that file during directory walks, not
-        # when paths are passed explicitly (as `find ... -exec` does).
         run: |
           find src codes doc tests \
             -type f \( -name "*.c" -o -name "*.h" \
                       -o -name "*.cpp" -o -name "*.hpp" -o -name "*.cxx" \) \
-            -not -path 'src/modelconfig/configlex.*' \
-            -not -path 'src/modelconfig/configparser.*' \
             -exec clang-format-20 --dry-run --Werror {} +
