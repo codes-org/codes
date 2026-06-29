@@ -23,19 +23,19 @@ LPGROUPS
 
 DIRECTOR
 {
-    start_iter="${DIRECTOR_START_ITER}";
-    end_iter="${DIRECTOR_END_ITER}";
+    start_iter="${START_ITER}";
+    end_iter="${END_ITER}";
 
     # Optional one-shot pause/retrain/resume pipeline.
     # First implementation is intended for --synch=1.
-    retrain_enabled="${DIRECTOR_RETRAIN_ENABLED}";
-    retrain_iter="${DIRECTOR_RETRAIN_ITER}";
-    retrain_save_path="${DIRECTOR_RETRAIN_SAVE_PATH}";
+    retrain_enabled="${RETRAIN_ENABLED}";
+    retrain_iter="${RETRAIN_ITER}";
+    retrain_save_path="${RETRAIN_SAVE_PATH}";
 
     # Optional second surrogate window after retraining.
-    second_surrogate_enabled="${DIRECTOR_SECOND_SURROGATE_ENABLED}";
-    second_start_iter="${DIRECTOR_SECOND_START_ITER}";
-    second_end_iter="${DIRECTOR_SECOND_END_ITER}";
+    second_surrogate_enabled="${SECOND_SURROGATE_ENABLED}";
+    second_start_iter="${SECOND_START_ITER}";
+    second_end_iter="${SECOND_END_ITER}";
 
     # Common modes:
     #

@@ -22,6 +22,7 @@
 #include "codes/model-net-method.h"
 #include "codes/model-net-lp.h"
 #include "codes/surrogate/init.h"
+#include "codes/surrogate/director-client.h"
 #ifdef USE_TORCH
 #include "codes/surrogate/packet-latency-predictor/torch-jit.h"
 #endif
@@ -64,11 +65,13 @@
  * resolve it to null.)
  */
 #ifdef USE_ZMQML
-extern std::vector<std::string> zmqml_director_request(const std::string& surrogate_family,
-                                                       const std::string& surrogate_backend,
-                                                       const std::string& operation,
-                                                       const std::vector<std::string>& args,
-                                                       const std::string& bindata);
+extern std::vector<std::string>
+zmqml_director_request(const std::string& surrogate_family, const std::string& surrogate_backend,
+                       const std::string& operation, const std::vector<std::string>& args,
+                       const std::string& bindata) __attribute__((weak));
+
+extern "C" void director_record_external_zmq_latency(double processing_sec, double total_sec)
+    __attribute__((weak));
 
 extern void director_record_zmq_latency_stats(const char* label,
                                               const std::vector<std::string>& ret,
@@ -297,7 +300,20 @@ static std::vector<std::string> dfdally_event_time_director_request_with_latency
                                (double)(finish.tv_nsec - start.tv_nsec) / 1000000000.0;
 
 #ifdef USE_ZMQML
-    director_record_zmq_latency_stats(label, ret, local_latency_sec);
+    double zmq_processing_time = 0.0;
+
+    if (ret.size() > 1) {
+        char* endptr = NULL;
+        double parsed = strtod(ret[1].c_str(), &endptr);
+
+        if (endptr != ret[1].c_str() && isfinite(parsed) && parsed >= 0.0) {
+            zmq_processing_time = parsed;
+        }
+    }
+
+    if (director_record_external_zmq_latency) {
+        director_record_external_zmq_latency(zmq_processing_time, local_latency_sec);
+    }
 #endif
 
     return ret;
@@ -2695,14 +2711,8 @@ static void dragonfly_read_config(const char* anno, dragonfly_param* params) {
     char event_time_inference_enabled_str[MAX_NAME_LENGTH];
     event_time_inference_enabled_str[0] = '\0';
 
-    char const* inferencing_enabled_env = getenv("INFERENCING_ENABLED");
-    if (inferencing_enabled_env && strlen(inferencing_enabled_env) > 0) {
-        snprintf(event_time_inference_enabled_str, sizeof(event_time_inference_enabled_str), "%s",
-                 inferencing_enabled_env);
-    } else {
-        configuration_get_value(&config, "DIRECTOR", "inferencing_enabled", anno,
-                                event_time_inference_enabled_str, MAX_NAME_LENGTH);
-    }
+    configuration_get_value(&config, "DIRECTOR", "inferencing_enabled", anno,
+                            event_time_inference_enabled_str, MAX_NAME_LENGTH);
 
     /*
      * Do not expose a separate event-time inference flag.
@@ -2737,14 +2747,8 @@ static void dragonfly_read_config(const char* anno, dragonfly_param* params) {
     char event_time_training_enabled_str[MAX_NAME_LENGTH];
     event_time_training_enabled_str[0] = '\0';
 
-    char const* training_enabled_env = getenv("TRAINING_ENABLED");
-    if (training_enabled_env && strlen(training_enabled_env) > 0) {
-        snprintf(event_time_training_enabled_str, sizeof(event_time_training_enabled_str), "%s",
-                 training_enabled_env);
-    } else {
-        configuration_get_value(&config, "DIRECTOR", "training_enabled", anno,
-                                event_time_training_enabled_str, MAX_NAME_LENGTH);
-    }
+    configuration_get_value(&config, "DIRECTOR", "training_enabled", anno,
+                            event_time_training_enabled_str, MAX_NAME_LENGTH);
 
     event_time_surrogate_family_selected =
         strcmp(event_time_surrogate_family_str, "event-time") == 0;
@@ -2764,15 +2768,6 @@ static void dragonfly_read_config(const char* anno, dragonfly_param* params) {
         atexit(dfdally_event_time_zmq_flush_atexit);
         event_time_zmq_flush_registered = 1;
     }
-
-    if (dfdally_surrogate_debug_prints) {
-        fprintf(stderr,
-                "[event-time records] family=%s training_enabled=%s send_to_zmq=%d batch_size=%d\n",
-                event_time_surrogate_family_str, event_time_training_enabled_str,
-                event_time_training_records_enabled, event_time_zmq_batch_size);
-        fflush(stderr);
-    }
-
 
     // START Surrogate configuration
     char enable_str[MAX_NAME_LENGTH];
@@ -2797,6 +2792,14 @@ static void dragonfly_read_config(const char* anno, dragonfly_param* params) {
     }
 
     dfdally_surrogate_debug_prints = dfdally_string_is_true(debug_prints_str);
+
+    if (dfdally_surrogate_debug_prints) {
+        fprintf(stderr,
+                "[event-time records] family=%s training_enabled=%s send_to_zmq=%d batch_size=%d\n",
+                event_time_surrogate_family_str, event_time_training_enabled_str,
+                event_time_training_records_enabled, event_time_zmq_batch_size);
+        fflush(stderr);
+    }
 
     // if surrogate mode has been set up
     if (enable_network_surrogate) {

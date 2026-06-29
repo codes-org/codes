@@ -302,6 +302,51 @@ class IterationTimeModelRegistry:
 
         return np.asarray(cleaned, dtype=np.float64)
 
+    def _global_fallback_prediction(self, requested_horizon: int) -> List[float]:
+        requested_horizon = max(1, int(requested_horizon))
+
+        recent_values: List[float] = []
+        for model in self.models.values():
+            if model.records:
+                recent_values.extend(model.records[-max(1, self.history_len):])
+
+        recent_values = _as_positive_finite(recent_values)
+
+        if recent_values:
+            value = float(np.median(np.asarray(recent_values, dtype=np.float64)))
+        elif self.y_mean is not None and len(self.y_mean) > 0:
+            value = float(self.y_mean[0])
+        else:
+            # Match the older iteration-time fallback scale instead of using 1.0.
+            value = 2_000_000.0
+
+        if not np.isfinite(value) or value <= 0.0:
+            value = 2_000_000.0
+
+        return [value for _ in range(requested_horizon)]
+
+    def _global_fallback_prediction(self, requested_horizon: int) -> List[float]:
+        requested_horizon = max(1, int(requested_horizon))
+
+        recent_values: List[float] = []
+        for model in self.models.values():
+            if model.records:
+                recent_values.extend(model.records[-max(1, self.history_len):])
+
+        recent_values = _as_positive_finite(recent_values)
+
+        if recent_values:
+            value = float(np.median(np.asarray(recent_values, dtype=np.float64)))
+        elif self.y_mean is not None and len(self.y_mean) > 0:
+            value = float(self.y_mean[0])
+        else:
+            value = 2_000_000.0
+
+        if not np.isfinite(value) or value <= 0.0:
+            value = 2_000_000.0
+
+        return [value for _ in range(requested_horizon)]
+
     def predict(self, client_id: int, requested_horizon: int | None = None) -> List[float]:
         client_id = int(client_id)
         requested_horizon = int(requested_horizon or self.horizon)
@@ -310,7 +355,15 @@ class IterationTimeModelRegistry:
         model = self.get(client_id)
 
         if not model.records:
-            return model._fallback_prediction(requested_horizon)
+            fallback = self._global_fallback_prediction(requested_horizon)
+            if self.debug:
+                print(
+                    "[IterationTimeModelRegistry] predict global-fallback "
+                    f"client={client_id} requested_horizon={requested_horizon} "
+                    f"trained={int(self.trained)} predictions={fallback}",
+                    flush=True,
+                )
+            return fallback
 
         # Predict in chunks if requested_horizon > self.horizon.
         out: List[float] = []
@@ -326,6 +379,9 @@ class IterationTimeModelRegistry:
                 history.append(float(value))
                 iteration += 1
 
+        if not out:
+            out = self._global_fallback_prediction(requested_horizon)
+
         if self.debug:
             print(
                 "[IterationTimeModelRegistry] predict "
@@ -336,6 +392,7 @@ class IterationTimeModelRegistry:
             )
 
         return out
+
 
     def save(self, path: str) -> None:
         out_path = Path(path)

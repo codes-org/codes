@@ -37,6 +37,17 @@ else
     echo "Using existing ross checkout: $(realpath ross)"
 fi
 
+
+if [ "$torch_enable" = 1 ]; then
+    make_args_codes=(
+        "${make_args_codes[@]}"
+    )
+else
+    make_args_codes=(
+        "${make_args_codes[@]}"
+    )
+fi
+
 if [ $swm_enable = 1 ]; then
     if [ ! -d argobots/.git ]; then
     git clone https://github.com/pmodels/argobots --depth=1
@@ -192,53 +203,41 @@ fi
 
 
 
-# Make system pkg-config metadata visible even when Conda's pkg-config is active.
-# This is needed for libzmq.pc on systems where ZeroMQ is installed through the OS
-# but the active Conda environment's pkg-config only searches Conda pkgconfig dirs.
-if ! pkg-config --exists libzmq 2>/dev/null; then
-    for pcdir in \
-        /usr/lib/x86_64-linux-gnu/pkgconfig \
-        /usr/lib64/pkgconfig \
-        /usr/lib/pkgconfig \
-        /usr/local/lib/pkgconfig \
-        /usr/local/lib64/pkgconfig \
-        /opt/homebrew/lib/pkgconfig \
-        /usr/share/pkgconfig
-    do
-        if [ -d "$pcdir" ]; then
-            export PKG_CONFIG_PATH="$pcdir:${PKG_CONFIG_PATH:-}"
-        fi
-    done
+if [ "$torch_enable" = 1 ]; then
+    # Make system pkg-config metadata visible even when Conda's pkg-config is active.
+    # This is needed for libzmq.pc on systems where ZeroMQ is installed through the OS
+    # but the active Conda environment's pkg-config only searches Conda pkgconfig dirs.
+    if ! pkg-config --exists libzmq 2>/dev/null; then
+        for pcdir in \
+            /usr/lib/x86_64-linux-gnu/pkgconfig \
+            /usr/lib64/pkgconfig \
+            /usr/lib/pkgconfig \
+            /usr/local/lib/pkgconfig \
+            /usr/local/lib64/pkgconfig \
+            /opt/homebrew/lib/pkgconfig \
+            /usr/share/pkgconfig
+        do
+            if [ -d "$pcdir" ]; then
+                export PKG_CONFIG_PATH="$pcdir:${PKG_CONFIG_PATH:-}"
+            fi
+        done
+    fi
+
+    if ! pkg-config --exists libzmq 2>/dev/null; then
+        echo "WARNING: pkg-config still cannot find libzmq.pc." >&2
+        echo "         If ZMQML requester support fails to build, install the ZeroMQ development package" >&2
+        echo "         or set PKG_CONFIG_PATH to the directory containing libzmq.pc." >&2
+    fi
+
+    # Build local ZMQML requester library required by director-client.C.
+    pushd codes/src/surrogate/zmqml
+    make clean
+    make
+    test -f libzmqmlrequester.so
+    test -f zmqmlrequester.h
+    popd
 fi
 
-if ! pkg-config --exists libzmq 2>/dev/null; then
-    echo "WARNING: pkg-config still cannot find libzmq.pc." >&2
-    echo "         If ZMQML fails to build, install the ZeroMQ development package" >&2
-    echo "         or set PKG_CONFIG_PATH to the directory containing libzmq.pc." >&2
-fi
-
-# Build local ZMQML requester library required by director-client.C
-pushd codes/src/surrogate/zmqml
-make clean
-make
-test -f libzmqmlrequester.so
-test -f zmqmlrequester.h
-popd
-
-# Make imported zmqmlrequester target visible to doc/example and tests.
-python3 - <<'INNERPY'
-from pathlib import Path
-cm = Path("codes/src/CMakeLists.txt")
-text = cm.read_text()
-old = "add_library(zmqmlrequester SHARED IMPORTED )"
-new = "add_library(zmqmlrequester SHARED IMPORTED GLOBAL)"
-if old in text:
-    cm.write_text(text.replace(old, new))
-elif new in text:
-    pass
-else:
-    raise SystemExit("Could not find zmqmlrequester imported target line in codes/src/CMakeLists.txt")
-INNERPY
 
 mkdir -p codes/build
 pushd codes/build
@@ -368,10 +367,8 @@ make_args_codes=(
     -DCMAKE_USE_WIN32_THREADS_INIT=0
     -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
     -DCMAKE_INSTALL_PREFIX="$(realpath bin)"
-    -DZMQML_BUILD_PATH="$(realpath "$CUR_DIR/codes/src/surrogate/zmqml")"
-    -DZeroMQ_INCLUDE_DIR=/usr/include
-    -DZeroMQ_LIBRARY=/usr/lib/x86_64-linux-gnu/libzmq.so
 )
+
 if [ $swm_enable = 1 ]; then
     make_args_codes=(
         "${make_args_codes[@]}"
@@ -390,6 +387,10 @@ if [ "$torch_enable" = 1 ]; then
         "${make_args_codes[@]}"
         -DUSE_TORCH=true
         -DTorch_DIR="${torch_dir}"
+        -DUSE_ZMQML=true
+        -DZMQML_BUILD_PATH="$(realpath "$CUR_DIR/codes/src/surrogate/zmqml")"
+        -DZeroMQ_INCLUDE_DIR=/usr/include
+        -DZeroMQ_LIBRARY=/usr/lib/x86_64-linux-gnu/libzmq.so
     )
 
     if [ -n "${CUDA_HOME:-}" ]; then
@@ -412,7 +413,10 @@ if [ "$torch_enable" = 1 ]; then
         )
     fi
 else
-    make_args_codes=("${make_args_codes[@]}" -DUSE_TORCH=false)
+    make_args_codes=(
+        "${make_args_codes[@]}"
+        -DUSE_TORCH=false
+    )
 fi
 
 cmake .. "${make_args_codes[@]}"

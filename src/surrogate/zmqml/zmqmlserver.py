@@ -20,6 +20,8 @@ from runmlpacketdelay import run_mlpacketdelay_training
 from model.mliterationtime import IterationTimeModelRegistry
 from model.mleventtime import EventTimeModel
 import csv
+import io
+import pickle
 from pathlib import Path
 
 import os
@@ -37,19 +39,197 @@ director_debug_prints = False
 launch_id = count(start=1) # unique for launched thread
 launched_threads = {} # id:obj. keep track of active threads. remove the thread once it finished
 
-training_records = {} # client_id:[]
-iteration_time_models = IterationTimeModelRegistry(
-    history_len=int(os.environ.get("ZMQML_ITERATION_HISTORY_LEN", "4")),
-    horizon=int(os.environ.get("ZMQML_ITERATION_HORIZON", "30")),
-    ridge_alpha=float(os.environ.get("ZMQML_ITERATION_RIDGE_ALPHA", "1.0")),
-    train_stride=int(os.environ.get("ZMQML_ITERATION_TRAIN_STRIDE", "3")),
-)
-event_time_model = EventTimeModel(
-    min_rows=int(os.environ.get("ZMQML_EVENT_TIME_MIN_ROWS", "32")),
-    max_epochs=int(os.environ.get("ZMQML_EVENT_TIME_EPOCHS", "80")),
-    lr=float(os.environ.get("ZMQML_EVENT_TIME_LR", "0.001")),
-    hidden_dim=int(os.environ.get("ZMQML_EVENT_TIME_HIDDEN_DIM", "64")),
-)
+training_records = {} # client_id -> []
+
+ITERATION_MODEL_KWARGS = {
+    "history_len": int(os.environ.get("ZMQML_ITERATION_HISTORY_LEN", "4")),
+    "horizon": int(os.environ.get("ZMQML_ITERATION_HORIZON", "30")),
+    "ridge_alpha": float(os.environ.get("ZMQML_ITERATION_RIDGE_ALPHA", "1.0")),
+    "train_stride": int(os.environ.get("ZMQML_ITERATION_TRAIN_STRIDE", "3")),
+}
+
+EVENT_TIME_MODEL_KWARGS = {
+    "min_rows": int(os.environ.get("ZMQML_EVENT_TIME_MIN_ROWS", "32")),
+    "max_epochs": int(os.environ.get("ZMQML_EVENT_TIME_EPOCHS", "80")),
+    "lr": float(os.environ.get("ZMQML_EVENT_TIME_LR", "0.001")),
+    "hidden_dim": int(os.environ.get("ZMQML_EVENT_TIME_HIDDEN_DIM", "64")),
+}
+
+DEFAULT_TERMINAL_MODEL_SCOPE = "terminal"
+DEFAULT_TERMINAL_MODEL_KEY = "global"
+
+# The current dragonfly-dally event-time rows use numeric LP-type fields.
+# By default, current_lp_type=0 is treated as a terminal LP; all other LP
+# types get switch-local models. Override if the enum changes.
+EVENT_TIME_TERMINAL_LP_TYPES = {
+    token.strip()
+    for token in os.environ.get("ZMQML_EVENT_TIME_TERMINAL_LP_TYPES", "0").split(",")
+    if token.strip()
+}
+
+
+def normalize_model_identity(model_scope: str | None = None, model_key: str | None = None) -> tuple[str, str, str]:
+    scope = str(model_scope or "").strip()
+    key = str(model_key or "").strip()
+
+    if not scope:
+        scope = DEFAULT_TERMINAL_MODEL_SCOPE
+
+    if scope in ("terminal", "term", "client", "global"):
+        scope = DEFAULT_TERMINAL_MODEL_SCOPE
+        key = DEFAULT_TERMINAL_MODEL_KEY
+    elif scope in ("router", "switch", "switch-lp", "router-lp"):
+        scope = "switch"
+        if not key:
+            key = "unknown"
+    else:
+        if not key:
+            key = DEFAULT_TERMINAL_MODEL_KEY
+
+    model_id = f"{scope}:{key}"
+    return scope, key, model_id
+
+
+def model_identity_from_real_args(
+    real_args: list[str],
+    *,
+    offset: int,
+    default_scope: str = DEFAULT_TERMINAL_MODEL_SCOPE,
+    default_key: str = DEFAULT_TERMINAL_MODEL_KEY,
+) -> tuple[str, str, str]:
+    if len(real_args) >= offset + 2:
+        return normalize_model_identity(real_args[offset], real_args[offset + 1])
+    return normalize_model_identity(default_scope, default_key)
+
+
+
+
+class ScopedEventTimeModelRegistry:
+    def __init__(self, kwargs: dict):
+        self.kwargs = dict(kwargs)
+        self.models: dict[str, EventTimeModel] = {}
+        self.debug = False
+        self.model_versions: dict[str, int] = {}
+
+    def set_debug(self, enabled: bool) -> None:
+        self.debug = bool(enabled)
+        for model in self.models.values():
+            model.set_debug(self.debug)
+
+    def get(self, model_scope: str | None = None, model_key: str | None = None) -> EventTimeModel:
+        _, _, model_id = normalize_model_identity(model_scope, model_key)
+        if model_id not in self.models:
+            model = EventTimeModel(**self.kwargs)
+            model.set_debug(self.debug)
+            self.models[model_id] = model
+            self.model_versions.setdefault(model_id, 0)
+        return self.models[model_id]
+
+    def model_id(self, model_scope: str | None = None, model_key: str | None = None) -> str:
+        return normalize_model_identity(model_scope, model_key)[2]
+
+    def train_or_update(self, model_scope: str | None = None, model_key: str | None = None) -> bool:
+        if model_scope in (None, "", "all", "*"):
+            trained_any = False
+            for model_id, model in self.models.items():
+                trained = model.train_or_update()
+                if trained:
+                    self.model_versions[model_id] = self.model_versions.get(model_id, 0) + 1
+                trained_any = trained or trained_any
+            return trained_any
+
+        model_id = self.model_id(model_scope, model_key)
+        model = self.get(model_scope, model_key)
+        trained = model.train_or_update()
+        if trained:
+            self.model_versions[model_id] = self.model_versions.get(model_id, 0) + 1
+        return trained
+
+    @staticmethod
+    def _safe_filename(model_id: str) -> str:
+        return model_id.replace("/", "_").replace(":", "__")
+
+    def save(self, path: str | Path, model_scope: str | None = None, model_key: str | None = None) -> None:
+        path = Path(path)
+
+        if model_scope not in (None, "", "all", "*"):
+            model = self.get(model_scope, model_key)
+            if path.parent:
+                path.parent.mkdir(parents=True, exist_ok=True)
+            model.save(path)
+            return
+
+        path.mkdir(parents=True, exist_ok=True)
+        manifest = {
+            "format": "scoped-event-time-directory-v1",
+            "models": {},
+        }
+
+        for model_id, model in sorted(self.models.items()):
+            filename = self._safe_filename(model_id) + ".pt"
+            model.save(path / filename)
+            manifest["models"][model_id] = filename
+
+        (path / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True))
+
+    def load(self, path: str | Path, model_scope: str | None = None, model_key: str | None = None) -> None:
+        path = Path(path)
+
+        if path.is_dir():
+            manifest_path = path / "manifest.json"
+            if not manifest_path.exists():
+                raise FileNotFoundError(f"missing scoped event-time manifest: {manifest_path}")
+
+            manifest = json.loads(manifest_path.read_text())
+            self.models.clear()
+            self.model_versions.clear()
+            for model_id, filename in manifest.get("models", {}).items():
+                scope, key = model_id.split(":", 1)
+                model = self.get(scope, key)
+                model.load(path / filename)
+                model.set_debug(self.debug)
+                self.model_versions[model_id] = self.model_versions.get(model_id, 0) + 1
+            return
+
+        # Backward-compatible load of an old single event-time model file.
+        model = self.get(model_scope, model_key)
+        model.load(path)
+        model.set_debug(self.debug)
+        model_id = self.model_id(model_scope, model_key)
+        self.model_versions[model_id] = self.model_versions.get(model_id, 0) + 1
+
+    def status(self, model_scope: str | None = None, model_key: str | None = None) -> dict[str, str]:
+        if model_scope in (None, "", "all", "*"):
+            model_ids = sorted(self.models)
+        else:
+            model_ids = [self.model_id(model_scope, model_key)]
+
+        total_rows = 0
+        trained_models = 0
+        entries = []
+
+        for model_id in model_ids:
+            model = self.models.get(model_id)
+            if model is None:
+                continue
+            total_rows += len(model.rows)
+            trained_models += int(bool(model.trained))
+            entries.append(
+                f"{model_id}:rows={len(model.rows)},trained={int(model.trained)},examples={model.training_examples}"
+            )
+
+        return {
+            "model_count": str(len(model_ids)),
+            "trained_models": str(trained_models),
+            "total_rows": str(total_rows),
+            "models": ";".join(entries),
+        }
+
+
+iteration_time_models = IterationTimeModelRegistry(**ITERATION_MODEL_KWARGS)
+event_time_models = ScopedEventTimeModelRegistry(EVENT_TIME_MODEL_KWARGS)
+
+event_time_model = event_time_models.get()
 iteration_model_path = os.environ.get("ZMQML_ITERATION_MODEL_PATH", "").strip()
 event_time_model_path = os.environ.get("ZMQML_EVENT_TIME_MODEL_PATH", "").strip()
 event_time_record_log_path = os.environ.get("ZMQML_EVENT_TIME_RECORD_LOG_PATH", "").strip()
@@ -58,10 +238,7 @@ record_format = os.environ.get("ZMQML_RECORD_FORMAT", "app_id,client,iteration,v
 app_alloc_path = os.environ.get("ZMQML_APP_ALLOC_PATH", "").strip()
 
 auto_train_on_records = os.environ.get(
-    "ZMQML_AUTO_TRAIN_ON_RECORDS", "1"
-).strip().lower() in ("1", "true", "yes", "on")
-event_time_auto_train_on_records = os.environ.get(
-    "ZMQML_EVENT_TIME_AUTO_TRAIN_ON_RECORDS", "0"
+    "ZMQML_AUTO_TRAIN_ON_RECORDS", "0"
 ).strip().lower() in ("1", "true", "yes", "on")
 
 iteration_model_version = 0
@@ -83,10 +260,11 @@ if iteration_model_path:
     )
 
 if event_time_model_path:
-    event_time_model.load(event_time_model_path)
+    event_time_models.load(event_time_model_path)
+    event_time_model = event_time_models.get()
     event_time_model_version = 1
     print(
-        f"[zmqmlserver] loaded event-time model: {event_time_model_path}",
+        f"[zmqmlserver] loaded event-time model(s): {event_time_model_path}",
         flush=True,
     )
 
@@ -228,7 +406,7 @@ def set_director_debug_prints(args):
 
     director_debug_prints = raw in ("1", "true", "yes", "on", "enabled")
     iteration_time_models.set_debug(director_debug_prints)
-    event_time_model.set_debug(director_debug_prints)
+    event_time_models.set_debug(director_debug_prints)
 
     if director_debug_prints:
         print(f"[zmqmlserver] director_debug_prints=1", flush=True)
@@ -335,13 +513,17 @@ def receivedata(args, bindata):
 #
 # receive training records
 #
+
 def receiverecords(args, bindata):
     status = "failed"
     st = time.time()
 
-    num_args = int(args[0]) # 1st arg is num of args
-    client = int(args[1]) # 2nd arg is client id
-    num_records = int(args[2]) # 3rd arg is num records
+    real_args = _real_command_args(args)
+    if len(real_args) < 2:
+        return ("failed", time.time() - st)
+
+    client = int(real_args[0])
+    num_records = int(real_args[1])
 
     records_str = str(bindata.decode('utf-8'))
     records_str = records_str.strip()
@@ -361,17 +543,10 @@ def receiverecords(args, bindata):
 
     training_records[client].extend(parsed_records)
 
-    # Keep the raw records available for offline/pretraining workflows.
-    # By default this preserves the old behavior and trains immediately.
-    # Set ZMQML_AUTO_TRAIN_ON_RECORDS=0 for pure-PDES collection or
-    # frozen pretrained inference runs.
     if parsed_records:
         append_record_log(client, parsed_records)
         model = iteration_time_models.get(client)
 
-        # Enrich the ML model with app_id metadata when available.
-        # The C++ protocol still sends client + timing values, while the Python
-        # server infers app_id from ZMQML_APP_ALLOC_PATH.
         app_id = client_app_map.get(client, -1) if "client_app_map" in globals() else -1
 
         if hasattr(model, "set_app_id"):
@@ -400,19 +575,17 @@ def receiverecords(args, bindata):
     return (status, elapsed_time)
 
 
-#
-# do inference to get predictions
-#
 def launch_iteration_time_inferencing(args, bindata):
     status = "failed"
     st = time.time()
 
-    num_args = int(args[0]) # 1st arg is num of args
-    client = int(args[1]) # 2nd arg is client id
-    num_steps = int(args[2]) # 3rd arg is num steps to predict
+    real_args = _real_command_args(args)
+    if len(real_args) < 2:
+        return ("failed", time.time() - st, "")
 
-    # Optional recent-context payload. The normal path uses records previously
-    # received through send-records, but accepting context keeps the API flexible.
+    client = int(real_args[0])
+    num_steps = int(real_args[1])
+
     records_str = str(bindata.decode('utf-8'))
     records_str = records_str.strip()
 
@@ -447,11 +620,6 @@ def launch_iteration_time_inferencing(args, bindata):
     status = "done"
     elapsed_time = time.time() - st
     return (status, elapsed_time, inferences_str)
-
-
-
-
-
 
 def event_time_payload_has_header(payload: str) -> bool:
     for line in payload.splitlines():
@@ -502,26 +670,100 @@ def append_event_time_record_log(payload: str) -> None:
             f.write("\n")
 
 
+def event_time_model_identity_from_row(row: dict) -> tuple[str, str, str]:
+    raw_lp_type = str(row.get("current_lp_type", "")).strip()
+    raw_gid = str(row.get("current_lp_gid", "")).strip()
+
+    if raw_lp_type in EVENT_TIME_TERMINAL_LP_TYPES:
+        return normalize_model_identity("terminal", "global")
+
+    return normalize_model_identity("switch", raw_gid or "unknown")
+
+
+def iter_event_time_rows_from_payload(raw_payload: str):
+    payload = event_time_payload_with_header(raw_payload)
+    if not payload.strip():
+        return
+
+    reader = csv.DictReader(io.StringIO(payload))
+    if reader.fieldnames:
+        reader.fieldnames = [str(name).strip().lstrip("#").strip() for name in reader.fieldnames]
+
+    for row in reader:
+        clean = {str(k).strip().lstrip("#").strip(): v for k, v in row.items()}
+        yield clean
+
+
 def receive_event_time_records(args, bindata):
     st = time.time()
 
     raw_payload = bindata.decode("utf-8", errors="replace").strip()
-    payload = event_time_payload_with_header(raw_payload)
-    loaded_rows = event_time_model.add_records_text(payload) if payload else 0
+    loaded_rows = 0
+
+    # Important performance rule:
+    # Do NOT call EventTimeModel.add_records_text(...) once per row.
+    # Event-time batches can contain 65K+ rows, and per-row parsing/routing makes
+    # pure-PDES collection much slower than the old single-global model path.
+    #
+    # Instead, parse once, group rows by scoped model id, then call
+    # add_records_text(...) once per scoped model per C++ batch.
+    grouped_rows: dict[str, list[dict]] = {}
+    grouped_identity: dict[str, tuple[str, str]] = {}
+
+    for row in iter_event_time_rows_from_payload(raw_payload) or []:
+        model_scope, model_key, model_id = event_time_model_identity_from_row(row)
+        grouped_rows.setdefault(model_id, []).append(row)
+        grouped_identity[model_id] = (model_scope, model_key)
+
+    per_model_loaded: dict[str, int] = {}
+
+    for model_id, rows in grouped_rows.items():
+        model_scope, model_key = grouped_identity[model_id]
+        model = event_time_models.get(model_scope, model_key)
+
+        if not rows:
+            continue
+
+        # Build one CSV payload for this model. Preserve the field order from
+        # the first row and include any later extra keys defensively.
+        fieldnames = list(rows[0].keys())
+        seen = set(fieldnames)
+        for row in rows[1:]:
+            for key in row.keys():
+                if key not in seen:
+                    fieldnames.append(key)
+                    seen.add(key)
+
+        buf = io.StringIO()
+        writer = csv.DictWriter(buf, fieldnames=fieldnames, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(rows)
+
+        accepted = model.add_records_text(buf.getvalue())
+        loaded_rows += accepted
+        per_model_loaded[model_id] = accepted
+
+        if accepted > 0 and auto_train_on_records:
+            model.train_or_update()
 
     if loaded_rows > 0:
         append_event_time_record_log(raw_payload)
-        if event_time_auto_train_on_records:
-            event_time_model.train_or_update()
 
-    director_debug(
-        f"[event-time records] loaded_rows={loaded_rows} "
-        f"total_rows={len(event_time_model.rows)} "
-        f"trained={int(event_time_model.trained)}"
-    )
+    if director_debug_prints:
+        # Keep this compact. Printing the full per_model dict for 100+ switch
+        # models is noisy and can itself become expensive.
+        nonempty_models = sum(1 for v in per_model_loaded.values() if v > 0)
+        min_rows = min(per_model_loaded.values()) if per_model_loaded else 0
+        max_rows = max(per_model_loaded.values()) if per_model_loaded else 0
+        sample = sorted(per_model_loaded.items())[:8]
+        print(
+            f"[event-time records] loaded_rows={loaded_rows} "
+            f"models={nonempty_models} min_rows_per_model={min_rows} "
+            f"max_rows_per_model={max_rows} sample={sample}",
+            flush=True,
+        )
 
     return ("done", time.time() - st, loaded_rows)
-
 
 def load_event_time_records_csv_command(args):
     st = time.time()
@@ -542,22 +784,44 @@ def load_event_time_records_csv_command(args):
             "error": f"event-time records path does not exist: {path}",
         }
 
-    loaded_rows = event_time_model.load_csv(path)
+    loaded_rows = 0
+    files = sorted(path.rglob("*")) if path.is_dir() else [path]
 
-    return {
+    for child in files:
+        if not child.is_file() or child.suffix.lower() not in (".csv", ".txt", ".log"):
+            continue
+        status, _et, child_rows = receive_event_time_records(["0"], child.read_text().encode("utf-8"))
+        if status == "done":
+            loaded_rows += int(child_rows)
+
+    ret = {
         "status": "done",
         "et": str(time.time() - st),
         "path": str(path),
         "loaded_rows": str(loaded_rows),
-        "total_rows": str(len(event_time_model.rows)),
     }
+    ret.update(event_time_models.status())
+    return ret
 
 
 def train_event_time_model_command(args):
     global event_time_model_version
 
     st = time.time()
-    trained = event_time_model.train_or_update()
+    real_args = _real_command_args(args)
+
+    target = real_args[0] if real_args else "all"
+    if target in ("", "all", "*"):
+        trained = event_time_models.train_or_update("all", "")
+        model_scope = "all"
+        model_key = ""
+        model_id = "all"
+    elif len(real_args) >= 2:
+        model_scope, model_key, model_id = normalize_model_identity(real_args[0], real_args[1])
+        trained = event_time_models.train_or_update(model_scope, model_key)
+    else:
+        model_scope, model_key, model_id = normalize_model_identity("switch", target)
+        trained = event_time_models.train_or_update(model_scope, model_key)
 
     if trained:
         event_time_model_version += 1
@@ -565,18 +829,17 @@ def train_event_time_model_command(args):
     ret = {
         "status": "done" if trained else "failed",
         "et": str(time.time() - st),
+        "target": model_id,
         "model_version": str(event_time_model_version),
     }
-    ret.update(event_time_model.status())
+    ret.update(event_time_models.status(model_scope, model_key))
 
     if not trained:
-        ret["error"] = "event-time model was not trained; load enough generic event-time rows first"
+        ret["error"] = "event-time model was not trained; load enough scoped event-time rows first"
 
     print(
-        f"[event-time model-train-command] trained={int(trained)} "
-        f"rows={len(event_time_model.rows)} "
-        f"training_examples={event_time_model.training_examples} "
-        f"model_version={event_time_model_version}",
+        f"[event-time model-train-command] target={model_id} trained={int(trained)} "
+        f"model_version={event_time_model_version} status={event_time_models.status(model_scope, model_key)}",
         flush=True,
     )
 
@@ -595,21 +858,29 @@ def save_event_time_model_command(args):
         }
 
     model_path = Path(real_args[0])
-    if model_path.parent:
-        model_path.parent.mkdir(parents=True, exist_ok=True)
+    target = real_args[1] if len(real_args) >= 2 else "all"
 
-    event_time_model.save(model_path)
+    if target in ("", "all", "*"):
+        event_time_models.save(model_path, "all", "")
+        model_id = "all"
+    elif len(real_args) >= 3:
+        model_scope, model_key, model_id = normalize_model_identity(real_args[1], real_args[2])
+        event_time_models.save(model_path, model_scope, model_key)
+    else:
+        model_scope, model_key, model_id = normalize_model_identity("switch", target)
+        event_time_models.save(model_path, model_scope, model_key)
 
     return {
         "status": "done",
         "et": str(time.time() - st),
         "path": str(model_path),
+        "target": model_id,
         "model_version": str(event_time_model_version),
     }
 
 
 def load_event_time_model_command(args):
-    global event_time_model_version
+    global event_time_model_version, event_time_model
 
     st = time.time()
     real_args = _real_command_args(args)
@@ -629,25 +900,50 @@ def load_event_time_model_command(args):
             "error": f"model path does not exist: {model_path}",
         }
 
-    event_time_model.load(model_path)
+    target = real_args[1] if len(real_args) >= 2 else "all"
+
+    if target in ("", "all", "*"):
+        event_time_models.load(model_path)
+        model_id = "all"
+    elif len(real_args) >= 3:
+        model_scope, model_key, model_id = normalize_model_identity(real_args[1], real_args[2])
+        event_time_models.load(model_path, model_scope, model_key)
+    else:
+        model_scope, model_key, model_id = normalize_model_identity("switch", target)
+        event_time_models.load(model_path, model_scope, model_key)
+
+    event_time_model = event_time_models.get()
     event_time_model_version += 1
 
     return {
         "status": "done",
         "et": str(time.time() - st),
         "path": str(model_path),
+        "target": model_id,
         "model_version": str(event_time_model_version),
     }
 
 
 def event_time_model_status_command(args):
     st = time.time()
+    real_args = _real_command_args(args)
+
+    if not real_args or real_args[0] in ("", "all", "*"):
+        model_scope = "all"
+        model_key = ""
+        model_id = "all"
+    elif len(real_args) >= 2:
+        model_scope, model_key, model_id = normalize_model_identity(real_args[0], real_args[1])
+    else:
+        model_scope, model_key, model_id = normalize_model_identity("switch", real_args[0])
+
     ret = {
         "status": "done",
         "et": str(time.time() - st),
+        "target": model_id,
         "model_version": str(event_time_model_version),
     }
-    ret.update(event_time_model.status())
+    ret.update(event_time_models.status(model_scope, model_key))
     return ret
 
 
@@ -663,15 +959,24 @@ def launch_event_time_inferencing(args, bindata):
             requested_count = 1
 
     payload = bindata.decode("utf-8", errors="replace").strip()
-    predictions = event_time_model.predict_from_text(
+    rows = list(iter_event_time_rows_from_payload(payload) or [])
+
+    if rows:
+        model_scope, model_key, model_id = event_time_model_identity_from_row(rows[0])
+    else:
+        model_scope, model_key, model_id = normalize_model_identity()
+
+    model = event_time_models.get(model_scope, model_key)
+    predictions = model.predict_from_text(
         payload,
         requested_count=max(1, requested_count),
     )
     predictions_str = " ".join(str(float(x)) for x in predictions)
 
     director_debug(
-        f"[event-time inference] requested_count={requested_count} "
-        f"payload_bytes={len(payload)} predictions={predictions_str}"
+        f"[event-time inference] model={model_id} requested_count={requested_count} "
+        f"payload_bytes={len(payload)} trained={int(model.trained)} "
+        f"rows={len(model.rows)} predictions={predictions_str}"
     )
 
     return ("done", time.time() - st, predictions_str)
@@ -693,6 +998,7 @@ def _real_command_args(args):
             pass
 
     return out
+
 
 
 def train_iteration_time_model_command(args):
@@ -875,7 +1181,6 @@ def load_iteration_records_csv_command(args):
         "loaded_clients": str(len(loaded_clients)),
     }
 
-
 def load_iteration_time_model_command(args):
     global iteration_model_version
 
@@ -914,6 +1219,7 @@ def load_iteration_time_model_command(args):
         "path": str(in_path),
         "model_version": str(iteration_model_version),
     }
+
 
 
 def iteration_time_model_status_command(args):
@@ -960,8 +1266,6 @@ def iteration_time_model_status_command(args):
         "clients": ";".join(per_client),
     }
 
-
-# Backwards-compatible wrapper for the old command name.
 def launch_surrogate_inferencing(args, bindata):
     return launch_iteration_time_inferencing(args, bindata)
 
@@ -991,7 +1295,7 @@ def director_request_command(msg, bindata):
     family = str(msg.get("surrogate_family", "iteration-time")).strip()
     operation = str(msg.get("operation", "")).strip()
     backend = str(msg.get("surrogate_backend", "")).strip()
-    args = _real_command_args(msg.get("args", []))
+    args = msg.get("args", [])
 
     operation_aliases = {
         "status": "model-status",

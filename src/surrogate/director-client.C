@@ -23,7 +23,7 @@
 #define DIR_ZMQ_CMD_LENGTH 64
 #define DIR_ZMQ_ARG_LENGTH 2048
 
-#define DIR_MAX_PREDICTION 5
+#define DIR_MAX_PREDICTION 1
 #define DIR_MAX_TRAINING_RECORDS 10
 /*
  * The Python iteration-time model currently uses history_len=2 and horizon=3,
@@ -86,29 +86,40 @@ std::vector<std::string> director_client_request_family(const char* surrogate_fa
 int surrogate_enabled = 0;
 int inferencing_enabled = 1;
 
-
-void director_record_zmq_latency_stats(const char* label, const std::vector<std::string>& ret,
-                                       double local_latency_sec) {
-    (void)label;
-
+static void director_record_zmq_latency_values(double processing_sec, double total_sec) {
     if (evaluate_perf != 1) {
         return;
     }
 
-    director_zmq_total_elapsed_times.push_back(local_latency_sec);
+    if (!std::isfinite(processing_sec) || processing_sec < 0.0) {
+        processing_sec = 0.0;
+    }
 
+    if (!std::isfinite(total_sec) || total_sec < 0.0) {
+        total_sec = 0.0;
+    }
+
+    director_zmq_processing_times.push_back(processing_sec);
+    director_zmq_total_elapsed_times.push_back(total_sec);
+}
+
+static void director_record_zmq_latency_stats(const char* label,
+                                              const std::vector<std::string>& ret,
+                                              double local_latency_sec) {
     double zmq_processing_time = 0.0;
+
     if (ret.size() > 1) {
-        try {
-            zmq_processing_time = std::stod(ret[1]);
-        } catch (...) {
-            if (director_debug_prints) {
-                fprintf(stderr,
-                        "[DIR] Warning: could not parse zmq processing time from reply field "
-                        "ret[1]=%s\n",
-                        ret[1].c_str());
-                fflush(stderr);
-            }
+        char* endptr = NULL;
+        double parsed = strtod(ret[1].c_str(), &endptr);
+
+        if (endptr != ret[1].c_str() && std::isfinite(parsed) && parsed >= 0.0) {
+            zmq_processing_time = parsed;
+        } else if (director_debug_prints) {
+            fprintf(stderr,
+                    "[DIR] Warning: could not parse zmq processing time from reply field ret[1]=%s "
+                    "request=%s\n",
+                    ret[1].c_str(), label ? label : "");
+            fflush(stderr);
         }
     } else if (director_debug_prints) {
         fprintf(stderr,
@@ -117,9 +128,12 @@ void director_record_zmq_latency_stats(const char* label, const std::vector<std:
         fflush(stderr);
     }
 
-    director_zmq_processing_times.push_back(zmq_processing_time);
+    director_record_zmq_latency_values(zmq_processing_time, local_latency_sec);
 }
 
+extern "C" void director_record_external_zmq_latency(double processing_sec, double total_sec) {
+    director_record_zmq_latency_values(processing_sec, total_sec);
+}
 
 static int director_surrogate_family_is(const char* family) {
     return strcmp(director_config_global.surrogate_family, family) == 0;
@@ -333,7 +347,7 @@ static void director_send_iteration_records_now(int client_id, int training_cycl
      *
      * training_cycle_id is currently used only for local debug output.
      */
-    sprintf(args, "%d;%d;%d;", 3, client_id, num_records);
+    sprintf(args, "%d;%d;%d;", 2, client_id, num_records);
 
     struct timespec start, end;
     clock_gettime(CLOCK_MONOTONIC, &start);
@@ -977,8 +991,8 @@ void director_get_surrogate_prediction(director_state* s, tw_bf* bf, director_me
             char args[DIR_ZMQ_ARG_LENGTH];
 
             sprintf(commandstr, "%s", "director-request");
-            sprintf(args, "%d;%llu;%d;", 3, (unsigned long long)s->director_id,
-                    DIR_MAX_PREDICTION); // num-of-args;num-record
+            sprintf(args, "%d;%llu;%d;", 2, (unsigned long long)s->director_id,
+                    DIR_MAX_PREDICTION); // num-of-args;client-id;num-predictions
 
             // The Python side primarily uses records previously sent through
             // send-records. Keep the payload empty for now rather than sending
@@ -1246,31 +1260,29 @@ void director_event_handler_commit(director_state* s, tw_bf* bf, director_messag
 
 static void director_reduce_and_print_zmq_latency_stat(const char* stat_name,
                                                        const std::vector<double>& local_values) {
-    unsigned long long local_count = (unsigned long long)local_values.size();
-
+    unsigned long long local_count = 0;
     double local_sum = 0.0;
     double local_sq_sum = 0.0;
     double local_min = std::numeric_limits<double>::infinity();
     double local_max = -std::numeric_limits<double>::infinity();
 
     for (double value : local_values) {
+        if (!std::isfinite(value)) {
+            continue;
+        }
+
+        local_count++;
         local_sum += value;
         local_sq_sum += value * value;
-
-        if (value < local_min) {
-            local_min = value;
-        }
-
-        if (value > local_max) {
-            local_max = value;
-        }
+        local_min = std::min(local_min, value);
+        local_max = std::max(local_max, value);
     }
 
     unsigned long long global_count = 0;
     double global_sum = 0.0;
     double global_sq_sum = 0.0;
-    double global_min = 0.0;
-    double global_max = 0.0;
+    double global_min = std::numeric_limits<double>::infinity();
+    double global_max = -std::numeric_limits<double>::infinity();
 
     MPI_Reduce(&local_count, &global_count, 1, MPI_UNSIGNED_LONG_LONG, MPI_SUM, 0, MPI_COMM_CODES);
 
@@ -1293,14 +1305,14 @@ static void director_reduce_and_print_zmq_latency_stat(const char* stat_name,
     double variance = global_sq_sum / (double)global_count - mean * mean;
 
     /*
-     * Floating-point roundoff can make variance slightly negative when
-     * values are very close together.
+     * Floating-point roundoff can make variance slightly negative when values
+     * are very close together.
      */
     if (variance < 0.0 && variance > -1.0e-18) {
         variance = 0.0;
     }
 
-    double stddev = sqrt(variance);
+    double stddev = variance > 0.0 ? sqrt(variance) : 0.0;
 
     std::cout << std::setprecision(9) << std::fixed << "==DIR_STATS " << stat_name
               << ": requests = " << global_count << ", mean = " << mean << ", min = " << global_min
@@ -1335,6 +1347,7 @@ static void director_print_zmq_latency_stats_once(void) {
                                                director_zmq_total_elapsed_times);
 }
 
+
 void director_finalize(director_state* s, tw_lp* lp) {
     director_print_zmq_latency_stats_once();
 
@@ -1365,8 +1378,7 @@ tw_lptype dir_lp = {(init_f)director_init,
 extern void director_lp_register_model(const char* dir_lp_name) {
     int num_dir_per_mgrp = codes_mapping_get_lp_count("MODELNET_GRP", 1, "dir-nw-lp", NULL, 0);
     if (num_dir_per_mgrp > 0) {
-        lp_type_register(dir_lp_name, &dir_lp); // DIRECTOR addition - register type
-        //printf("\n==DIR: Registered\n");
+        lp_type_register(dir_lp_name, &dir_lp);
     }
 }
 

@@ -139,6 +139,7 @@ This repo uses [clang-format](https://clang.llvm.org/docs/ClangFormat.html) to k
 - **Emacs:** see [clang-format.el](https://clang.llvm.org/docs/ClangFormat.html#emacs-integration).
 
 To reformat a file manually: `clang-format -i path/to/file.c`. CI runs `clang-format --dry-run --Werror` on every PR and rejects any drift, so PRs with unformatted code don't merge.
+Note: The CI uses clang-format major release version 20, so you should format your files with that version.
 
 ### Determinism
 
