@@ -23,17 +23,19 @@ on:
 # ...each crossed with {MPICH, OpenMPI}. Each leg builds a freshly built ROSS
 # pinned to a SHA, then CODES, then ctest. MPI is auto-discovered via
 # find_package(MPI) and the base compiler comes from CC/CXX, so the same CMake
-# serves every leg — the matrix only changes which packages get installed. Heavy
-# optional deps (SWM, UNION, DUMPI, TORCH, ZEROMQ) stay OFF so every leg runs on
-# a stock runner with no custom image. Both cmake minimums (CODES 3.17, ROSS
-# 3.16) are satisfied on 22.04's cmake 3.22.
+# serves every leg — the matrix only changes which packages get installed. CODES
+# is configured through CMakePresets.json (the debug/coverage/full-ci presets); ROSS
+# is located via the ROSS_ROOT env var. Heavy optional deps (SWM, UNION, DUMPI,
+# TORCH, ZEROMQ) are forced OFF on the stock legs so they run on a stock runner
+# with no custom image. All three cmake minimums (CODES 3.17, ROSS 3.16, and the
+# CMake-presets floor of 3.21) are satisfied on 22.04's cmake 3.22.
 #
 # The macOS leg is the safety net for Mac-specific link/include breakage, which
 # has historically reached master and had to be hand-fixed on a developer Mac.
 #
 # A separate `coverage` job (below) builds CODES with --coverage on
-# ubuntu-24.04/gcc and uploads to Codecov. Still deferred: a
-# heavy-deps "full" job.
+# ubuntu-24.04/gcc and uploads to Codecov. A heavy-deps `full` job builds every
+# optional subsystem inside the codes-ci-full image.
 #
 # Symmetric with ROSS's codes-contract.yml: ROSS pins CODES, CODES pins
 # ROSS, each catches consumer-API regressions in the other.
@@ -76,6 +78,9 @@ jobs:
       # MPICH legs.
       OMPI_MCA_rmaps_base_oversubscribe: "1"
       PRTE_MCA_rmaps_default_mapping_policy: ":oversubscribe"
+      # ROSS install prefix; find_package(ROSS) honors ROSS_ROOT, so the CODES
+      # presets need no hardcoded path. Matches the install prefix below.
+      ROSS_ROOT: ${{ github.workspace }}/ross-install
     steps:
       - name: Checkout CODES
         uses: actions/checkout@v4
@@ -148,19 +153,20 @@ jobs:
         run: cmake --build ross/build --target install -j
 
       - name: Configure CODES
-        run: >
-          cmake -S codes -B codes/build -G Ninja
-          -DCMAKE_BUILD_TYPE=Debug
-          -DBUILD_TESTING=ON
-          -DCODES_USE_TORCH=OFF
-          -DCODES_USE_ZEROMQ=OFF
-          -DCMAKE_PREFIX_PATH=$PWD/ross-install
+        working-directory: codes
+        # Generator, build type, and BUILD_TESTING come from the `debug` preset
+        # in CMakePresets.json; ROSS is found via the ROSS_ROOT env var. The two
+        # heavy deps a stock runner might auto-detect are forced off so this leg
+        # stays a deterministic stock build (the `full` job exercises them).
+        run: cmake --preset debug -DCODES_USE_TORCH=OFF -DCODES_USE_ZEROMQ=OFF
 
       - name: Build CODES
-        run: cmake --build codes/build -j
+        working-directory: codes
+        run: cmake --build --preset debug
 
       - name: Run CODES tests
-        run: ctest --test-dir codes/build --output-on-failure
+        working-directory: codes
+        run: ctest --preset debug
 
       - name: Upload logs on failure
         if: failure()
@@ -169,11 +175,11 @@ jobs:
           # Artifact names must be unique across matrix legs (upload-artifact@v4).
           name: build-logs-${{ matrix.os }}-${{ matrix.mpi }}-${{ matrix.cc }}
           path: |
-            codes/build/Testing/Temporary/LastTest.log
-            codes/build/Testing/Temporary/LastTestsFailed.log
-            codes/build/CMakeFiles/CMakeError.log
-            codes/build/CMakeFiles/CMakeOutput.log
-            codes/build/CMakeCache.txt
+            codes/build/debug/Testing/Temporary/LastTest.log
+            codes/build/debug/Testing/Temporary/LastTestsFailed.log
+            codes/build/debug/CMakeFiles/CMakeError.log
+            codes/build/debug/CMakeFiles/CMakeOutput.log
+            codes/build/debug/CMakeCache.txt
             ross/build/CMakeFiles/CMakeError.log
             ross/build/CMakeFiles/CMakeOutput.log
             ross/build/CMakeCache.txt
@@ -192,6 +198,9 @@ jobs:
   coverage:
     name: coverage (ubuntu-24.04, gcc)
     runs-on: ubuntu-24.04
+    env:
+      # ROSS install prefix; find_package(ROSS) honors ROSS_ROOT (CODES presets).
+      ROSS_ROOT: ${{ github.workspace }}/ross-install
     steps:
       - name: Checkout CODES
         uses: actions/checkout@v4
@@ -224,20 +233,16 @@ jobs:
         run: cmake --build ross/build --target install -j
 
       - name: Configure CODES (with coverage)
-        run: >
-          cmake -S . -B build -G Ninja
-          -DCMAKE_BUILD_TYPE=Debug
-          -DBUILD_TESTING=ON
-          -DCODES_USE_TORCH=OFF
-          -DCODES_USE_ZEROMQ=OFF
-          -DCODES_ENABLE_COVERAGE=ON
-          -DCMAKE_PREFIX_PATH=$PWD/ross-install
+        # CODES is checked out at the workspace root here (no `path:`), so the
+        # preset is found in the CWD. The `coverage` preset adds
+        # -DCODES_ENABLE_COVERAGE=ON; heavy deps forced off to match the matrix.
+        run: cmake --preset coverage -DCODES_USE_TORCH=OFF -DCODES_USE_ZEROMQ=OFF
 
       - name: Build CODES
-        run: cmake --build build -j
+        run: cmake --build --preset coverage
 
       - name: Run CODES tests
-        run: ctest --test-dir build --output-on-failure
+        run: ctest --preset coverage
 
       - name: Collect coverage (lcov)
         # --ignore-errors mismatch,gcov,source,unused tolerates the generated
@@ -246,7 +251,7 @@ jobs:
         # system + ROSS headers, the test harness, examples, and the generated
         # flex/bison lexers + parsers from the metric.
         run: |
-          lcov --capture --directory build --output-file coverage.info \
+          lcov --capture --directory build/coverage --output-file coverage.info \
                --ignore-errors mismatch,gcov,source,unused
           lcov --remove coverage.info \
                '/usr/*' \
@@ -280,7 +285,7 @@ jobs:
           name: coverage-report
           path: |
             coverage.info
-            build/Testing/Temporary/LastTest.log
+            build/coverage/Testing/Temporary/LastTest.log
           if-no-files-found: ignore
           retention-days: 14
 
@@ -304,6 +309,9 @@ jobs:
       image: ghcr.io/codes-org/codes-ci-full:latest
     permissions:
       contents: read
+    env:
+      # ROSS install prefix; find_package(ROSS) honors ROSS_ROOT (CODES presets).
+      ROSS_ROOT: ${{ github.workspace }}/ross-install
     steps:
       - name: Checkout CODES
         uses: actions/checkout@v4
@@ -328,31 +336,25 @@ jobs:
         run: cmake --build ross/build --target install -j
 
       - name: Configure CODES (all deps ON)
-        # Torch is discovered through the pip package's cmake prefix, matching
+        working-directory: codes
+        # The `full-ci` preset sets every CODES_USE_<dep>=ON and the /opt/<dep> paths
+        # baked into the codes-ci-full image. ROSS is found via ROSS_ROOT; Torch's
+        # cmake prefix comes from the pip package at runtime, matching
         # CODES-compile-instructions.sh.
         run: |
           export Torch_DIR="$(python3 -c 'import torch; print(torch.utils.cmake_prefix_path)')/Torch"
-          cmake -S codes -B codes/build -G Ninja \
-            -DCMAKE_BUILD_TYPE=Debug \
-            -DBUILD_TESTING=ON \
-            -DCODES_USE_UNION=ON \
-            -DCODES_USE_ZEROMQ=ON \
-            -DCODES_USE_DUMPI=ON \
-            -DCODES_USE_TORCH=ON \
-            -DSWM_PKG_CONFIG_PATH=/opt/swm/lib/pkgconfig \
-            -DUNION_PKG_CONFIG_PATH=/opt/union/lib/pkgconfig \
-            -DARGOBOTS_PKG_CONFIG_PATH=/opt/argobots/lib/pkgconfig \
-            -DDUMPI_BUILD_PATH=/opt/dumpi \
-            -DTorch_DIR="$Torch_DIR" \
-            -DCMAKE_PREFIX_PATH="$PWD/ross-install"
+          cmake --preset full-ci -DTorch_DIR="$Torch_DIR"
 
       - name: Build CODES
-        run: cmake --build codes/build -j
+        working-directory: codes
+        run: cmake --build --preset full-ci
 
       - name: Run CODES tests
-        # Exclude the union-surrogate director tests: their *.sh harnesses set
-        # only ~8 of the ~20 config-template vars (DIRECTOR_* etc.) so these tests fail.
-        run: ctest --test-dir codes/build --output-on-failure -E "union-workload-test-surrogate"
+        working-directory: codes
+        # The `full-ci` test preset excludes the union-surrogate director tests:
+        # their *.sh harnesses set only ~8 of the ~20 config-template vars
+        # (DIRECTOR_* etc.) so these tests fail.
+        run: ctest --preset full-ci
 
       - name: Upload logs on failure
         if: failure()
@@ -360,11 +362,11 @@ jobs:
         with:
           name: build-logs-full
           path: |
-            codes/build/Testing/Temporary/LastTest.log
-            codes/build/Testing/Temporary/LastTestsFailed.log
-            codes/build/CMakeFiles/CMakeError.log
-            codes/build/CMakeFiles/CMakeOutput.log
-            codes/build/CMakeCache.txt
+            codes/build/full/Testing/Temporary/LastTest.log
+            codes/build/full/Testing/Temporary/LastTestsFailed.log
+            codes/build/full/CMakeFiles/CMakeError.log
+            codes/build/full/CMakeFiles/CMakeOutput.log
+            codes/build/full/CMakeCache.txt
             ross/build/CMakeFiles/CMakeError.log
             ross/build/CMakeFiles/CMakeOutput.log
           if-no-files-found: ignore

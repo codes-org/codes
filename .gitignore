@@ -5,6 +5,9 @@
 .cache
 compile_commands.json
 
+# Per-developer presets that inherit from the committed CMakePresets.json
+CMakeUserPresets.json
+
 # CTest output
 Testing/
 

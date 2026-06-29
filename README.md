@@ -66,6 +66,83 @@ MPI is auto-discovered via `find_package(MPI)` — do **not** set `CC=mpicc` or
 its wrapper (`mpicc`) is on your `PATH` (e.g. `module load mpich`). For a
 non-standard install, hint with `-DMPI_HOME=/path/to/mpi`.
 
+## Building with CMake presets
+
+`CMakePresets.json` ships ready-to-use build configurations so you don't have to
+remember the flags above. Presets require CMake ≥ 3.21.
+
+First make ROSS discoverable. Point `ROSS_ROOT` at the prefix you installed ROSS
+into (or set `CMAKE_PREFIX_PATH`, or `module load ross` on HPC):
+
+```bash
+export ROSS_ROOT=$HOME/ross
+```
+
+Then configure, build, and test by preset name — no `-S`/`-B`/`-G` flags needed:
+
+```bash
+cmake --preset debug
+cmake --build --preset debug
+ctest --preset debug
+```
+
+Available configure / build / test presets:
+
+| Preset | Description |
+| --- | --- |
+| `debug` | Debug build; optional deps (DUMPI/SWM/UNION/Torch/ZeroMQ) auto-detected |
+| `release` | Optimized build |
+| `relwithdebinfo` | Optimized build with debug symbols |
+| `coverage` | Debug + `--coverage` instrumentation (mirrors the coverage CI job) |
+| `full-ci` | All optional deps forced on, with dep paths hardcoded to the `ghcr.io/codes-org/codes-ci-full` image (`/opt/<dep>`). Meant to run inside that image; CI-only |
+| `full-local-debug` | Debug build, all optional deps forced on, with dep paths taken from environment variables (see below). Use this to build everything locally |
+| `full-local-release` | Same as `full-local-debug` but an optimized build |
+
+Build trees land in `build/<preset>/` and installs in `install/<preset>/` (both
+git-ignored). Override any cache variable inline, e.g. to force a dependency off:
+
+```bash
+cmake --preset debug -DCODES_USE_ZEROMQ=OFF
+```
+
+### Building with all heavy dependencies locally
+
+The `full-local-debug` / `full-local-release` presets force every optional
+subsystem on (SWM, UNION, DUMPI, Torch, ZeroMQ) and read each dependency's
+location from an environment variable, so you can point them at wherever the deps
+are installed on your machine — no `/opt` assumption:
+
+| Variable | Set to the install prefix of |
+| --- | --- |
+| `CODES_SWM_DIR` | SWM (expects `$CODES_SWM_DIR/lib/pkgconfig`) |
+| `CODES_UNION_DIR` | UNION (expects `$CODES_UNION_DIR/lib/pkgconfig`) |
+| `CODES_ARGOBOTS_DIR` | Argobots (expects `$CODES_ARGOBOTS_DIR/lib/pkgconfig`) |
+| `CODES_DUMPI_DIR` | DUMPI (the dir containing its `include/` and `lib/`) |
+
+Torch is discovered separately via `Torch_DIR`, the same as in CI:
+
+```bash
+export ROSS_ROOT=$HOME/ross
+export CODES_SWM_DIR=$HOME/deps/swm
+export CODES_UNION_DIR=$HOME/deps/union
+export CODES_ARGOBOTS_DIR=$HOME/deps/argobots
+export CODES_DUMPI_DIR=$HOME/deps/dumpi
+export Torch_DIR="$(python3 -c 'import torch; print(torch.utils.cmake_prefix_path)')/Torch"
+
+cmake --preset full-local-release
+cmake --build --preset full-local-release
+ctest --preset full-local-release
+```
+
+Because every `CODES_USE_<dep>` is `ON`, an unset or wrong path is a hard error at
+configure time (`CODES_USE_<dep>=ON but <dep> could not be found/enabled.`) rather
+than a silently-skipped dependency. If you only want a subset, use the plain
+`debug` / `release` presets — those auto-detect each dep and skip what's missing.
+
+For personal tweaks (a fixed ROSS path, extra dependency paths, a different
+generator), create a `CMakeUserPresets.json` that `inherits` from these — it is
+git-ignored and never committed.
+
 ## Testing
 
 Check your installation with:
