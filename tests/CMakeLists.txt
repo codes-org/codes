@@ -203,8 +203,6 @@ set(test-shell-files
     # helper once it lands (the roadmap's canonical per-LP comparison; stdout
     # scraping is explicitly the approach it replaces). Requires the surrogate path
     # to emit lp-io output first.
-    # NB: their final packet-count check is a no-op (it execs the *.txt files
-    # instead of listing them); fixing that is deferred to its own commit.
     example-ping-pong-surrogate-1.sh
     example-ping-pong-surrogate-2.sh
     example-ping-pong-surrogate-3.sh
