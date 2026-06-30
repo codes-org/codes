@@ -2376,7 +2376,12 @@ static void dragonfly_sample_fin(terminal_state* s, tw_lp* lp) {
 
     FILE* fp = fopen(rt_fn, "a");
     fseek(fp, sample_bytes_written, SEEK_SET);
-    fwrite(s->sample_stat, sizeof(struct dfly_cn_sample), s->op_arr_size, fp);
+    // A terminal that recorded no CN samples has op_arr_size == 0 and a NULL
+    // sample_stat (never allocated). fwrite declares its buffer nonnull, so
+    // passing NULL is undefined behavior even for a zero-element write — UBSan
+    // flags it on glibc (where fwrite carries the nonnull attribute).
+    if (s->op_arr_size > 0)
+        fwrite(s->sample_stat, sizeof(struct dfly_cn_sample), s->op_arr_size, fp);
     fclose(fp);
 
     sample_bytes_written += (s->op_arr_size * sizeof(struct dfly_cn_sample));
