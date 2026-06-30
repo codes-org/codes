@@ -57,6 +57,42 @@ CI runs `clang-format --dry-run --Werror` on every PR and rejects any drift (see
 [`ci.md`](ci.md) and the README "Code formatting" section for editor setup), so
 unformatted code doesn't merge.
 
+## Documentation comments
+
+Public/installed API — the headers under `codes/` — gets `/** … */` Doxygen
+comments. These are added **incrementally, as code is touched**: there is
+**no mass backfill**. The generated docs grow with the code rather than as a one-time
+documentation sprint.
+
+One Doxygen gotcha worth knowing because most of the public API is **C free
+functions**: a documented function, variable, macro, or typedef only appears in
+the output if its **enclosing header also carries a `/** @file */` block**. (C++
+classes and namespaces show up without one.) So when you first document a header,
+give it a one-line `@file` block at the top:
+
+```c
+/** @file
+ *  Brief description of what this header provides.
+ */
+```
+
+Then each `/** @brief … */` on a function in that header renders. Without the
+`@file` block the symbol comment is silently dropped (a consequence of
+`EXTRACT_ALL = NO`, not a bug).
+
+Build the API docs locally (off by default):
+
+```bash
+cmake -S . -B build -DCODES_BUILD_DOXYGEN=ON
+cmake --build build --target docs
+```
+
+Generated HTML lands in the **build tree** (`build/doc/html/`), which is already
+git-ignored via `/build*` — it is never written into the source tree. The
+Doxygen build uses `EXTRACT_ALL = NO`, so the output contains only entities that
+actually carry a `/** */` comment: it starts near-empty by design and fills in as
+comments are added. See [`doc/CMakeLists.txt`](../CMakeLists.txt) for the wiring.
+
 ## LP state: rich, but constructed
 
 C++ members — including STL containers (`std::set`, `std::vector`, `std::map`, …)

@@ -55,6 +55,11 @@ if(CODES_SANITIZER)
     add_link_options(-fsanitize=${CODES_SANITIZER})
 endif()
 
+# Opt-in Doxygen API docs. OFF by default and never part of `all`; the docs
+# subdir registers an on-demand `docs` target (see doc/CMakeLists.txt). Output
+# lands in the build tree, not the source tree.
+option(CODES_BUILD_DOXYGEN "Build Doxygen API docs" OFF)
+
 #prevent cmake from stripping the runtime path (important if shared libraries are imported)
 SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
@@ -275,6 +280,10 @@ set(CODES_HAVE_DARSHAN  ${USE_DARSHAN})
 configure_file(codes_config.h.cmake.in codes_config.h)
 
 add_subdirectory(doc/example)
+
+if(CODES_BUILD_DOXYGEN)
+    add_subdirectory(doc)
+endif()
 
 # Tests are gated solely on BUILD_TESTING (the canonical CTest knob). A
 # $<CONFIG:...> genex can't gate this since add_subdirectory() runs at
