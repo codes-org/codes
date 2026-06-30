@@ -10,7 +10,7 @@ All workflows live in [`.github/workflows/`](../../.github/workflows).
 
 | Workflow | File | Triggers | What it does |
 | --- | --- | --- | --- |
-| **Build** | `build.yml` | push/PR to `master`, nightly `0 7 * * *` | Builds ROSS + CODES and runs `ctest` across an OS × MPI × compiler matrix, plus a coverage job and a heavy-deps `full` job. |
+| **Build** | `build.yml` | push/PR to `master`, nightly `0 7 * * *` | Builds ROSS + CODES and runs `ctest` across an OS × MPI × compiler matrix, plus a coverage job, ASan/UBSan sanitizer lanes, and a heavy-deps `full` job. |
 | **Format check** | `format.yml` | push/PR to `master` | Runs `clang-format-20 --dry-run --Werror` over the C/C++ tree. Any drift fails the PR. Reformat with `clang-format-20 -i <file>`. |
 | **Full CI image** | `full-ci-image.yml` | weekly `0 8 * * 1`, manual, and on changes to `ci/full/Dockerfile` | Builds and publishes `ghcr.io/codes-org/codes-ci-full` (the heavy-dependency image the `build.yml` `full` job runs inside). Not run on every PR. |
 
@@ -18,6 +18,7 @@ All workflows live in [`.github/workflows/`](../../.github/workflows).
 
 - **`build`** — the core matrix. `{ubuntu-22.04, ubuntu-24.04, macos-14} × {mpich, openmpi} × {gcc, clang}`, pruned to 8 legs (macOS only ships Apple clang, so its "gcc" leg is dropped; ubuntu-22.04 carries the older glibc/gcc-11 toolchain and skips clang since the gcc-vs-clang signal comes from 24.04). Heavy optional deps are OFF so every leg runs on a stock runner with no custom image. The macOS leg is the safety net for Mac-specific link/include breakage.
 - **`coverage`** — single config (ubuntu-24.04 / gcc / MPICH). Builds CODES with `--coverage`, runs the suite, and uploads to Codecov. Informational only — it never gates a PR, and the upload is a no-op until the `CODECOV_TOKEN` repo secret is set.
+- **`sanitizers`** — AddressSanitizer (`asan`) and UndefinedBehaviorSanitizer (`ubsan`) as two independent matrix legs, single config (ubuntu-24.04 / gcc / MPICH). Both gate PRs; only CODES is instrumented (ROSS is built without sanitizers). See [Sanitizer lanes](#sanitizer-lanes) below.
 - **`full`** — every optional subsystem ON (SWM, UNION, DUMPI, Torch, ZeroMQ). Runs inside `ghcr.io/codes-org/codes-ci-full` so the slow dependency compiles happen once in that image; this job only builds ROSS + the zmqml requester + CODES.
 
 Each leg builds ROSS fresh from source (see the pinning section below), installs it,
@@ -99,6 +100,47 @@ ROSS + the zmqml requester + CODES.
 - **Bootstrap:** the image must exist in GHCR before the `full` job can run — trigger
   `full-ci-image.yml` once via *Actions → Full CI image → Run workflow* to publish
   `:latest`.
+
+## Sanitizer lanes
+
+The `sanitizers` job builds CODES under AddressSanitizer (`asan`) and
+UndefinedBehaviorSanitizer (`ubsan`) as two independent matrix legs, on a single
+ubuntu-24.04 / gcc / MPICH config. They're kept separate (not one combined build)
+so each reports and gates on its own, and MPICH is used because it's far quieter
+under the sanitizers than OpenMPI. Select a lane with `cmake --preset asan|ubsan`,
+which sets the `CODES_SANITIZER` cache variable; **only CODES targets are
+instrumented** — ROSS is a prebuilt imported target and is not reinstrumented.
+
+- **Both lanes gate.** UBSan aborts on any UB (`-fno-sanitize-recover` is baked
+  into the preset); ASan aborts on the first memory error. A finding fails the job
+  and blocks merge.
+- **ASan builds at `-O1`** (the `asan` preset overrides Debug's `-O0`). At `-O0`
+  the suite took ~1 h on CI — the six ping-pong tests ran 10–15 min each. `-O1` brings the
+  full suite to ~5 min. UBSan stays `-O0`.
+- **Leak detection is off** (`detect_leaks=0`), so the lane delivers
+  heap-overflow / use-after-free / stack-overflow detection without MPICH and
+  teardown leak noise.
+- **`log_path`** writes each sanitizer report to a file that's uploaded as an
+  artifact on failure — the test harnesses redirect per-rank stderr, so otherwise
+  a bare abort code would be all CI shows.
+
+Run a lane locally with `export ROSS_ROOT=<ross-install>` then
+`cmake --preset ubsan && cmake --build --preset ubsan && ctest --preset ubsan`
+(same for `asan`).
+
+### Deferred follow-ups
+
+Lower-priority improvements intentionally left out of the initial lanes — pick
+them up later:
+
+1. **Enable LeakSanitizer.** Flip `detect_leaks=1` and add an LSan suppression
+   file for MPICH internals and CODES's known unfreed globals. Expect the lane to
+   go red until the suppressions are tuned, so land it as its own focused change,
+   not folded into unrelated work.
+
+If ASan runtime ever balloons again, the fallback is to run a fast test subset on
+PRs and the full suite on the nightly `schedule` (the cron already exists); at
+~5 min the full suite is currently fine to gate as-is.
 
 ## Note for workflow edits
 

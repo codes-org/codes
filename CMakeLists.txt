@@ -28,6 +28,33 @@ add_compile_options(-Wundef)
 # default; the coverage CI job turns it on. gcc/clang only.
 option(CODES_ENABLE_COVERAGE "Instrument the codes library with --coverage (gcov)" OFF)
 
+# Optional sanitizer instrumentation, applied globally to ALL CODES targets built
+# below (the library, the executables, and the tests) via add_*_options — unlike
+# coverage, which scopes to the `codes` target. ROSS is a prebuilt imported target
+# (find_package(ROSS) below) and is NOT reinstrumented, so this is CODES-only for
+# now; bugs reached through ROSS internals won't be flagged until ROSS itself is
+# built with a sanitizer.
+#
+# One string knob rather than a bool per sanitizer, so a build dir carries exactly
+# one sanitizer (matching the separate asan/ubsan presets and CI lanes); pass a
+# comma list ("address,undefined") to combine if ever wanted. Off by default; the
+# sanitizer CI jobs turn one on. gcc/clang only, and mutually exclusive with
+# coverage (the two instrumentations don't compose).
+set(CODES_SANITIZER "" CACHE STRING "Build CODES with a sanitizer: '' (none), 'address', or 'undefined'")
+set_property(CACHE CODES_SANITIZER PROPERTY STRINGS "" "address" "undefined")
+if(CODES_SANITIZER)
+    if(CODES_ENABLE_COVERAGE)
+        message(FATAL_ERROR "CODES_SANITIZER and CODES_ENABLE_COVERAGE are mutually exclusive; pick one.")
+    endif()
+    message(STATUS "Building CODES with sanitizer: ${CODES_SANITIZER}")
+    # -fno-sanitize-recover=all makes a UBSan finding abort with a nonzero exit
+    # (UBSan otherwise prints and continues, so ctest/CI would pass over real UB).
+    # -fno-omit-frame-pointer keeps stacks readable. Both compile and link must
+    # carry -fsanitize so the runtime is linked into every executable.
+    add_compile_options(-fsanitize=${CODES_SANITIZER} -fno-omit-frame-pointer -fno-sanitize-recover=all)
+    add_link_options(-fsanitize=${CODES_SANITIZER})
+endif()
+
 #prevent cmake from stripping the runtime path (important if shared libraries are imported)
 SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 

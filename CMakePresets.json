@@ -54,6 +54,26 @@
             }
         },
         {
+            "name": "asan",
+            "inherits": "debug",
+            "displayName": "ASan",
+            "description": "Debug build with AddressSanitizer (CODES_SANITIZER=address); mirrors the CI asan job. CODES is instrumented; ROSS is not. Run ctest with ASAN_OPTIONS as needed — the CI lane sets detect_leaks=0 initially to skip MPI/teardown leak noise. WIP: builds at -O1 (ASan-recommended) instead of Debug's -O0 to cut the slow ping-pong tests' runtime; remove the CMAKE_*_FLAGS_DEBUG overrides to revert.",
+            "cacheVariables": {
+                "CODES_SANITIZER": "address",
+                "CMAKE_C_FLAGS_DEBUG": "-g -O1",
+                "CMAKE_CXX_FLAGS_DEBUG": "-g -O1"
+            }
+        },
+        {
+            "name": "ubsan",
+            "inherits": "debug",
+            "displayName": "UBSan",
+            "description": "Debug build with UndefinedBehaviorSanitizer (CODES_SANITIZER=undefined). -fno-sanitize-recover is baked in so any UB aborts and fails ctest; mirrors the CI ubsan job. CODES is instrumented; ROSS is not.",
+            "cacheVariables": {
+                "CODES_SANITIZER": "undefined"
+            }
+        },
+        {
             "name": "full-ci",
             "inherits": "debug",
             "displayName": "Full (all heavy deps, CI image)",
@@ -121,6 +141,16 @@
             "displayName": "Coverage"
         },
         {
+            "name": "asan",
+            "configurePreset": "asan",
+            "displayName": "ASan"
+        },
+        {
+            "name": "ubsan",
+            "configurePreset": "ubsan",
+            "displayName": "UBSan"
+        },
+        {
             "name": "full-ci",
             "configurePreset": "full-ci",
             "displayName": "Full (all heavy deps, CI image)"
@@ -165,6 +195,18 @@
             "inherits": "base",
             "configurePreset": "coverage",
             "displayName": "Coverage"
+        },
+        {
+            "name": "asan",
+            "inherits": "base",
+            "configurePreset": "asan",
+            "displayName": "ASan"
+        },
+        {
+            "name": "ubsan",
+            "inherits": "base",
+            "configurePreset": "ubsan",
+            "displayName": "UBSan"
         },
         {
             "name": "full-ci",

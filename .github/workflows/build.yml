@@ -186,6 +186,117 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
+  # Sanitizer builds: AddressSanitizer and UndefinedBehaviorSanitizer, one per
+  # matrix leg so each reports and gates independently (combining them in one
+  # build would couple their pass/fail and stop UBSan findings from surfacing
+  # after an ASan abort). Single config (ubuntu-24.04 / gcc / MPICH) like the
+  # coverage job — sanitizers catch bad memory/UB in the code, not platform or
+  # MPI-variant breakage (that's the matrix above), and MPICH is much quieter
+  # under the sanitizers than OpenMPI. ROSS is built Debug WITHOUT sanitizers;
+  # only CODES is instrumented (via the asan/ubsan presets -> CODES_SANITIZER),
+  # so bugs reached through ROSS internals aren't flagged yet — a follow-up can
+  # instrument ROSS too.
+  #
+  # Both lanes gate: a finding fails the job and blocks merge. UBSan aborts on
+  # any UB via -fno-sanitize-recover (baked into the preset); ASan aborts on the
+  # first memory error. LeakSanitizer stays disabled (detect_leaks=0) so the
+  # lane delivers the high-value detections (heap-buffer-overflow, use-after-free,
+  # stack overflow) without MPICH and teardown leak noise — enabling leaks with a
+  # suppression file is a follow-up. The asan preset builds at -O1 (ASan-
+  # recommended) so the full suite runs in ~5 min instead of ~1 h at -O0.
+  sanitizers:
+    name: sanitizers (${{ matrix.sanitizer }})
+    runs-on: ubuntu-24.04
+    strategy:
+      # See every sanitizer's result on every run.
+      fail-fast: false
+      matrix:
+        sanitizer: [asan, ubsan]
+    env:
+      # ROSS install prefix; find_package(ROSS) honors ROSS_ROOT (CODES presets).
+      ROSS_ROOT: ${{ github.workspace }}/ross-install
+      # detect_leaks=0: corruption detection first; leaks are the noisiest part
+      # (MPICH internals + CODES's known unfreed globals) and come later with a
+      # suppression file. abort_on_error=1: guarantee a nonzero exit so ctest
+      # fails on a finding. log_path: CODES test harnesses redirect per-rank
+      # stderr (the ping-pong determinism test does `2> model-output-error.txt`),
+      # so a report would otherwise reach neither the ctest log nor the artifact —
+      # only the abort code. log_path writes each report to <log_path>.<pid>
+      # files in sanitizer-logs/, which is uploaded on failure. (No-op on ubsan.)
+      ASAN_OPTIONS: detect_leaks=0:abort_on_error=1:strict_string_checks=1:log_path=${{ github.workspace }}/sanitizer-logs/asan
+      # Abort with a symbolized stack on the first UB (pairs with the preset's
+      # -fno-sanitize-recover); log_path captures it past harness redirects as
+      # above. (No-op on the asan leg.)
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1:log_path=${{ github.workspace }}/sanitizer-logs/ubsan
+    steps:
+      - name: Checkout CODES
+        uses: actions/checkout@v4
+        with:
+          path: codes
+
+      - name: Checkout ROSS
+        uses: actions/checkout@v4
+        with:
+          repository: ROSS-org/ROSS
+          # Push/PR runs use the pin; the nightly scheduled run tracks
+          # ROSS master so pin drift surfaces within a day.
+          ref: ${{ github.event_name == 'schedule' && 'master' || env.ROSS_REF }}
+          path: ross
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            mpich libmpich-dev \
+            cmake ninja-build pkg-config \
+            flex bison
+
+      - name: Configure ROSS
+        # ROSS is built without sanitizers (default gcc); CODES links it and is
+        # the only side instrumented for now.
+        run: >
+          cmake -S ross -B ross/build -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DROSS_BUILD_MODELS=ON
+          -DCMAKE_INSTALL_PREFIX=$PWD/ross-install
+
+      - name: Build and install ROSS
+        run: cmake --build ross/build --target install -j
+
+      - name: Configure CODES (${{ matrix.sanitizer }})
+        working-directory: codes
+        # The asan/ubsan preset sets CODES_SANITIZER; heavy deps forced off to
+        # match the stock matrix legs.
+        run: cmake --preset ${{ matrix.sanitizer }} -DCODES_USE_TORCH=OFF -DCODES_USE_ZEROMQ=OFF
+
+      - name: Build CODES
+        working-directory: codes
+        run: cmake --build --preset ${{ matrix.sanitizer }}
+
+      - name: Run CODES tests
+        working-directory: codes
+        # Pre-create the sanitizer log dir: ASAN/UBSAN_OPTIONS log_path writes
+        # <log_path>.<pid> report files into it, and the runtime needs the dir
+        # to exist.
+        run: |
+          mkdir -p "$GITHUB_WORKSPACE/sanitizer-logs"
+          ctest --preset ${{ matrix.sanitizer }}
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-sanitizer-${{ matrix.sanitizer }}
+          path: |
+            sanitizer-logs/
+            codes/build/${{ matrix.sanitizer }}/Testing/Temporary/LastTest.log
+            codes/build/${{ matrix.sanitizer }}/Testing/Temporary/LastTestsFailed.log
+            codes/build/${{ matrix.sanitizer }}/CMakeFiles/CMakeError.log
+            codes/build/${{ matrix.sanitizer }}/CMakeFiles/CMakeOutput.log
+            codes/build/${{ matrix.sanitizer }}/CMakeCache.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
   # Dedicated coverage build: instrument the codes library (--coverage), run the
   # test suite, capture with lcov, and upload to Codecov. Single config
   # (ubuntu-24.04 / gcc / MPICH) — coverage is about which lines run, not
