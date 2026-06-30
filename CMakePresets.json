@@ -1,0 +1,188 @@
+{
+    "version": 3,
+    "cmakeMinimumRequired": {
+        "major": 3,
+        "minor": 21,
+        "patch": 0
+    },
+    "configurePresets": [
+        {
+            "name": "base",
+            "hidden": true,
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/build/${presetName}",
+            "installDir": "${sourceDir}/install/${presetName}",
+            "cacheVariables": {
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "BUILD_TESTING": "ON"
+            }
+        },
+        {
+            "name": "debug",
+            "inherits": "base",
+            "displayName": "Debug",
+            "description": "Debug build; optional deps (DUMPI/SWM/UNION/Torch/ZeroMQ) auto-detected. Requires ROSS: export ROSS_ROOT=<ross-install> (or set CMAKE_PREFIX_PATH / module load).",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug"
+            }
+        },
+        {
+            "name": "release",
+            "inherits": "base",
+            "displayName": "Release",
+            "description": "Optimized build; optional deps auto-detected. Requires ROSS on ROSS_ROOT / CMAKE_PREFIX_PATH.",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release"
+            }
+        },
+        {
+            "name": "relwithdebinfo",
+            "inherits": "base",
+            "displayName": "Release + Debug Info",
+            "description": "Optimized build with debug symbols (profiling, optimized crash diagnosis).",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "RelWithDebInfo"
+            }
+        },
+        {
+            "name": "coverage",
+            "inherits": "debug",
+            "displayName": "Coverage",
+            "description": "Debug build with --coverage instrumentation; mirrors the CI coverage job (collect with lcov after ctest).",
+            "cacheVariables": {
+                "CODES_ENABLE_COVERAGE": "ON"
+            }
+        },
+        {
+            "name": "full-ci",
+            "inherits": "debug",
+            "displayName": "Full (all heavy deps, CI image)",
+            "description": "All optional subsystems forced ON, with dep prefixes matching the ghcr.io/codes-org/codes-ci-full image (/opt/<dep>). SWM/UNION/argobots are located via CMAKE_PREFIX_PATH (pkg_check_modules searches <prefix>/lib/pkgconfig under it). Run inside that image; Torch is found via the Torch_DIR env var (export Torch_DIR=$(python3 -c 'import torch; print(torch.utils.cmake_prefix_path)')/Torch).",
+            "cacheVariables": {
+                "CODES_USE_UNION": "ON",
+                "CODES_USE_DUMPI": "ON",
+                "CODES_USE_TORCH": "ON",
+                "CODES_USE_ZEROMQ": "ON",
+                "CMAKE_PREFIX_PATH": "/opt/swm;/opt/union;/opt/argobots",
+                "DUMPI_BUILD_PATH": "/opt/dumpi"
+            }
+        },
+        {
+            "name": "full-local-base",
+            "hidden": true,
+            "description": "Heavy-deps flags + env-driven dep prefixes shared by full-local-debug/release. Export each var to the dep's install prefix: CODES_SWM_DIR, CODES_UNION_DIR, CODES_ARGOBOTS_DIR, CODES_DUMPI_DIR; Torch is found via Torch_DIR. SWM/UNION/argobots are located via CMAKE_PREFIX_PATH. Every CODES_USE_<dep> is ON, so a missing/wrong path fails configure with 'CODES_USE_<dep>=ON but <dep> could not be found/enabled.'",
+            "cacheVariables": {
+                "CODES_USE_UNION": "ON",
+                "CODES_USE_DUMPI": "ON",
+                "CODES_USE_TORCH": "ON",
+                "CODES_USE_ZEROMQ": "ON",
+                "CMAKE_PREFIX_PATH": "$env{CODES_SWM_DIR};$env{CODES_UNION_DIR};$env{CODES_ARGOBOTS_DIR}",
+                "DUMPI_BUILD_PATH": "$env{CODES_DUMPI_DIR}"
+            }
+        },
+        {
+            "name": "full-local-debug",
+            "inherits": [
+                "full-local-base",
+                "debug"
+            ],
+            "displayName": "Full (all heavy deps, local paths from env) - Debug",
+            "description": "Heavy-deps Debug build with dep locations from environment variables (CODES_SWM_DIR, CODES_UNION_DIR, CODES_ARGOBOTS_DIR, CODES_DUMPI_DIR; Torch via Torch_DIR). Use when your heavy deps are not under /opt."
+        },
+        {
+            "name": "full-local-release",
+            "inherits": [
+                "full-local-base",
+                "release"
+            ],
+            "displayName": "Full (all heavy deps, local paths from env) - Release",
+            "description": "Heavy-deps Release build with dep locations from environment variables (CODES_SWM_DIR, CODES_UNION_DIR, CODES_ARGOBOTS_DIR, CODES_DUMPI_DIR; Torch via Torch_DIR). Use when your heavy deps are not under /opt."
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "debug",
+            "configurePreset": "debug",
+            "displayName": "Debug"
+        },
+        {
+            "name": "release",
+            "configurePreset": "release",
+            "displayName": "Release"
+        },
+        {
+            "name": "relwithdebinfo",
+            "configurePreset": "relwithdebinfo",
+            "displayName": "Release + Debug Info"
+        },
+        {
+            "name": "coverage",
+            "configurePreset": "coverage",
+            "displayName": "Coverage"
+        },
+        {
+            "name": "full-ci",
+            "configurePreset": "full-ci",
+            "displayName": "Full (all heavy deps, CI image)"
+        },
+        {
+            "name": "full-local-debug",
+            "configurePreset": "full-local-debug",
+            "displayName": "Full (all heavy deps, local paths from env) - Debug"
+        },
+        {
+            "name": "full-local-release",
+            "configurePreset": "full-local-release",
+            "displayName": "Full (all heavy deps, local paths from env) - Release"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "base",
+            "hidden": true,
+            "output": {
+                "outputOnFailure": true
+            },
+            "execution": {
+                "noTestsAction": "error",
+                "stopOnFailure": false
+            }
+        },
+        {
+            "name": "debug",
+            "inherits": "base",
+            "configurePreset": "debug",
+            "displayName": "Debug"
+        },
+        {
+            "name": "release",
+            "inherits": "base",
+            "configurePreset": "release",
+            "displayName": "Release"
+        },
+        {
+            "name": "coverage",
+            "inherits": "base",
+            "configurePreset": "coverage",
+            "displayName": "Coverage"
+        },
+        {
+            "name": "full-ci",
+            "inherits": "base",
+            "configurePreset": "full-ci",
+            "displayName": "Full (all heavy deps, CI image)"
+        },
+        {
+            "name": "full-local-debug",
+            "inherits": "base",
+            "configurePreset": "full-local-debug",
+            "displayName": "Full (all heavy deps, local paths from env) - Debug"
+        },
+        {
+            "name": "full-local-release",
+            "inherits": "base",
+            "configurePreset": "full-local-release",
+            "displayName": "Full (all heavy deps, local paths from env) - Release"
+        }
+    ]
+}

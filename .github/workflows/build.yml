@@ -8,32 +8,79 @@ on:
       - master
   schedule:
     # Daily at 07:00 UTC. Catches drift between pin bumps — runner image
-    # updates, apt package bumps, and ROSS @ master moving forward. The
+    # updates, apt/brew package bumps, and ROSS @ master moving forward. The
     # scheduled run intentionally ignores ROSS_REF and builds against
     # ROSS-org/ROSS@master so a stale pin still surfaces problems.
     - cron: "0 7 * * *"
 
-# Bootstrap CI for CODES
+# CI for CODES.
 #
-# Today: one minimal Linux job — ubuntu-24.04 + system MPICH + a freshly
-# built ROSS pinned to a SHA. Heavy optional deps (SWM, UNION, DUMPI,
-# TORCH, ZMQML) stay OFF so this job runs on a stock runner with no
-# custom image. macOS, OpenMPI, the compiler matrix, coverage tracking,
-# and the heavy-deps "full" job are tracked separately as 1b followups.
+# Matrix: OS x MPI x compiler, pruned via `exclude` to 8 legs:
+#   - ubuntu-24.04 : gcc + clang  (full compiler coverage on the modern toolchain)
+#   - ubuntu-22.04 : gcc only     (its job is the older glibc / gcc-11 / cmake-3.22
+#                                  toolchain; clang divergence is covered on 24.04)
+#   - macos-14     : Apple clang  (a "gcc" leg there is just clang again)
+# ...each crossed with {MPICH, OpenMPI}. Each leg builds a freshly built ROSS
+# pinned to a SHA, then CODES, then ctest. MPI is auto-discovered via
+# find_package(MPI) and the base compiler comes from CC/CXX, so the same CMake
+# serves every leg — the matrix only changes which packages get installed. CODES
+# is configured through CMakePresets.json (the debug/coverage/full-ci presets); ROSS
+# is located via the ROSS_ROOT env var. Heavy optional deps (SWM, UNION, DUMPI,
+# TORCH, ZEROMQ) are forced OFF on the stock legs so they run on a stock runner
+# with no custom image. All three cmake minimums (CODES 3.17, ROSS 3.16, and the
+# CMake-presets floor of 3.21) are satisfied on 22.04's cmake 3.22.
+#
+# The macOS leg is the safety net for Mac-specific link/include breakage, which
+# has historically reached master and had to be hand-fixed on a developer Mac.
+#
+# A separate `coverage` job (below) builds CODES with --coverage on
+# ubuntu-24.04/gcc and uploads to Codecov. A heavy-deps `full` job builds every
+# optional subsystem inside the codes-ci-full image.
 #
 # Symmetric with ROSS's codes-contract.yml: ROSS pins CODES, CODES pins
 # ROSS, each catches consumer-API regressions in the other.
 
+# Shared by every job: the pinned ROSS commit. Bump when CODES needs to track
+# ROSS forward — a one-line reviewed change. The nightly scheduled run ignores
+# this and builds ROSS @ master so pin drift surfaces within a day.
+# See doc/dev/ci.md for when and how to bump this pin.
+env:
+  ROSS_REF: 9b6ccb18f9b9db438bf41b5b221d0ef16a4dac48
+
 jobs:
-  build-linux:
-    runs-on: ubuntu-24.04
+  build:
+    name: build (${{ matrix.os }}, ${{ matrix.mpi }}, ${{ matrix.cc }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # Don't let one leg's failure cancel the others — we want to see every
+      # OS x MPI x compiler result on every run.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04, macos-14]
+        mpi: [mpich, openmpi]
+        cc: [gcc, clang]
+        exclude:
+          # macOS only ships (Apple) clang — a "gcc" leg there is just clang
+          # again under a different name.
+          - os: macos-14
+            cc: gcc
+          # ubuntu-22.04 exists to test the older glibc / gcc-11 toolchain; the
+          # gcc-vs-clang divergence signal comes from the newest, strictest
+          # toolchain, so clang is exercised on ubuntu-24.04 instead.
+          - os: ubuntu-22.04
+            cc: clang
     env:
-      # ross-org/ROSS @ master as of 2026-06-17.
-      # Bump this SHA whenever CODES needs to track ROSS forward — that
-      # bump is a one-line reviewed change.
-      # TODO: promote to a workflow variable + cache the
-      # built ROSS by SHA so unchanged pins skip the rebuild.
-      ROSS_REF: 9b6ccb18f9b9db438bf41b5b221d0ef16a4dac48
+      # OpenMPI refuses to launch more ranks than detected slots. CODES test
+      # scripts invoke `mpirun -np N` directly (up to np=3 in the core config),
+      # so --oversubscribe can't be routed through CMake's MPIEXEC_PREFLAGS;
+      # these env vars enable oversubscription for OpenMPI 4 (OMPI_MCA_*, apt)
+      # and 5 (PRTE_MCA_*, brew). MPICH ignores them, so they're harmless on the
+      # MPICH legs.
+      OMPI_MCA_rmaps_base_oversubscribe: "1"
+      PRTE_MCA_rmaps_default_mapping_policy: ":oversubscribe"
+      # ROSS install prefix; find_package(ROSS) honors ROSS_ROOT, so the CODES
+      # presets need no hardcoded path. Matches the install prefix below.
+      ROSS_ROOT: ${{ github.workspace }}/ross-install
     steps:
       - name: Checkout CODES
         uses: actions/checkout@v4
@@ -49,13 +96,51 @@ jobs:
           ref: ${{ github.event_name == 'schedule' && 'master' || env.ROSS_REF }}
           path: ross
 
-      - name: Install system dependencies
+      - name: Install system dependencies (Linux)
+        if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            mpich libmpich-dev \
-            cmake ninja-build pkg-config \
-            flex bison
+          sudo apt-get install -y cmake ninja-build pkg-config flex bison
+          if [ "${{ matrix.mpi }}" = "openmpi" ]; then
+            sudo apt-get install -y libopenmpi-dev openmpi-bin
+          else
+            sudo apt-get install -y mpich libmpich-dev
+          fi
+          if [ "${{ matrix.cc }}" = "clang" ]; then
+            sudo apt-get install -y clang
+          fi
+
+      - name: Install system dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install cmake ninja pkg-config flex bison
+          # mpich and open-mpi conflict (both provide mpicc/mpirun), but each
+          # matrix leg runs on its own runner and installs only one.
+          if [ "${{ matrix.mpi }}" = "openmpi" ]; then
+            brew install open-mpi
+          else
+            brew install mpich
+          fi
+          # Homebrew flex/bison are keg-only and the macOS system ones are
+          # too old for flex_target/bison_target — put the brew versions
+          # ahead of /usr/bin on PATH for subsequent steps.
+          echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
+          echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
+
+      - name: Select compiler
+        # Drive the base compiler for both ROSS and CODES via CC/CXX.
+        # find_package(MPI) layers the MPI include/link flags on top (the mpicc
+        # wrapper is only probed for flags, never used as the compiler), so this
+        # is what actually makes a gcc vs clang build. On the macOS leg CC=clang
+        # resolves to Apple clang.
+        run: |
+          if [ "${{ matrix.cc }}" = "clang" ]; then
+            echo "CC=clang"   >> "$GITHUB_ENV"
+            echo "CXX=clang++" >> "$GITHUB_ENV"
+          else
+            echo "CC=gcc" >> "$GITHUB_ENV"
+            echo "CXX=g++" >> "$GITHUB_ENV"
+          fi
 
       - name: Configure ROSS
         run: >
@@ -68,35 +153,221 @@ jobs:
         run: cmake --build ross/build --target install -j
 
       - name: Configure CODES
-        run: >
-          cmake -S codes -B codes/build -G Ninja
-          -DCMAKE_BUILD_TYPE=Debug
-          -DBUILD_TESTING=ON
-          -DUSE_TORCH=OFF
-          -DUSE_ZMQML=OFF
-          -DCMAKE_C_COMPILER=mpicc
-          -DCMAKE_CXX_COMPILER=mpicxx
-          -DROSS_PKG_CONFIG_PATH=$PWD/ross-install/lib/pkgconfig
+        working-directory: codes
+        # Generator, build type, and BUILD_TESTING come from the `debug` preset
+        # in CMakePresets.json; ROSS is found via the ROSS_ROOT env var. The two
+        # heavy deps a stock runner might auto-detect are forced off so this leg
+        # stays a deterministic stock build (the `full` job exercises them).
+        run: cmake --preset debug -DCODES_USE_TORCH=OFF -DCODES_USE_ZEROMQ=OFF
 
       - name: Build CODES
-        run: cmake --build codes/build -j
+        working-directory: codes
+        run: cmake --build --preset debug
 
       - name: Run CODES tests
-        run: ctest --test-dir codes/build --output-on-failure
+        working-directory: codes
+        run: ctest --preset debug
 
       - name: Upload logs on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: build-logs
+          # Artifact names must be unique across matrix legs (upload-artifact@v4).
+          name: build-logs-${{ matrix.os }}-${{ matrix.mpi }}-${{ matrix.cc }}
           path: |
-            codes/build/Testing/Temporary/LastTest.log
-            codes/build/Testing/Temporary/LastTestsFailed.log
-            codes/build/CMakeFiles/CMakeError.log
-            codes/build/CMakeFiles/CMakeOutput.log
-            codes/build/CMakeCache.txt
+            codes/build/debug/Testing/Temporary/LastTest.log
+            codes/build/debug/Testing/Temporary/LastTestsFailed.log
+            codes/build/debug/CMakeFiles/CMakeError.log
+            codes/build/debug/CMakeFiles/CMakeOutput.log
+            codes/build/debug/CMakeCache.txt
             ross/build/CMakeFiles/CMakeError.log
             ross/build/CMakeFiles/CMakeOutput.log
             ross/build/CMakeCache.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # Dedicated coverage build: instrument the codes library (--coverage), run the
+  # test suite, capture with lcov, and upload to Codecov. Single config
+  # (ubuntu-24.04 / gcc / MPICH) — coverage is about which lines run, not
+  # platform/MPI breakage (that's the matrix above).
+  #
+  # Uses lcov (like ROSS's coverage job), not gcovr: lcov 2.x reads gcov's JSON
+  # intermediate format and its --ignore-errors skips the generated iokernellang
+  # parser (codesparser.c, whose .y isn't committed) and other gcov hiccups —
+  # where gcovr's text parser aborts.
+  coverage:
+    name: coverage (ubuntu-24.04, gcc)
+    runs-on: ubuntu-24.04
+    env:
+      # ROSS install prefix; find_package(ROSS) honors ROSS_ROOT (CODES presets).
+      ROSS_ROOT: ${{ github.workspace }}/ross-install
+    steps:
+      - name: Checkout CODES
+        uses: actions/checkout@v4
+        # No path: check out at the workspace root so the source paths lcov
+        # records are repo-relative and Codecov maps them onto the repo.
+
+      - name: Checkout ROSS
+        uses: actions/checkout@v4
+        with:
+          repository: ROSS-org/ROSS
+          ref: ${{ github.event_name == 'schedule' && 'master' || env.ROSS_REF }}
+          path: ross
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            mpich libmpich-dev \
+            cmake ninja-build pkg-config \
+            flex bison lcov
+
+      - name: Configure ROSS
+        run: >
+          cmake -S ross -B ross/build -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DROSS_BUILD_MODELS=ON
+          -DCMAKE_INSTALL_PREFIX=$PWD/ross-install
+
+      - name: Build and install ROSS
+        run: cmake --build ross/build --target install -j
+
+      - name: Configure CODES (with coverage)
+        # CODES is checked out at the workspace root here (no `path:`), so the
+        # preset is found in the CWD. The `coverage` preset adds
+        # -DCODES_ENABLE_COVERAGE=ON; heavy deps forced off to match the matrix.
+        run: cmake --preset coverage -DCODES_USE_TORCH=OFF -DCODES_USE_ZEROMQ=OFF
+
+      - name: Build CODES
+        run: cmake --build --preset coverage
+
+      - name: Run CODES tests
+        run: ctest --preset coverage
+
+      - name: Collect coverage (lcov)
+        # --ignore-errors mismatch,gcov,source,unused tolerates the generated
+        # iokernellang parser whose .y/.l aren't committed (source/gcov), any
+        # gcov data/version mismatch, and unused --remove patterns. Then strip
+        # system + ROSS headers, the test harness, examples, and the generated
+        # flex/bison lexers + parsers from the metric.
+        run: |
+          lcov --capture --directory build/coverage --output-file coverage.info \
+               --ignore-errors mismatch,gcov,source,unused
+          lcov --remove coverage.info \
+               '/usr/*' \
+               '*/ross-install/*' \
+               '*/tests/*' \
+               '*/doc/*' \
+               '*configlex*' '*configparser*' \
+               '*codeslexer*' '*codesparser*' \
+               --output-file coverage.info \
+               --ignore-errors unused
+          lcov --list coverage.info
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: coverage.info
+          # Upload only the lcov report; don't let Codecov re-discover the raw
+          # .gcda and run its own gcov pass over them.
+          plugins: noop
+          disable_search: true
+          flags: ctest
+          # Coverage is informational for now. Don't fail the job
+          # on an upload hiccup.
+          fail_ci_if_error: false
+
+      - name: Upload coverage report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: |
+            coverage.info
+            build/coverage/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore
+          retention-days: 14
+
+  # Heavy-dependency "full" build: every optional subsystem ON (SWM, UNION,
+  # DUMPI, Torch, ZeroMQ). Runs INSIDE the prebuilt ghcr.io/codes-org/codes-ci-full
+  # image (built + published by full-ci-image.yml) so the slow dependency
+  # compiles happen once in that image instead of on every PR — this job only
+  # builds ROSS + the zmqml requester + CODES. The image ships MPICH, cmake,
+  # ninja, flex/bison, and each dep installed under /opt/<dep>.
+  #
+  # Bootstrap: the image must exist in GHCR before this job can pull it. Run the
+  # "Full CI image" workflow once (workflow_dispatch) to publish :latest.
+  full:
+    name: full (ubuntu-22.04 image, all deps)
+    runs-on: ubuntu-24.04
+    # The codes-ci-full GHCR package is public, so the image pulls anonymously —
+    # no credentials needed. This is also what lets fork-PR runs use it: a
+    # fork-PR GITHUB_TOKEN can't read the org's private packages, but a public
+    # image needs no token at all.
+    container:
+      image: ghcr.io/codes-org/codes-ci-full:latest
+    permissions:
+      contents: read
+    env:
+      # ROSS install prefix; find_package(ROSS) honors ROSS_ROOT (CODES presets).
+      ROSS_ROOT: ${{ github.workspace }}/ross-install
+    steps:
+      - name: Checkout CODES
+        uses: actions/checkout@v4
+        with:
+          path: codes
+
+      - name: Checkout ROSS
+        uses: actions/checkout@v4
+        with:
+          repository: ROSS-org/ROSS
+          ref: ${{ github.event_name == 'schedule' && 'master' || env.ROSS_REF }}
+          path: ross
+
+      - name: Configure ROSS
+        # No CC=mpicc: the image's MPICH is auto-discovered by find_package(MPI).
+        run: >
+          cmake -S ross -B ross/build -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_INSTALL_PREFIX=$PWD/ross-install
+
+      - name: Build and install ROSS
+        run: cmake --build ross/build --target install -j
+
+      - name: Configure CODES (all deps ON)
+        working-directory: codes
+        # The `full-ci` preset sets every CODES_USE_<dep>=ON and the /opt/<dep> paths
+        # baked into the codes-ci-full image. ROSS is found via ROSS_ROOT; Torch's
+        # cmake prefix comes from the pip package at runtime, matching
+        # CODES-compile-instructions.sh.
+        run: |
+          export Torch_DIR="$(python3 -c 'import torch; print(torch.utils.cmake_prefix_path)')/Torch"
+          cmake --preset full-ci -DTorch_DIR="$Torch_DIR"
+
+      - name: Build CODES
+        working-directory: codes
+        run: cmake --build --preset full-ci
+
+      - name: Run CODES tests
+        working-directory: codes
+        # The `full-ci` test preset excludes the union-surrogate director tests:
+        # their *.sh harnesses set only ~8 of the ~20 config-template vars
+        # (DIRECTOR_* etc.) so these tests fail.
+        run: ctest --preset full-ci
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-full
+          path: |
+            codes/build/full/Testing/Temporary/LastTest.log
+            codes/build/full/Testing/Temporary/LastTestsFailed.log
+            codes/build/full/CMakeFiles/CMakeError.log
+            codes/build/full/CMakeFiles/CMakeOutput.log
+            codes/build/full/CMakeCache.txt
+            ross/build/CMakeFiles/CMakeError.log
+            ross/build/CMakeFiles/CMakeOutput.log
           if-no-files-found: ignore
           retention-days: 14

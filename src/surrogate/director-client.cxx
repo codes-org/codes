@@ -173,7 +173,7 @@ static const char* director_iteration_records_command(void) {
      * the original zmqmlserver.py command name.
      *
      * Event-time records use the unified director-request API from
-     * dragonfly-dally.C and should not affect this iteration-time path.
+     * dragonfly-dally.cxx and should not affect this iteration-time path.
      */
     return "send-records";
 }

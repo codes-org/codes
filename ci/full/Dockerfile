@@ -102,8 +102,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # --- ZeroMQ + RapidJSON: back the optional director-client / zmqml surrogate
 #     (USE_ZEROMQ). On jammy libzmq3-dev ships zmq.h AND the zmq.hpp C++ binding;
 #     rapidjson-dev is the header-only JSON parser the requester + director-client
-#     use. Both are headers/libs only — libzmqmlrequester.so is built from CODES
-#     source in the build job. ---
+#     use. Both are headers/libs only — the zmqml requester itself is built from
+#     CODES source by CODES' own CMake (src/surrogate/zmqml) in the build job. ---
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libzmq3-dev rapidjson-dev \
     && rm -rf /var/lib/apt/lists/*

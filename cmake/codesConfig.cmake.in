@@ -1,0 +1,133 @@
+@PACKAGE_INIT@
+
+# codesConfig.cmake — CODES package configuration for find_package(codes)
+#
+# Usage:
+#     find_package(codes CONFIG REQUIRED)
+#     target_link_libraries(mymodel PRIVATE codes::codes)
+#
+# The codes::codes imported target carries the public include dirs and the
+# propagated ROSS / MPI usage requirements — there are no legacy
+# CODES_LIBRARIES / CODES_INCLUDE_DIRS variables to read.
+
+include(CMakeFindDependencyMacro)
+
+# CODES links ROSS (find_package(ROSS CONFIG)) and MPI (C + CXX) PUBLIC, so a
+# consumer must be able to resolve both. Point CMAKE_PREFIX_PATH at the ROSS
+# install prefix the same way the CODES build itself did.
+find_dependency(ROSS CONFIG REQUIRED)
+find_dependency(MPI REQUIRED COMPONENTS C CXX)
+
+# ---------------------------------------------------------------------------
+# Heavy optional deps re-export.
+#
+# When CODES is built with an optional backend enabled it links that backend's
+# imported target PUBLIC (PkgConfig::SWM/UNION/ARGOBOTS, Boost::headers, the
+# Torch targets, and PkgConfig::ZeroMQ via zmqmlrequester). Those targets are
+# external to CODES's own export set, so codesTargets.cmake only *references*
+# them — it does not define them. This block recreates exactly the ones the
+# build actually enabled, BEFORE codesTargets.cmake is included, so its
+# target-existence check passes and an installed heavy-deps CODES is consumable
+# out-of-tree.
+#
+# Discovery is HYBRID: the build-time dep locations (resolved USE_<X> bools and
+# external dep paths) are baked in via @...@ so find_package(codes) is zero-
+# config on the build machine, but a consumer can override each one (its own
+# PKG_CONFIG_PATH / *_PKG_CONFIG_PATH, Torch_DIR, or DUMPI_INCLUDE) to point at a
+# different install when the package has been relocated. The deps-off build bakes
+# nothing usable here and stays relocatable on ROSS + MPI.
+# ---------------------------------------------------------------------------
+set(_codes_use_online @USE_ONLINE@)
+set(_codes_use_union  @USE_UNION@)
+set(_codes_use_dumpi  @USE_DUMPI@)
+set(_codes_use_torch  @USE_TORCH@)
+set(_codes_use_zeromq @USE_ZEROMQ@)
+
+if(_codes_use_online OR _codes_use_zeromq)
+    find_dependency(PkgConfig)
+    # Primary discovery for the pkg-config deps is CMAKE_PREFIX_PATH, matching the
+    # build (pkg_check_modules searches <prefix>/lib/pkgconfig under it). The
+    # build-time value is baked here and prepended to the consumer's, so
+    # find_package(codes) is zero-config on the build machine; a consumer can
+    # extend CMAKE_PREFIX_PATH to relocate. Saved and restored below so we don't
+    # leak the baked paths into the consumer's scope. (The deprecated
+    # <DEP>_PKG_CONFIG_PATH overrides below are still honored for one release.)
+    set(_codes_saved_prefix_path "${CMAKE_PREFIX_PATH}")
+    set(_codes_build_prefix_path "@CMAKE_PREFIX_PATH@")
+    if(_codes_build_prefix_path)
+        list(PREPEND CMAKE_PREFIX_PATH ${_codes_build_prefix_path})
+    endif()
+endif()
+
+if(_codes_use_online)
+    # SWM + argobots are linked on both the SWM-only and the UNION path; UNION
+    # only when it was enabled. Override order per dep: a consumer-set
+    # <DEP>_PKG_CONFIG_PATH wins, else the baked build-time path; and the
+    # consumer's existing PKG_CONFIG_PATH is searched first either way, so its
+    # own .pc files take precedence. Boost (header-only property_tree/foreach) is
+    # pulled in by the SWM model headers.
+    set(_codes_swm_pkgcfg      "@SWM_PKG_CONFIG_PATH@")
+    set(_codes_union_pkgcfg    "@UNION_PKG_CONFIG_PATH@")
+    set(_codes_argobots_pkgcfg "@ARGOBOTS_PKG_CONFIG_PATH@")
+    if(SWM_PKG_CONFIG_PATH)
+        set(_codes_swm_pkgcfg "${SWM_PKG_CONFIG_PATH}")
+    endif()
+    if(UNION_PKG_CONFIG_PATH)
+        set(_codes_union_pkgcfg "${UNION_PKG_CONFIG_PATH}")
+    endif()
+    if(ARGOBOTS_PKG_CONFIG_PATH)
+        set(_codes_argobots_pkgcfg "${ARGOBOTS_PKG_CONFIG_PATH}")
+    endif()
+    set(_codes_saved_pkgcfg "$ENV{PKG_CONFIG_PATH}")
+    set(ENV{PKG_CONFIG_PATH}
+        "$ENV{PKG_CONFIG_PATH}:${_codes_swm_pkgcfg}:${_codes_union_pkgcfg}:${_codes_argobots_pkgcfg}")
+    pkg_check_modules(SWM      REQUIRED IMPORTED_TARGET swm)
+    pkg_check_modules(ARGOBOTS REQUIRED IMPORTED_TARGET argobots)
+    if(_codes_use_union)
+        pkg_check_modules(UNION REQUIRED IMPORTED_TARGET union)
+    endif()
+    set(ENV{PKG_CONFIG_PATH} "${_codes_saved_pkgcfg}")
+    find_dependency(Boost)
+endif()
+
+if(_codes_use_zeromq)
+    # The zmqml requester (in CODES's export set) links PkgConfig::ZeroMQ PUBLIC.
+    # libzmq is normally a system pkg-config dep, found via the consumer's own
+    # PKG_CONFIG_PATH (nothing build-specific to bake).
+    pkg_check_modules(ZeroMQ REQUIRED IMPORTED_TARGET libzmq)
+endif()
+
+if(_codes_use_torch)
+    # A consumer-set Torch_DIR overrides; otherwise fall back to the build-time
+    # Torch_DIR (the dir holding libtorch's TorchConfig.cmake) so find_dependency
+    # recreates the same torch/c10/... imported targets.
+    if(NOT Torch_DIR)
+        set(Torch_DIR "@Torch_DIR@")
+    endif()
+    find_dependency(Torch)
+endif()
+
+# Restore CMAKE_PREFIX_PATH to the consumer's value now that the pkg-config deps
+# have been re-found against the baked build-time prefixes.
+if(_codes_use_online OR _codes_use_zeromq)
+    set(CMAKE_PREFIX_PATH "${_codes_saved_prefix_path}")
+endif()
+
+include("${CMAKE_CURRENT_LIST_DIR}/codesTargets.cmake")
+
+# DUMPI is linked by absolute path (no imported target) and its include dir is
+# BUILD_INTERFACE-only on codes::codes, so re-attach it as a SYSTEM include for
+# installed consumers — a consumer-set DUMPI_INCLUDE overrides the baked path.
+# (For online/Torch/ZeroMQ the recreated imported targets already carry their
+# includes, so nothing extra is needed there.)
+if(_codes_use_dumpi)
+    if(NOT DUMPI_INCLUDE)
+        set(DUMPI_INCLUDE "@DUMPI_INCLUDE@")
+    endif()
+    set_property(TARGET codes::codes APPEND PROPERTY
+        INTERFACE_INCLUDE_DIRECTORIES "${DUMPI_INCLUDE}")
+    set_property(TARGET codes::codes APPEND PROPERTY
+        INTERFACE_SYSTEM_INCLUDE_DIRECTORIES "${DUMPI_INCLUDE}")
+endif()
+
+check_required_components(codes)

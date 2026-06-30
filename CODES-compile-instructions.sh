@@ -133,8 +133,8 @@ else
 fi
 # ---- end CODES CUDA arch autodetection ----
 
-cmake .. -DCMAKE_C_COMPILER=mpicc -DCMAKE_CXX_COMPILER=mpicxx -DROSS_BUILD_MODELS=ON -DCMAKE_INSTALL_PREFIX="$(realpath ./bin)" \
-  -DCMAKE_C_COMPILER=mpicc -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-g -Wall"
+cmake .. -DROSS_BUILD_MODELS=ON -DCMAKE_INSTALL_PREFIX="$(realpath ./bin)" \
+  -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-g -Wall"
 #make VERBOSE=1
 make install -j4
 err=$?
@@ -217,28 +217,10 @@ if ! pkg-config --exists libzmq 2>/dev/null; then
     echo "         or set PKG_CONFIG_PATH to the directory containing libzmq.pc." >&2
 fi
 
-# Build local ZMQML requester library required by director-client.C
-pushd codes/src/surrogate/zmqml
-make clean
-make
-test -f libzmqmlrequester.so
-test -f zmqmlrequester.h
-popd
-
-# Make imported zmqmlrequester target visible to doc/example and tests.
-python3 - <<'INNERPY'
-from pathlib import Path
-cm = Path("codes/src/CMakeLists.txt")
-text = cm.read_text()
-old = "add_library(zmqmlrequester SHARED IMPORTED )"
-new = "add_library(zmqmlrequester SHARED IMPORTED GLOBAL)"
-if old in text:
-    cm.write_text(text.replace(old, new))
-elif new in text:
-    pass
-else:
-    raise SystemExit("Could not find zmqmlrequester imported target line in codes/src/CMakeLists.txt")
-INNERPY
+# The zmqml requester is built by CODES' own CMake (src/surrogate/zmqml) when
+# CODES_USE_ZEROMQ resolves on — no separate make step. The pkg-config setup
+# above is what lets CMake find libzmq; rapidjson is picked up from the system
+# include path.
 
 mkdir -p codes/build
 pushd codes/build
@@ -358,7 +340,6 @@ fi
 
 make_args_codes=(
     -DCMAKE_PREFIX_PATH="${cmake_prefix_path}"
-    -DCMAKE_CXX_COMPILER=mpicxx -DCMAKE_C_COMPILER=mpicc
     -DCMAKE_C_FLAGS="-g -Wall"
     -DCMAKE_CXX_FLAGS="-g -Wall"
     -DTHREADS_PREFER_PTHREAD_FLAG=ON
@@ -368,27 +349,23 @@ make_args_codes=(
     -DCMAKE_USE_WIN32_THREADS_INIT=0
     -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
     -DCMAKE_INSTALL_PREFIX="$(realpath bin)"
-    -DZMQML_BUILD_PATH="$(realpath "$CUR_DIR/codes/src/surrogate/zmqml")"
-    -DZeroMQ_INCLUDE_DIR=/usr/include
-    -DZeroMQ_LIBRARY=/usr/lib/x86_64-linux-gnu/libzmq.so
 )
+# SWM/argobots/union are located via pkg-config. Their .pc files sit in the
+# in-tree autotools build dirs (e.g. swm/build/maint), which are NOT under a
+# standard <prefix>/lib/pkgconfig, so CMAKE_PREFIX_PATH can't reach them —
+# expose them via PKG_CONFIG_PATH (the correct mechanism for that case, and it
+# avoids the deprecated *_PKG_CONFIG_PATH cache vars). Mirrors the zmq handling
+# above.
 if [ $swm_enable = 1 ]; then
-    make_args_codes=(
-        "${make_args_codes[@]}"
-        -DSWM_PKG_CONFIG_PATH="$(realpath "$CUR_DIR/swm-workloads/swm/build/maint")"
-        -DARGOBOTS_PKG_CONFIG_PATH="$(realpath "$CUR_DIR/argobots/build/maint")"
-    )
+    export PKG_CONFIG_PATH="$(realpath "$CUR_DIR/swm-workloads/swm/build/maint"):$(realpath "$CUR_DIR/argobots/build/maint"):${PKG_CONFIG_PATH:-}"
 fi
 if [ $union_enable = 1 ]; then
-    make_args_codes=(
-        "${make_args_codes[@]}"
-        -DUNION_PKG_CONFIG_PATH="$(realpath "$CUR_DIR/Union/install/lib/pkgconfig")"
-    )
+    export PKG_CONFIG_PATH="$(realpath "$CUR_DIR/Union/install/lib/pkgconfig"):${PKG_CONFIG_PATH:-}"
 fi
 if [ "$torch_enable" = 1 ]; then
     make_args_codes=(
         "${make_args_codes[@]}"
-        -DUSE_TORCH=true
+        -DCODES_USE_TORCH=ON
         -DTorch_DIR="${torch_dir}"
     )
 
@@ -412,7 +389,7 @@ if [ "$torch_enable" = 1 ]; then
         )
     fi
 else
-    make_args_codes=("${make_args_codes[@]}" -DUSE_TORCH=false)
+    make_args_codes=("${make_args_codes[@]}" -DCODES_USE_TORCH=OFF)
 fi
 
 cmake .. "${make_args_codes[@]}"

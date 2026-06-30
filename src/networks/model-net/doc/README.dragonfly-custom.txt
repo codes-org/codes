@@ -102,4 +102,4 @@
   ../src/network-workloads/conf/dragonfly-custom/modelnet-test-dragonfly-
 --------- Debugging Tips ------------
 - Set DUMP_CONNECTIONS debugging option to see the detailed local and global
-  channel connectivity of routers in src/networks/model-net/dragonfly-custom.C
+  channel connectivity of routers in src/networks/model-net/dragonfly-custom.cxx

@@ -18,9 +18,9 @@ extern "C" {
 
 // Functions that director should have access to
 typedef void (*switch_surrogate_f)(
-    void); // Switches back and forth from surrogate mode as defined by network model (e.g, by dragonfly-dally.C)
+    void); // Switches back and forth from surrogate mode as defined by network model (e.g, by dragonfly-dally.cxx)
 typedef bool (*is_surrogate_on_f)(
-    void); // Switches back and forth from surrogate mode as defined by network model (e.g, by dragonfly-dally.C)
+    void); // Switches back and forth from surrogate mode as defined by network model (e.g, by dragonfly-dally.cxx)
 
 struct network_model_surrogate {
     switch_surrogate_f
@@ -30,7 +30,7 @@ struct network_model_surrogate {
 
 
 // Switches back and forth from surrogate mode as defined by network model
-// (e.g, by dragonfly-dally.C)
+// (e.g, by dragonfly-dally.cxx)
 // Parameters: `data` corresponds to the lp sub-state, lp is the lp pointer, and the array of events in queue (to be processed)
 typedef void (*model_switch_f)(void* data, tw_lp* lp, tw_event**);
 typedef bool (*model_ask_if_freeze_f)(

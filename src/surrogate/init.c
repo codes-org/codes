@@ -1,10 +1,11 @@
+#include "codes_config.h"
 #include <codes/surrogate/init.h>
 #include <codes/surrogate/packet-latency-predictor/average.h>
 #include <codes/surrogate/application-surrogate.h>
 #include <codes/surrogate/network-surrogate.h>
 #include <codes/surrogate/app-iteration-predictor/average.h>
 
-#ifdef USE_TORCH
+#if CODES_HAVE_TORCH
 #include <codes/surrogate/packet-latency-predictor/torch-jit.h>
 #endif
 
@@ -111,7 +112,7 @@ bool network_surrogate_configure(char const* const anno, struct network_surrogat
             current_net_predictor = average_latency_predictor(sc->total_terminals);
             *pl_pred = &current_net_predictor;
 
-#ifdef USE_TORCH
+#if CODES_HAVE_TORCH
         } else if (strcmp(latency_pred_name, "torch-jit") == 0) {
             char torch_jit_mode[MAX_NAME_LENGTH];
             torch_jit_mode[0] = '\0';
@@ -171,7 +172,7 @@ bool network_surrogate_configure(char const* const anno, struct network_surrogat
             tw_error(TW_LOC,
                      "Unknown predictor for packet latency `%s` "
                      "(possibilities include: average"
-#ifdef USE_TORCH
+#if CODES_HAVE_TORCH
                      ", torch-jit"
 #endif
                      ")",

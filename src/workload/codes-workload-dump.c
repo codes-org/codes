@@ -9,6 +9,7 @@
 #include <stdio.h>
 #include <codes/codes-workload.h>
 #include <codes/codes.h>
+#include "codes_config.h"
 #include <inttypes.h>
 
 static char type[128] = {'\0'};
@@ -76,7 +77,7 @@ void usage() {
 }
 
 int main(int argc, char* argv[]) {
-#ifdef USE_ONLINE
+#if CODES_HAVE_ONLINE
     ABT_init(argc, argv);
 #endif
     int print_stats = 0;
@@ -463,7 +464,7 @@ int main(int argc, char* argv[]) {
         fprintf(stderr, "NUM_TESTALLS:    %" PRId64 "\n", num_testalls);
     }
 
-#ifdef USE_ONLINE
+#if CODES_HAVE_ONLINE
     ABT_finalize();
 #endif
     return 0;
