@@ -6120,7 +6120,12 @@ static void packet_arrive_rc(terminal_state* s, tw_bf* bf, terminal_dally_messag
     key.sender_id = msg->sender_lp;
 
     hash_link = qhash_search(s->rank_tbl, &key);
-    tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
+    // qhash_search misses return NULL; qhash_entry is a container_of, so feeding
+    // it NULL forms an out-of-bounds pointer (NULL - offsetof) — undefined
+    // behavior even before any dereference (caught by UBSan). Guard like the
+    // forward handler (packet_arrive) and the sibling reverse handler do.
+    if (hash_link)
+        tmp = qhash_entry(hash_link, struct dfly_qhash_entry, hash_link);
 
     mn_stats* stat;
     stat = model_net_find_stats(msg->category, s->dragonfly_stats_array);
