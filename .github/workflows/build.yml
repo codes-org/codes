@@ -462,9 +462,10 @@ jobs:
 
       - name: Run CODES tests
         working-directory: codes
-        # The `full-ci` test preset excludes the union-surrogate director tests:
-        # their *.sh harnesses set only ~8 of the ~20 config-template vars
-        # (DIRECTOR_* etc.) so these tests fail.
+        # Runs the whole suite, including the union-surrogate tests. (These used
+        # to fail because their config template rendered an empty `dir-nw-lp` from
+        # unset DIRECTOR_* vars; the ML-director config was split out of the test
+        # config so the surrogate tests no longer pull it in.)
         run: ctest --preset full-ci
 
       - name: Upload logs on failure
