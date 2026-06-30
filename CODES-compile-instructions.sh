@@ -350,18 +350,17 @@ make_args_codes=(
     -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
     -DCMAKE_INSTALL_PREFIX="$(realpath bin)"
 )
+# SWM/argobots/union are located via pkg-config. Their .pc files sit in the
+# in-tree autotools build dirs (e.g. swm/build/maint), which are NOT under a
+# standard <prefix>/lib/pkgconfig, so CMAKE_PREFIX_PATH can't reach them —
+# expose them via PKG_CONFIG_PATH (the correct mechanism for that case, and it
+# avoids the deprecated *_PKG_CONFIG_PATH cache vars). Mirrors the zmq handling
+# above.
 if [ $swm_enable = 1 ]; then
-    make_args_codes=(
-        "${make_args_codes[@]}"
-        -DSWM_PKG_CONFIG_PATH="$(realpath "$CUR_DIR/swm-workloads/swm/build/maint")"
-        -DARGOBOTS_PKG_CONFIG_PATH="$(realpath "$CUR_DIR/argobots/build/maint")"
-    )
+    export PKG_CONFIG_PATH="$(realpath "$CUR_DIR/swm-workloads/swm/build/maint"):$(realpath "$CUR_DIR/argobots/build/maint"):${PKG_CONFIG_PATH:-}"
 fi
 if [ $union_enable = 1 ]; then
-    make_args_codes=(
-        "${make_args_codes[@]}"
-        -DUNION_PKG_CONFIG_PATH="$(realpath "$CUR_DIR/Union/install/lib/pkgconfig")"
-    )
+    export PKG_CONFIG_PATH="$(realpath "$CUR_DIR/Union/install/lib/pkgconfig"):${PKG_CONFIG_PATH:-}"
 fi
 if [ "$torch_enable" = 1 ]; then
     make_args_codes=(

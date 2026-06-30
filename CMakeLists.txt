@@ -6,8 +6,6 @@ project(codes LANGUAGES C CXX VERSION 2.0)
 include(CMakePrintHelpers)
 cmake_print_variables(CMAKE_CURRENT_SOURCE_DIR)
 
-set(CMAKE_INSTALL_PREFIX "${PROJECT_BINARY_DIR}" CACHE PATH "Where to install CODES")
-
 # C++17 is the project-wide baseline (was previously only enabled when Torch
 # was found). Required, no compiler extensions, so the build is portable
 # across gcc/clang/AppleClang.
@@ -33,9 +31,12 @@ option(CODES_ENABLE_COVERAGE "Instrument the codes library with --coverage (gcov
 #prevent cmake from stripping the runtime path (important if shared libraries are imported)
 SET(CMAKE_INSTALL_RPATH_USE_LINK_PATH TRUE)
 
-set(SWM_PKG_CONFIG_PATH "" CACHE PATH "Where is the SWM PKG_CONFIG installed?")
-set(UNION_PKG_CONFIG_PATH "" CACHE PATH "Where is the Union PKG_CONFIG installed?")
-set(ARGOBOTS_PKG_CONFIG_PATH "" CACHE PATH "Where is argobots PKG_COPNFIG installed? Necessary for SWM")
+# DEPRECATED dep-location knobs (see the deprecation check after find_package
+# below). Prefer CMAKE_PREFIX_PATH — pkg_check_modules searches it the same way
+# find_package does. Kept working for one release cycle.
+set(SWM_PKG_CONFIG_PATH "" CACHE PATH "DEPRECATED: use CMAKE_PREFIX_PATH. Where the SWM pkg-config (.pc) is installed.")
+set(UNION_PKG_CONFIG_PATH "" CACHE PATH "DEPRECATED: use CMAKE_PREFIX_PATH. Where the Union pkg-config (.pc) is installed.")
+set(ARGOBOTS_PKG_CONFIG_PATH "" CACHE PATH "DEPRECATED: use CMAKE_PREFIX_PATH. Where the argobots pkg-config (.pc) is installed (needed for SWM).")
 
 
 # ROSS — modern CMake-config discovery. find_package(ROSS) resolves
@@ -44,11 +45,27 @@ set(ARGOBOTS_PKG_CONFIG_PATH "" CACHE PATH "Where is argobots PKG_COPNFIG instal
 # dirs, the MPI dependency, and link libraries (linked in src/CMakeLists.txt).
 find_package(ROSS CONFIG REQUIRED)
 
-# PkgConfig still discovers the optional SWM/UNION/ARGOBOTS deps below
-# (modernized to imported targets in a later step); their *_PKG_CONFIG_PATH
-# cache vars feed PKG_CONFIG_PATH here.
+# PkgConfig discovers the optional SWM/UNION/ARGOBOTS deps below (as imported
+# targets). The recommended way to point at a non-standard install is
+# CMAKE_PREFIX_PATH (pkg_check_modules searches <prefix>/lib/pkgconfig etc. under
+# it automatically, the same variable that locates ROSS) — e.g.
+#   -DCMAKE_PREFIX_PATH="/opt/swm;/opt/union;/opt/argobots"
+# The legacy *_PKG_CONFIG_PATH cache vars still work for one release cycle: each
+# set value is *prepended* to the environment's PKG_CONFIG_PATH (not clobbering
+# it) and triggers a deprecation warning so downstream invocations migrate.
 find_package(PkgConfig REQUIRED)
-set(ENV{PKG_CONFIG_PATH} "${SWM_PKG_CONFIG_PATH}:${UNION_PKG_CONFIG_PATH}:${ARGOBOTS_PKG_CONFIG_PATH}")
+
+foreach(_legacy_dep SWM UNION ARGOBOTS)
+    if(${_legacy_dep}_PKG_CONFIG_PATH)
+        message(DEPRECATION
+            "${_legacy_dep}_PKG_CONFIG_PATH is deprecated and will be removed in a "
+            "future release. Point CMAKE_PREFIX_PATH at the dependency's install "
+            "prefix instead (pkg_check_modules searches <prefix>/lib/pkgconfig under "
+            "CMAKE_PREFIX_PATH), e.g. -DCMAKE_PREFIX_PATH=\"/opt/swm;/opt/union;/opt/argobots\".")
+    endif()
+endforeach()
+
+set(ENV{PKG_CONFIG_PATH} "$ENV{PKG_CONFIG_PATH}:${SWM_PKG_CONFIG_PATH}:${UNION_PKG_CONFIG_PATH}:${ARGOBOTS_PKG_CONFIG_PATH}")
 
 # MPI — modern imported-target discovery. find_package(MPI) provides the
 # MPI::MPI_C / MPI::MPI_CXX imported targets, which carry the include dirs,

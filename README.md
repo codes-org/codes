@@ -66,6 +66,42 @@ MPI is auto-discovered via `find_package(MPI)` — do **not** set `CC=mpicc` or
 its wrapper (`mpicc`) is on your `PATH` (e.g. `module load mpich`). For a
 non-standard install, hint with `-DMPI_HOME=/path/to/mpi`.
 
+### Locating optional dependencies
+
+The optional pkg-config dependencies (SWM, UNION, argobots) are found with
+`pkg_check_modules`. There are two supported ways to point at copies installed
+outside the default search paths:
+
+**1. `CMAKE_PREFIX_PATH` (recommended)** — add each install *prefix*; the same
+variable that locates ROSS. `pkg_check_modules` searches `<prefix>/lib/pkgconfig`
+(and `share/pkgconfig`, `lib64/...`) under it automatically. Use this when the
+dependency is installed normally (its `.pc` lives under `<prefix>/lib/pkgconfig`):
+
+```bash
+cmake .. \
+  -DCMAKE_PREFIX_PATH="$HOME/ross;/opt/swm;/opt/union;/opt/argobots" \
+  -DCODES_USE_UNION=ON
+```
+
+**2. `PKG_CONFIG_PATH` (environment)** — point directly at the *directories
+containing the `.pc` files*. Use this when a dependency's `.pc` is **not** under a
+standard `<prefix>/lib/pkgconfig` — e.g. an un-installed in-tree build like SWM's
+`build/maint/swm.pc`, which `CMAKE_PREFIX_PATH` cannot reach:
+
+```bash
+export PKG_CONFIG_PATH="/path/to/swm/build/maint:/path/to/argobots/build/maint:$PKG_CONFIG_PATH"
+cmake .. -DCODES_USE_SWM=ON
+```
+
+(`CODES-compile-instructions.sh` uses this form, since it builds the deps in
+place.)
+
+> **Deprecated:** the per-dependency `SWM_PKG_CONFIG_PATH`,
+> `UNION_PKG_CONFIG_PATH`, and `ARGOBOTS_PKG_CONFIG_PATH` cache variables still
+> work for one release cycle (each is prepended to `PKG_CONFIG_PATH`) but emit a
+> deprecation warning. Migrate to `CMAKE_PREFIX_PATH` (or `PKG_CONFIG_PATH` for
+> non-standard `.pc` locations); they will be removed.
+
 ## Building with CMake presets
 
 `CMakePresets.json` ships ready-to-use build configurations so you don't have to

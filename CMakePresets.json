@@ -57,30 +57,26 @@
             "name": "full-ci",
             "inherits": "debug",
             "displayName": "Full (all heavy deps, CI image)",
-            "description": "All optional subsystems forced ON, with dep paths matching the ghcr.io/codes-org/codes-ci-full image (/opt/<dep>). Run inside that image; Torch is found via the Torch_DIR env var (export Torch_DIR=$(python3 -c 'import torch; print(torch.utils.cmake_prefix_path)')/Torch).",
+            "description": "All optional subsystems forced ON, with dep prefixes matching the ghcr.io/codes-org/codes-ci-full image (/opt/<dep>). SWM/UNION/argobots are located via CMAKE_PREFIX_PATH (pkg_check_modules searches <prefix>/lib/pkgconfig under it). Run inside that image; Torch is found via the Torch_DIR env var (export Torch_DIR=$(python3 -c 'import torch; print(torch.utils.cmake_prefix_path)')/Torch).",
             "cacheVariables": {
                 "CODES_USE_UNION": "ON",
                 "CODES_USE_DUMPI": "ON",
                 "CODES_USE_TORCH": "ON",
                 "CODES_USE_ZEROMQ": "ON",
-                "SWM_PKG_CONFIG_PATH": "/opt/swm/lib/pkgconfig",
-                "UNION_PKG_CONFIG_PATH": "/opt/union/lib/pkgconfig",
-                "ARGOBOTS_PKG_CONFIG_PATH": "/opt/argobots/lib/pkgconfig",
+                "CMAKE_PREFIX_PATH": "/opt/swm;/opt/union;/opt/argobots",
                 "DUMPI_BUILD_PATH": "/opt/dumpi"
             }
         },
         {
             "name": "full-local-base",
             "hidden": true,
-            "description": "Heavy-deps flags + env-driven dep paths shared by full-local-debug/release. Export each var to the dep's install prefix: CODES_SWM_DIR, CODES_UNION_DIR, CODES_ARGOBOTS_DIR, CODES_DUMPI_DIR; Torch is found via Torch_DIR. Every CODES_USE_<dep> is ON, so a missing/wrong path fails configure with 'CODES_USE_<dep>=ON but <dep> could not be found/enabled.'",
+            "description": "Heavy-deps flags + env-driven dep prefixes shared by full-local-debug/release. Export each var to the dep's install prefix: CODES_SWM_DIR, CODES_UNION_DIR, CODES_ARGOBOTS_DIR, CODES_DUMPI_DIR; Torch is found via Torch_DIR. SWM/UNION/argobots are located via CMAKE_PREFIX_PATH. Every CODES_USE_<dep> is ON, so a missing/wrong path fails configure with 'CODES_USE_<dep>=ON but <dep> could not be found/enabled.'",
             "cacheVariables": {
                 "CODES_USE_UNION": "ON",
                 "CODES_USE_DUMPI": "ON",
                 "CODES_USE_TORCH": "ON",
                 "CODES_USE_ZEROMQ": "ON",
-                "SWM_PKG_CONFIG_PATH": "$env{CODES_SWM_DIR}/lib/pkgconfig",
-                "UNION_PKG_CONFIG_PATH": "$env{CODES_UNION_DIR}/lib/pkgconfig",
-                "ARGOBOTS_PKG_CONFIG_PATH": "$env{CODES_ARGOBOTS_DIR}/lib/pkgconfig",
+                "CMAKE_PREFIX_PATH": "$env{CODES_SWM_DIR};$env{CODES_UNION_DIR};$env{CODES_ARGOBOTS_DIR}",
                 "DUMPI_BUILD_PATH": "$env{CODES_DUMPI_DIR}"
             }
         },
