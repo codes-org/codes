@@ -27,7 +27,14 @@ tmpdir="$(mktemp -d testing-output/test-XXXXXX)"
 pushd $tmpdir
 
 # running experiment
-bash -x "$1"
+# - one argument: a legacy per-scenario test script (the historical form)
+# - more than one: a generic command + args (e.g. the equivalence runner),
+#   driven by codes_add_equivalence_test()
+if [[ $# -gt 1 ]]; then
+    "$@"
+else
+    bash -x "$1"
+fi
 
 # checking for exit error
 err=$?

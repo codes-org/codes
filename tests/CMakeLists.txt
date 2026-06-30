@@ -2,6 +2,73 @@ enable_testing()
 
 configure_file(run-test.sh.in run-test.sh)
 
+# codes_add_equivalence_test — register an equivalence/determinism test.
+#
+# Runs a model binary two or more times and asserts a marker line (default
+# "Net Events Processed") is identical across runs. Replaces the copy-and-edit
+# per-scenario shell scripts: adding a test is one call here, no new file.
+#
+#   codes_add_equivalence_test(
+#       NAME     <ctest name>
+#       BINARY   <CMake target>            # e.g. tutorial-synthetic-ping-pong
+#       CONFIG   <path under build dir>     # e.g. doc/example/tutorial-ping-pong.conf
+#       [NP      <ranks>]                   # default 3
+#       [ARGS    <args shared by all runs>]
+#       [REPEAT  <n>]                       # default 2; identical runs (reproducibility)
+#       [VARIANTS "<extra args run 1>" "<extra args run 2>" ...]  # one run each, appended
+#       [MARKER  <line to compare>]         # default "Net Events Processed"
+#       [SETUP   <script under source dir>] # sourced before runs (env + conf generation)
+#   )
+#
+# REPEAT and VARIANTS are mutually exclusive ways to describe the runs:
+# REPEAT for "same command N times", VARIANTS when only a small fragment differs
+# (e.g. VARIANTS "--sync=1" "--sync=3" for a seq-vs-optimistic check).
+function(codes_add_equivalence_test)
+    cmake_parse_arguments(T "" "NAME;BINARY;NP;CONFIG;MARKER;REPEAT;SETUP" "ARGS;VARIANTS" ${ARGN})
+
+    if(NOT T_NAME OR NOT T_BINARY OR NOT T_CONFIG)
+        message(FATAL_ERROR "codes_add_equivalence_test: NAME, BINARY and CONFIG are required")
+    endif()
+    if(NOT T_NP)
+        set(T_NP 3)
+    endif()
+    if(NOT T_MARKER)
+        set(T_MARKER "Net Events Processed")
+    endif()
+    if(NOT T_REPEAT)
+        set(T_REPEAT 2)
+    endif()
+
+    set(_bin    "$<TARGET_FILE:${T_BINARY}>")
+    set(_config "${CODES_BINARY_DIR}/${T_CONFIG}")
+    set(_launch ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${T_NP} ${MPIEXEC_PREFLAGS})
+
+    set(_cmd "")
+    if(T_VARIANTS)
+        foreach(_extra IN LISTS T_VARIANTS)
+            separate_arguments(_extra_list UNIX_COMMAND "${_extra}")
+            list(APPEND _cmd @@ ${_launch} "${_bin}" ${T_ARGS} ${_extra_list}
+                             ${MPIEXEC_POSTFLAGS} -- "${_config}")
+        endforeach()
+    else()
+        foreach(_i RANGE 1 ${T_REPEAT})
+            list(APPEND _cmd @@ ${_launch} "${_bin}" ${T_ARGS}
+                             ${MPIEXEC_POSTFLAGS} -- "${_config}")
+        endforeach()
+    endif()
+
+    set(_setup "")
+    if(T_SETUP)
+        set(_setup --setup "${CMAKE_CURRENT_SOURCE_DIR}/${T_SETUP}")
+    endif()
+
+    add_test(NAME ${T_NAME}
+        COMMAND "${CMAKE_CURRENT_BINARY_DIR}/run-test.sh"
+                bash "${CMAKE_CURRENT_SOURCE_DIR}/equivalence-run.sh"
+                --marker "${T_MARKER}" ${_setup} ${_cmd}
+        WORKING_DIRECTORY "${CODES_BINARY_DIR}")
+endfunction()
+
 # Unfortunatelly, CMake doesn't support iteration of a key-pair structure,
 # otherwise the following lists could be easily compressed into a single
 # list/dictionary/structure. Instead each C file name **MUST** match each
@@ -84,7 +151,7 @@ set(test-shell-files
     modelnet-test-fattree-synthetic.sh
     modelnet-test-slimfly-synthetic.sh
     workload/codes-workload-test.sh
-    example-ping-pong-determinism.sh
+    # example-ping-pong-determinism.sh migrated to codes_add_equivalence_test below
     example-ping-pong-surrogate-1.sh
     example-ping-pong-surrogate-2.sh
     example-ping-pong-surrogate-3.sh
@@ -112,3 +179,13 @@ foreach(testname ${test-shell-files})
         COMMAND "${CMAKE_CURRENT_BINARY_DIR}/run-test.sh" "${CMAKE_CURRENT_SOURCE_DIR}/${testname}"
         WORKING_DIRECTORY "${CODES_BINARY_DIR}")
 endforeach()
+
+# Equivalence / determinism tests (replacing per-scenario shell scripts).
+# example-ping-pong-determinism.sh: run the optimistic sim twice, compare
+# committed-event counts (reproducibility).
+codes_add_equivalence_test(
+    NAME   example-ping-pong-determinism
+    BINARY tutorial-synthetic-ping-pong
+    NP     3
+    ARGS   --sync=3 --num_messages=10 --payload_sz=8192
+    CONFIG doc/example/tutorial-ping-pong.conf)
