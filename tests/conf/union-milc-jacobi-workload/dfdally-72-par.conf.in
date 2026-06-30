@@ -5,33 +5,11 @@ LPGROUPS
       repetitions="36";
 # name of this lp changes according to the model
       nw-lp="2";
-      dir-nw-lp="${DIRECTOR_LP_PER_REP}";
 # these lp names will be the same for dragonfly-custom model
       modelnet_dragonfly_dally="2";
       modelnet_dragonfly_dally_router="1";
    }
 }
-DIRECTOR
-{
-   start_iter="${DIRECTOR_START_ITER}";
-   end_iter="${DIRECTOR_END_ITER}";
-
-   retrain_enabled="${DIRECTOR_RETRAIN_ENABLED}";
-   retrain_iter="${DIRECTOR_RETRAIN_ITER}";
-   retrain_save_path="${DIRECTOR_RETRAIN_SAVE_PATH}";
-
-   second_surrogate_enabled="${DIRECTOR_SECOND_SURROGATE_ENABLED}";
-   second_start_iter="${DIRECTOR_SECOND_START_ITER}";
-   second_end_iter="${DIRECTOR_SECOND_END_ITER}";
-
-   inferencing_enabled="${INFERENCING_ENABLED}";
-   surrogate_enabled="${SURROGATE_ENABLED}";
-   training_enabled="${TRAINING_ENABLED}";
-
-   debug_prints="${DIRECTOR_DEBUG_PRINTS}";
-   shutdown_zmqml_server_on_finalize="${SHUTDOWN_ZMQML_SERVER_ON_FINALIZE}";
-}
-
 PARAMS
 {
 # packet size in the network
