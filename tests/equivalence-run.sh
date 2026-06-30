@@ -1,44 +1,49 @@
 #!/bin/bash
 #
-# Generic equivalence runner for CODES tests.
+# Generic staged runner for CODES tests.
 #
-# Runs two (or more) commands, greps a marker line from each run's stdout, and
-# asserts the marked lines are identical across every run. Used for both:
-#   - reproducibility  (same command run N times -> result must not vary), and
-#   - seq-vs-optimistic (same args, differing --sync -> committed work must match).
+# Runs one or more commands, each in its own run-N/ subdir, and applies a set of
+# checks. Drives both single-run smoke tests and multi-run equivalence tests:
+#   - reproducibility   (same command run N times -> result must not vary),
+#   - seq-vs-optimistic  (same args, differing --sync -> committed work matches),
+#   - single-run smoke   (one run; pass on clean exit + marker present).
 #
-# It is driven entirely from CMake by codes_add_equivalence_test(); it is not
-# meant to be hand-edited per test. Each run executes in its own run-N/ subdir
-# so that runs writing to fixed relative output paths don't collide.
+# It is driven from CMake by codes_add_run_test() / codes_add_equivalence_test();
+# it is not meant to be hand-edited per test.
 #
 # Usage:
-#   equivalence-run.sh --marker "Net Events Processed" [--setup <script>] \
-#       @@ <cmd for run 1...> @@ <cmd for run 2...> [ @@ <run 3...> ]
+#   equivalence-run.sh [--marker <line>] [--require <line>]... [--setup <script>] \
+#       @@ <cmd for run 1...> [ @@ <cmd for run 2...> ... ]
 #
-# '@@' separates runs. A run's own '--' (ROSS opts | .conf) stays intact within
-# its segment. --setup names a script that is *sourced* before any run, so it
-# may export environment variables and/or generate config files in the sandbox.
+# '@@' separates runs; a run's own '--' (ROSS opts | .conf) stays intact within
+# its segment. Each run executes in run-N/ so runs writing to fixed relative
+# output paths don't collide. --setup names a script that is *sourced inside each
+# run's subdir* before that run, so it may export environment variables and/or
+# generate config files local to the run (referenced by bare name in the cmd).
+#
+# Checks:
+#   --marker <line>   the line must appear in every run's output; and, when there
+#                     are 2+ runs, the marker lines are diffed across runs (they
+#                     must be identical). Omit to skip the marker check/diff.
+#   --require <line>  the line must appear in every run's output (presence only,
+#                     never diffed). May be given multiple times.
 
 set -u
 
-marker="Net Events Processed"
+marker=""
 setup=""
+requires=()
 
 # Leading options, up to the first run separator.
 while [[ $# -gt 0 && "$1" != "@@" ]]; do
     case "$1" in
-        --marker) marker="$2"; shift 2 ;;
-        --setup)  setup="$2";  shift 2 ;;
+        --marker)  marker="$2";        shift 2 ;;
+        --require) requires+=("$2");    shift 2 ;;
+        --setup)   setup="$2";          shift 2 ;;
         *) echo "equivalence-run.sh: unknown option '$1'" >&2; exit 2 ;;
     esac
 done
 [[ "${1:-}" == "@@" ]] && shift
-
-# Sourced (not executed) so exported vars and generated confs are visible to runs.
-if [[ -n "$setup" ]]; then
-    # shellcheck disable=SC1090
-    source "$setup"
-fi
 
 run_idx=0
 cmd=()
@@ -52,18 +57,35 @@ run_one() {
     local errf="${dir}/model-output-error.txt"
 
     echo "+ run ${run_idx}: ${cmd[*]}" >&2
-    ( cd "$dir" && "${cmd[@]}" ) > "$out" 2> "$errf"
+    # setup is sourced *inside* the run dir so generated confs / trace output are
+    # local to this run (isolating otherwise-colliding fixed relative paths).
+    (
+        cd "$dir" || exit 1
+        if [[ -n "$setup" ]]; then
+            # shellcheck disable=SC1090
+            source "$setup"
+        fi
+        "${cmd[@]}"
+    ) > "$out" 2> "$errf"
     local rc=$?
     if [[ $rc -ne 0 ]]; then
         echo "equivalence-run.sh: run ${run_idx} exited with $rc" >&2
         cat "$errf" >&2
         exit $rc
     fi
-    if ! grep -q "$marker" "$out"; then
+    if [[ -n "$marker" ]] && ! grep -q "$marker" "$out"; then
         echo "equivalence-run.sh: run ${run_idx} produced no '$marker' line" \
              "(did the simulation produce output?)" >&2
         exit 1
     fi
+    local req
+    for req in "${requires[@]:-}"; do
+        [[ -z "$req" ]] && continue
+        if ! grep -q "$req" "$out"; then
+            echo "equivalence-run.sh: run ${run_idx} missing required line '$req'" >&2
+            exit 1
+        fi
+    done
     outputs+=("$out")
     cmd=()
 }
@@ -77,12 +99,12 @@ for tok in "$@"; do
 done
 [[ ${#cmd[@]} -gt 0 ]] && run_one
 
-if [[ ${#outputs[@]} -lt 2 ]]; then
-    echo "equivalence-run.sh: need at least 2 runs to compare, got ${#outputs[@]}" >&2
-    exit 2
+# Cross-run comparison only applies with a marker and 2+ runs; a single run is a
+# smoke test whose checks already ran above.
+if [[ -z "$marker" || ${#outputs[@]} -lt 2 ]]; then
+    exit 0
 fi
 
-# Compare every run's marker line against the first.
 ref="${outputs[0]}"
 status=0
 for out in "${outputs[@]:1}"; do
