@@ -13,7 +13,7 @@
 #
 # Usage:
 #   equivalence-run.sh [--marker <line>] [--require <line>]... [--setup <script>] \
-#       @@ <cmd for run 1...> [ @@ <cmd for run 2...> ... ]
+#       [--lp-io <dir>] @@ <cmd for run 1...> [ @@ <cmd for run 2...> ... ]
 #
 # '@@' separates runs; a run's own '--' (ROSS opts | .conf) stays intact within
 # its segment. Each run executes in run-N/ so runs writing to fixed relative
@@ -27,11 +27,16 @@
 #                     must be identical). Omit to skip the marker check/diff.
 #   --require <line>  the line must appear in every run's output (presence only,
 #                     never diffed). May be given multiple times.
+#   --lp-io <dir>     each run wrote per-LP output to run-N/<dir> (via the model's
+#                     --lp-io-dir); compare the identifier-file set and a sorted
+#                     diff of each file across runs. The per-LP config-equivalence
+#                     check (old .conf vs new .yaml). Needs 2+ runs.
 
 set -u
 
 marker=""
 setup=""
+lpio=""
 requires=()
 
 # Leading options, up to the first run separator.
@@ -40,6 +45,7 @@ while [[ $# -gt 0 && "$1" != "@@" ]]; do
         --marker)  marker="$2";        shift 2 ;;
         --require) requires+=("$2");    shift 2 ;;
         --setup)   setup="$2";          shift 2 ;;
+        --lp-io)   lpio="$2";           shift 2 ;;
         *) echo "equivalence-run.sh: unknown option '$1'" >&2; exit 2 ;;
     esac
 done
@@ -99,19 +105,55 @@ for tok in "$@"; do
 done
 [[ ${#cmd[@]} -gt 0 ]] && run_one
 
-# Cross-run comparison only applies with a marker and 2+ runs; a single run is a
-# smoke test whose checks already ran above.
-if [[ -z "$marker" || ${#outputs[@]} -lt 2 ]]; then
+# Cross-run comparisons need >= 2 runs; a single run is a smoke test whose
+# per-run checks already ran above.
+if [[ ${#outputs[@]} -lt 2 ]]; then
     exit 0
 fi
 
-ref="${outputs[0]}"
+n=${#outputs[@]}
 status=0
-for out in "${outputs[@]:1}"; do
-    if ! diff <(grep "$marker" "$ref") <(grep "$marker" "$out") >&2; then
-        echo "equivalence-run.sh: MISMATCH on '$marker' between ${ref} and ${out}" \
-             "-- the runs are not equivalent" >&2
-        status=1
+
+# Marker comparison: the marked line must be identical across all runs.
+if [[ -n "$marker" ]]; then
+    ref="${outputs[0]}"
+    for out in "${outputs[@]:1}"; do
+        if ! diff <(grep "$marker" "$ref") <(grep "$marker" "$out") >&2; then
+            echo "equivalence-run.sh: MISMATCH on '$marker' between ${ref} and ${out}" \
+                 "-- the runs are not equivalent" >&2
+            status=1
+        fi
+    done
+fi
+
+# lp-io comparison: each run wrote per-LP output to run-N/<lpio>. Compare the
+# set of identifier files and a *sorted* diff of each (per-LP line order is not
+# significant). Two equivalent configs produce identical lp-io output.
+if [[ -n "$lpio" ]]; then
+    refdir="run-1/$lpio"
+    if [[ ! -d "$refdir" ]]; then
+        echo "equivalence-run.sh: lp-io dir '$refdir' missing (did the run pass --lp-io-dir=$lpio?)" >&2
+        exit 1
     fi
-done
+    for ((i = 2; i <= n; i++)); do
+        d="run-${i}/$lpio"
+        if [[ ! -d "$d" ]]; then
+            echo "equivalence-run.sh: lp-io dir '$d' missing" >&2; status=1; continue
+        fi
+        if ! diff <(cd "$refdir" && ls | sort) <(cd "$d" && ls | sort) >&2; then
+            echo "equivalence-run.sh: lp-io identifier-file set differs (run-1 vs run-${i})" >&2
+            status=1; continue
+        fi
+        for f in "$refdir"/*; do
+            [[ -f "$f" ]] || continue
+            id=$(basename "$f")
+            if ! diff <(sort "$refdir/$id") <(sort "$d/$id") >&2; then
+                echo "equivalence-run.sh: lp-io MISMATCH on '$id' (run-1 vs run-${i})" \
+                     "-- the configs are not equivalent" >&2
+                status=1
+            fi
+        done
+    done
+fi
+
 exit $status

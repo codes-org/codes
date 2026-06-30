@@ -138,6 +138,46 @@ function(codes_add_run_test)
     endif()
 endfunction()
 
+# codes_add_lpio_equivalence_test — assert two configs produce equivalent results.
+#
+# Runs BINARY once per config (each with its own --lp-io-dir) and diffs the
+# resulting per-LP lp-io output -- the set of identifier files, and a sorted diff
+# of each. Two configs are equivalent iff every run produces identical lp-io. The
+# primary use is checking a new YAML config against the legacy .conf it replaces;
+# CONFIG_A/CONFIG_B can be any two config files the model accepts (format-agnostic,
+# so it works with .conf-vs-.conf today and .conf-vs-.yaml once the YAML adapter
+# lands). BINARY must be a model that emits lp-io (e.g. model-net-synthetic).
+#
+#   codes_add_lpio_equivalence_test(
+#       NAME     <ctest name>
+#       BINARY   <CMake target>
+#       CONFIG_A <path>                  # e.g. legacy .conf
+#       CONFIG_B <path>                  # e.g. new .yaml (or a second .conf)
+#       [NP      <ranks>]                # default 1
+#       [ARGS    <args shared by both runs, placed before the config>]
+#   )
+function(codes_add_lpio_equivalence_test)
+    cmake_parse_arguments(T "" "NAME;BINARY;NP;CONFIG_A;CONFIG_B" "ARGS" ${ARGN})
+    if(NOT T_NAME OR NOT T_BINARY OR NOT T_CONFIG_A OR NOT T_CONFIG_B)
+        message(FATAL_ERROR "codes_add_lpio_equivalence_test: NAME, BINARY, CONFIG_A and CONFIG_B are required")
+    endif()
+    if(NOT T_NP)
+        set(T_NP 1)
+    endif()
+    set(_bin    "$<TARGET_FILE:${T_BINARY}>")
+    set(_launch ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${T_NP} ${MPIEXEC_PREFLAGS})
+    # Each run writes lp-io into a fresh "lp-io" dir inside its own run-N subdir
+    # (lp_io_prepare mkdir's it and aborts if it already exists, so it must be
+    # relative + per-run-isolated, which the runner's subdirs provide).
+    add_test(NAME ${T_NAME}
+        COMMAND "${CMAKE_CURRENT_BINARY_DIR}/run-test.sh"
+                bash "${CMAKE_CURRENT_SOURCE_DIR}/equivalence-run.sh"
+                --marker "Net Events Processed" --lp-io lp-io
+                @@ ${_launch} "${_bin}" ${T_ARGS} --lp-io-dir=lp-io ${MPIEXEC_POSTFLAGS} -- "${T_CONFIG_A}"
+                @@ ${_launch} "${_bin}" ${T_ARGS} --lp-io-dir=lp-io ${MPIEXEC_POSTFLAGS} -- "${T_CONFIG_B}"
+        WORKING_DIRECTORY "${CODES_BINARY_DIR}")
+endfunction()
+
 # Unfortunatelly, CMake doesn't support iteration of a key-pair structure,
 # otherwise the following lists could be easily compressed into a single
 # list/dictionary/structure. Instead each C file name **MUST** match each
@@ -199,10 +239,9 @@ set(test-shell-files
     # surrogate-1/2/3 are cross-config comparison tests (surrogate vs high-fidelity,
     # freeze vs non-freeze) with custom sed-normalized diffs of per-LP *stdout* --
     # not determinism tests -- so they stay as scripts (same bucket as mapping_test).
-    # TODO: convert these to the planned lp-io normalize-and-sort comparison
-    # helper once it lands (the roadmap's canonical per-LP comparison; stdout
-    # scraping is explicitly the approach it replaces). Requires the surrogate path
-    # to emit lp-io output first.
+    # TODO: convert these to codes_add_lpio_equivalence_test (the canonical per-LP
+    # comparison; stdout scraping is the approach it replaces) once the surrogate
+    # path emits lp-io output.
     example-ping-pong-surrogate-1.sh
     example-ping-pong-surrogate-2.sh
     example-ping-pong-surrogate-3.sh
@@ -308,3 +347,15 @@ codes_add_run_test(NAME modelnet-test-fattree-synthetic BINARY model-net-synthet
     ARGS --sync=1 -- "${_nwconf}/modelnet-synthetic-fattree.conf")
 codes_add_run_test(NAME modelnet-test-slimfly-synthetic BINARY model-net-synthetic-slimfly
     ARGS --sync=1 -- "${_nwconf}/modelnet-synthetic-slimfly-min.conf")
+
+# Config-equivalence harness: run two configs, diff per-LP lp-io output.
+# Proof-of-concept uses the same config twice (must be identical -> also an lp-io
+# determinism check). When the YAML config adapter lands, CONFIG_B becomes the
+# compiled .yaml, giving the old-.conf vs new-.yaml equivalence check.
+codes_add_lpio_equivalence_test(
+    NAME     synthetic-dragonfly-lpio-equivalence
+    BINARY   model-net-synthetic
+    NP       1
+    ARGS     --sync=1 --num_messages=1
+    CONFIG_A "${_nwconf}/modelnet-synthetic-dragonfly.conf"
+    CONFIG_B "${_nwconf}/modelnet-synthetic-dragonfly.conf")
