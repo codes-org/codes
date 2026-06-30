@@ -57,9 +57,11 @@
             "name": "asan",
             "inherits": "debug",
             "displayName": "ASan",
-            "description": "Debug build with AddressSanitizer (CODES_SANITIZER=address); mirrors the CI asan job. CODES is instrumented; ROSS is not. Run ctest with ASAN_OPTIONS as needed — the CI lane sets detect_leaks=0 initially to skip MPI/teardown leak noise.",
+            "description": "Debug build with AddressSanitizer (CODES_SANITIZER=address); mirrors the CI asan job. CODES is instrumented; ROSS is not. Run ctest with ASAN_OPTIONS as needed — the CI lane sets detect_leaks=0 initially to skip MPI/teardown leak noise. WIP: builds at -O1 (ASan-recommended) instead of Debug's -O0 to cut the slow ping-pong tests' runtime; remove the CMAKE_*_FLAGS_DEBUG overrides to revert.",
             "cacheVariables": {
-                "CODES_SANITIZER": "address"
+                "CODES_SANITIZER": "address",
+                "CMAKE_C_FLAGS_DEBUG": "-g -O1",
+                "CMAKE_CXX_FLAGS_DEBUG": "-g -O1"
             }
         },
         {

@@ -197,17 +197,16 @@ jobs:
   # so bugs reached through ROSS internals aren't flagged yet — a follow-up can
   # instrument ROSS too.
   #
-  # ASan is informational for now (continue-on-error): LeakSanitizer is disabled
-  # (detect_leaks=0) so the lane delivers the high-value detections
-  # (heap-buffer-overflow, use-after-free, stack overflow) without MPICH and
-  # teardown leak noise. Enabling leaks with a suppression file and flipping ASan
-  # to gating is a follow-up. UBSan gates now: -fno-sanitize-recover (baked into
-  # the preset) makes any UB abort, so a real finding fails the job.
+  # Both lanes gate: a finding fails the job and blocks merge. UBSan aborts on
+  # any UB via -fno-sanitize-recover (baked into the preset); ASan aborts on the
+  # first memory error. LeakSanitizer stays disabled (detect_leaks=0) so the
+  # lane delivers the high-value detections (heap-buffer-overflow, use-after-free,
+  # stack overflow) without MPICH and teardown leak noise — enabling leaks with a
+  # suppression file is a follow-up. The asan preset builds at -O1 (ASan-
+  # recommended) so the full suite runs in ~5 min instead of ~1 h at -O0.
   sanitizers:
     name: sanitizers (${{ matrix.sanitizer }})
     runs-on: ubuntu-24.04
-    # ASan stays informational until its leak/teardown noise is triaged; UBSan gates.
-    continue-on-error: ${{ matrix.sanitizer == 'asan' }}
     strategy:
       # See every sanitizer's result on every run.
       fail-fast: false
