@@ -60,7 +60,7 @@ if [[ $err -ne 0 ]]; then
 fi
 
 # This checks for an equal number of packets transmitted
-diff <(packet-latency-freeze/*.txt | wc -l) <(packet-latency-non-freeze/*.txt | wc -l)
+diff <(cat packet-latency-freeze/*.txt | wc -l) <(cat packet-latency-non-freeze/*.txt | wc -l)
 err=$?
 if [[ $err -ne 0 ]]; then
     >&2 echo "The two modes (freezing and not) are processing a different number of packets"
