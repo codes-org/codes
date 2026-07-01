@@ -245,6 +245,10 @@ CODES provides comprehensive simulation capabilities for:
 
 ## Contributing
 
+For naming, file extensions, header guards, and how LP state must be constructed,
+see the [coding conventions](doc/dev/conventions.md). Formatting is machine-checked
+(below).
+
 ### Code formatting
 
 This repo uses [clang-format](https://clang.llvm.org/docs/ClangFormat.html) to keep C/C++ style consistent. The rules live in [`.clang-format`](.clang-format) at the repo root; configure your editor to pick it up:
