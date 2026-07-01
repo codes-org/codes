@@ -126,6 +126,10 @@ struct friendly_config {
     bool parametric = false;
     fabric fab; /* parametric topology */
 
+    bool flat = false;          /* flat enumerated topology */
+    std::string flat_component; /* the component every node runs */
+    long node_count = 0;        /* number of nodes = repetitions */
+
     const component* find_component(const std::string& k) const {
         for (const component& c : components)
             if (c.key == k)
@@ -184,6 +188,27 @@ const fabric_model fabric_models[] = {
 
 const fabric_model* find_fabric_model(const std::string& name) {
     for (const fabric_model& m : fabric_models)
+        if (name == m.name)
+            return &m;
+    return nullptr;
+}
+
+/* A flat (enumerated) network model: one NIC LP per compute node, all peers.
+ * Maps a friendly network name to the LPGROUPS lp-type name and the
+ * modelnet_order method the model registers. */
+struct network_model {
+    const char* name;   /* friendly name used in a component's network: field */
+    const char* nic_lp; /* LPGROUPS lp-type name for the NIC */
+    const char* method; /* modelnet_order method name */
+};
+
+const network_model network_models[] = {
+    {"simplenet", "modelnet_simplenet", "simplenet"},
+    {"simplep2p", "modelnet_simplep2p", "simplep2p"},
+};
+
+const network_model* find_network_model(const std::string& name) {
+    for (const network_model& m : network_models)
         if (name == m.name)
             return &m;
     return nullptr;
@@ -280,8 +305,26 @@ void parse_topology(ryml::ConstNodeRef root, friendly_config& cfg) {
         else
             throw config_error("config error: parametric topology needs hosts.component naming the "
                                "per-terminal workload");
+    } else if (format == "flat") {
+        cfg.flat = true;
+        /* only these keys are consumed for a flat topology. */
+        for (ryml::ConstNodeRef c : topo.children()) {
+            std::string k = key_of(c);
+            if (k != "format" && k != "component" && k != "nodes")
+                throw config_error("config error: topology: unexpected key \"" + k +
+                                   "\" for a flat topology");
+        }
+        if (!has(topo, "component"))
+            throw config_error("config error: flat topology needs a \"component\" naming the "
+                               "compute node (workload + its NIC model)");
+        cfg.flat_component = scalar(topo["component"]);
+        if (!has(topo, "nodes"))
+            throw config_error("config error: flat topology needs a \"nodes\" count");
+        cfg.node_count = parse_int_strict(scalar(topo["nodes"]), "topology.nodes");
+        if (cfg.node_count <= 0)
+            throw config_error("config error: topology.nodes must be positive");
     } else if (format.empty()) {
-        throw config_error("config error: topology needs a \"format\" (e.g. parametric)");
+        throw config_error("config error: topology needs a \"format\" (flat or parametric)");
     } else {
         throw config_error("config error: unknown topology format \"" + format + "\"");
     }
@@ -388,6 +431,39 @@ void compile_fabric(const friendly_config& cfg, compiled_config& out) {
         params.add_key(kv.first, kv.second);
 }
 
+/* Compile a flat (enumerated) network into LPGROUPS + PARAMS: `node_count`
+ * peer compute nodes, each one repetition running the component's workload LP
+ * over its NIC LP. simplep2p's link table stays referenced by path in the
+ * component params; the friendly form supplies only the node count. */
+void compile_flat(const friendly_config& cfg, compiled_config& out) {
+    const component* comp = cfg.find_component(cfg.flat_component);
+    if (!comp)
+        throw config_error("config error: topology.component \"" + cfg.flat_component +
+                           "\" is not defined under components:");
+    if (comp->network.empty())
+        throw config_error("config error: component \"" + cfg.flat_component +
+                           "\" needs a network: field naming its NIC model");
+
+    const network_model* net = find_network_model(comp->network);
+    if (!net)
+        throw config_error("config error: unknown network model \"" + comp->network + "\"");
+
+    /* --- LPGROUPS: one repetition per node, each a workload LP + its NIC LP,
+     * emitted in [workload, NIC] order to match the model's layout. --- */
+    compiled_section& grp = out.add_section("LPGROUPS").add_subsection("MODELNET_GRP");
+    grp.add_key("repetitions", std::to_string(cfg.node_count));
+    grp.add_key(comp->model, "1");
+    grp.add_key(net->nic_lp, "1");
+
+    /* --- PARAMS: modelnet_order from the network model; the component's params
+     * (message_size, packet_size, simplep2p's matrix-file references, ...) pass
+     * straight through. --- */
+    compiled_section& params = out.add_section("PARAMS");
+    params.add_key("modelnet_order", std::vector<std::string>{net->method});
+    for (const auto& kv : comp->params)
+        params.add_key(kv.first, kv.second);
+}
+
 } // namespace
 
 compiled_config compile(std::string_view text) {
@@ -417,6 +493,8 @@ compiled_config compile(std::string_view text) {
     compiled_config out;
     if (cfg.parametric)
         compile_fabric(cfg, out);
+    else if (cfg.flat)
+        compile_flat(cfg, out);
     else
         throw config_error("config error: no supported topology found");
     return out;

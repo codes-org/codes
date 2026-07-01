@@ -206,6 +206,38 @@ function(codes_add_lpio_equivalence_test)
         WORKING_DIRECTORY "${CODES_BINARY_DIR}")
 endfunction()
 
+# codes_add_config_equivalence_test — assert two configs drive a model to the
+# same committed work, comparing a marker line rather than lp-io. For models
+# whose test binary writes lp-io to a fixed (non-per-run) path, so two lp-io dirs
+# can't coexist: the old .conf vs new .yaml check for those.
+#
+#   codes_add_config_equivalence_test(
+#       NAME <name> BINARY <target> [NP <n>]
+#       CONFIG_A <path>                  # e.g. legacy .conf
+#       CONFIG_B <path>                  # e.g. new .yaml
+#       [MARKER <line>] [ARGS <args>...])
+function(codes_add_config_equivalence_test)
+    cmake_parse_arguments(T "" "NAME;BINARY;NP;CONFIG_A;CONFIG_B;MARKER" "ARGS" ${ARGN})
+    if(NOT T_NAME OR NOT T_BINARY OR NOT T_CONFIG_A OR NOT T_CONFIG_B)
+        message(FATAL_ERROR "codes_add_config_equivalence_test: NAME, BINARY, CONFIG_A and CONFIG_B are required")
+    endif()
+    if(NOT T_NP)
+        set(T_NP 1)
+    endif()
+    if(NOT T_MARKER)
+        set(T_MARKER "Net Events Processed")
+    endif()
+    set(_bin    "$<TARGET_FILE:${T_BINARY}>")
+    set(_launch ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${T_NP} ${MPIEXEC_PREFLAGS})
+    add_test(NAME ${T_NAME}
+        COMMAND "${CMAKE_CURRENT_BINARY_DIR}/run-test.sh"
+                bash "${CMAKE_CURRENT_SOURCE_DIR}/equivalence-run.sh"
+                --marker "${T_MARKER}"
+                @@ ${_launch} "${_bin}" ${T_ARGS} ${MPIEXEC_POSTFLAGS} -- "${T_CONFIG_A}"
+                @@ ${_launch} "${_bin}" ${T_ARGS} ${MPIEXEC_POSTFLAGS} -- "${T_CONFIG_B}"
+        WORKING_DIRECTORY "${CODES_BINARY_DIR}")
+endfunction()
+
 # Unfortunatelly, CMake doesn't support iteration of a key-pair structure,
 # otherwise the following lists could be easily compressed into a single
 # list/dictionary/structure. Instead each C file name **MUST** match each
@@ -403,3 +435,19 @@ codes_add_lpio_equivalence_test(
     ARGS     --sync=1 --num_messages=1
     CONFIG_A "${_nwconf}/modelnet-synthetic-dragonfly.conf"
     CONFIG_B "${_nwconf}/modelnet-synthetic-dragonfly.yaml")
+
+# Flat networks (component + node count). These test binaries write lp-io to a
+# fixed path, so compare committed-event counts between the .conf and its YAML
+# twin rather than lp-io dirs.
+codes_add_config_equivalence_test(
+    NAME     simplep2p-config-equivalence
+    BINARY   modelnet-simplep2p-test
+    ARGS     --sync=1
+    CONFIG_A "${_tconf}/modelnet-test-simplep2p.conf"
+    CONFIG_B "${_tconf}/modelnet-test-simplep2p.yaml")
+codes_add_config_equivalence_test(
+    NAME     simplenet-config-equivalence
+    BINARY   modelnet-test
+    ARGS     --sync=1
+    CONFIG_A "${_tconf}/modelnet-test.conf"
+    CONFIG_B "${_tconf}/modelnet-test-simplenet.yaml")
