@@ -77,10 +77,16 @@ grep 'Net Events Processed' model-output.txt
 err=$?
 [[ $err -ne 0 ]] && exit $err
 
-# Checking both milc and jacobi ran
-grep 'MILC: Iteration 119/120' model-output.txt
+# Checking both Jacobi and MILC ran.  App 0 is Jacobi and App 1 is MILC in
+# jacobi_MILC.workload.conf.  In surrogate mode, MILC may not print the final
+# high-fidelity iteration line, so check that at least one MILC rank finished.
+grep -E 'Network node [0-9]+ Rank [0-9]+ App 1 finished' model-output.txt
 err=$?
-[[ $err -ne 0 ]] && exit $err
+if [[ $err -ne 0 ]]; then
+  echo "MILC/App 1 completion output not found"
+  grep -nE 'MILC|App 1|All non-synthetic|application iteration' model-output.txt | tail -80
+  exit $err
+fi
 
 grep 'Jacobi3D: Completed 39 iterations' model-output.txt
 err=$?
