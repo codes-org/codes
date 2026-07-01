@@ -7,7 +7,7 @@ TARGETS=libzmqmlrequester.so demozmqmlrequester
 all: $(TARGETS)
 
 libzmqmlrequester.so: zmqmlrequester.o
-	$(CXX) -shared -o $@ $^ $(LDFLAGS)
+	$(CXX) -shared -Wl,-soname,libzmqmlrequester.so -o $@ $^ $(LDFLAGS)
 
 zmqmlrequester.o: zmqmlrequester.cpp zmqmlrequester.h
 	$(CXX) $(CXXFLAGS) -fPIC -c $< -o $@

@@ -109,6 +109,13 @@ if(USE_UNION)
     )
 endif()
 
+if(USE_ZMQML)
+    list(APPEND test-shell-files
+        zmqml-iteration-time-hybrid-workflow.sh
+        zmqml-event-time-hybrid-workflow.sh
+    )
+endif()
+
 foreach(testname ${test-shell-files})
     add_test(NAME ${testname}
         COMMAND "${CMAKE_CURRENT_BINARY_DIR}/run-test.sh" "${CMAKE_CURRENT_SOURCE_DIR}/${testname}"

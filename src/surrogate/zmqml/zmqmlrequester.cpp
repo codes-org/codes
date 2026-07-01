@@ -9,6 +9,7 @@
 #include <numeric>
 #include <regex>
 #include <cstring>
+#include <cstdlib>
 
 #include <zmq.hpp>
 #include "rapidjson/document.h"
@@ -18,7 +19,15 @@
 using namespace std;
 using namespace rapidjson;
 
-static string endpoint = "tcp://localhost:5555";
+static string endpoint_from_env() {
+    const char* env = getenv("ZMQML_ENDPOINT");
+    if (env && env[0] != '\0') {
+        return string(env);
+    }
+    return "tcp://localhost:5555";
+}
+
+static string endpoint = endpoint_from_env();
 static int debug = 0;
 
 
