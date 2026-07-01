@@ -92,6 +92,19 @@ list(APPEND SRCS
     modelconfig/configuration.c
     modelconfig/txt_configfile.h
     modelconfig/txt_configfile.c
+
+    # YAML/JSON config front-end: a pure C++ core that compiles the friendly
+    # topology/component format to the compiled_config IR (config_compiler), a
+    # dumb emitter that lowers that IR to the same ConfigVTable the .conf parser
+    # yields (config_emitter), and the thin extern "C" shim configuration.c
+    # dispatches to (yaml_configfile). Always built -- ryml is vendored, so the
+    # front-end is core, not an optional feature.
+    modelconfig/config_compiler.h
+    modelconfig/config_compiler.cxx
+    modelconfig/config_emitter.h
+    modelconfig/config_emitter.cxx
+    modelconfig/yaml_configfile.h
+    modelconfig/yaml_configfile.cxx
 )
 
 list(APPEND LIBS_TO_LINK ROSS::ROSS)
@@ -195,6 +208,16 @@ target_include_directories(codes PUBLIC
 )
 
 target_link_libraries(codes PUBLIC ${LIBS_TO_LINK})
+
+# ryml backs the YAML config front-end and is an implementation detail (no public
+# codes header includes it). codes is a STATIC library in an install/export set,
+# so instead of linking a separate in-tree lib (which the build-tree export()
+# would drag into the export set), compile the vendored amalgamation's single
+# implementation TU straight into codes and put its headers on codes' PRIVATE
+# include path. The ryml objects then live inside codes.a, invisible to the
+# installed interface. See thirdparty/rapidyaml/CMakeLists.txt.
+target_sources(codes PRIVATE ${CODES_RYML_IMPL_TU})
+target_include_directories(codes SYSTEM PRIVATE ${CODES_RYML_INCLUDE_DIRS})
 
 add_executable(topology-test networks/model-net/topology-test.c)
 add_executable(model-net-mpi-replay network-workloads/model-net-mpi-replay.c network-workloads/model-net-mpi-replay-main.c)
