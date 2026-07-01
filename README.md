@@ -222,6 +222,13 @@ bash run-experiment.sh path-to-experiment/script.sh
 
 A folder will be created under `path-to-experiment/results` containing the result of running the experiment.
 
+### Configuration format
+
+A model's configuration can be written as a `.conf` (the legacy format) or as a
+YAML/JSON file — both are supported, chosen per file by extension. See
+[Running with a YAML config](doc/dev/yaml-config.md) for the YAML format and
+worked examples.
+
 ## Features
 
 CODES provides comprehensive simulation capabilities for:
