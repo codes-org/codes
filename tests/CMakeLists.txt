@@ -250,7 +250,7 @@ set(test-shell-files
 configure_file(conf/union-milc-jacobi-workload/dfdally-72-par.conf.in conf/union-milc-jacobi-workload/dfdally-72-par.conf.in @ONLY)
 
 if(USE_UNION)
-    list(APPEND test-shell-files
+    set(union-shell-files
         union-workload-test-surrogate.sh
         union-workload-test-surrogate-smaller-chunk-size.sh
         union-workload-test-surrogate-parallel.sh
@@ -259,6 +259,7 @@ if(USE_UNION)
         union-workload-test-surrogate-parallel-deterministic-3.sh
         union-workload-test-surrogate-parallel-deterministic-4.sh
     )
+    list(APPEND test-shell-files ${union-shell-files})
 endif()
 
 foreach(testname ${test-shell-files})
@@ -266,6 +267,14 @@ foreach(testname ${test-shell-files})
         COMMAND "${CMAKE_CURRENT_BINARY_DIR}/run-test.sh" "${CMAKE_CURRENT_SOURCE_DIR}/${testname}"
         WORKING_DIRECTORY "${CODES_BINARY_DIR}")
 endforeach()
+
+# The union-surrogate tests run a heavy MILC+Jacobi UNION workload -- ~30 min for
+# the set. Label them "nightly" so PR/push CI skips them (ctest --label-exclude
+# nightly) and they run only on the scheduled nightly full-lane build, and give
+# each a generous timeout so a hang can't wedge that job.
+if(USE_UNION)
+    set_tests_properties(${union-shell-files} PROPERTIES LABELS "nightly" TIMEOUT 1200)
+endif()
 
 # Equivalence / determinism tests (replacing per-scenario shell scripts).
 # example-ping-pong-determinism.sh: run the optimistic sim twice, compare

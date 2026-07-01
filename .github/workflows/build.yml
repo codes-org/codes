@@ -462,11 +462,17 @@ jobs:
 
       - name: Run CODES tests
         working-directory: codes
-        # Runs the whole suite, including the union-surrogate tests. (These used
-        # to fail because their config template rendered an empty `dir-nw-lp` from
-        # unset DIRECTOR_* vars; the ML-director config was split out of the test
-        # config so the surrogate tests no longer pull it in.)
-        run: ctest --preset full-ci
+        # The union-surrogate tests (LABELS "nightly" in tests/CMakeLists.txt) run
+        # a heavy MILC+Jacobi UNION workload -- ~30 min for the set -- so PR/push
+        # skips them and the scheduled nightly build runs the full set including
+        # them. (Their director-free config fix means they no longer segfault on an
+        # empty dir-nw-lp; see tests/conf/union-milc-jacobi-workload/.)
+        run: |
+          if [ "${{ github.event_name }}" = "schedule" ]; then
+            ctest --preset full-ci
+          else
+            ctest --preset full-ci --label-exclude nightly
+          fi
 
       - name: Upload logs on failure
         if: failure()
