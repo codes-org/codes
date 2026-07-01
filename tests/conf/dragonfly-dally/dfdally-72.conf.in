@@ -1,0 +1,37 @@
+# Golden dragonfly-dally config for the YAML-equivalence test. Identical to
+# src/network-workloads/conf/dragonfly-dally/dfdally_72.conf except the
+# connection-file paths are absolute (@CMAKE_SOURCE_DIR@ substituted by CMake) so
+# the model resolves them regardless of the run directory.
+LPGROUPS
+{
+   MODELNET_GRP
+   {
+      repetitions="36";
+      nw-lp="2";
+      modelnet_dragonfly_dally="2";
+      modelnet_dragonfly_dally_router="1";
+   }
+}
+PARAMS
+{
+   packet_size="4096";
+   modelnet_order=( "dragonfly_dally","dragonfly_dally_router" );
+   modelnet_scheduler="fcfs";
+   chunk_size="4096";
+   num_routers="4";
+   num_groups="9";
+   local_vc_size="16384";
+   global_vc_size="16384";
+   cn_vc_size="32768";
+   local_bandwidth="2.0";
+   global_bandwidth="2.0";
+   cn_bandwidth="2.0";
+   message_size="736";
+   num_cns_per_router="2";
+   num_global_channels="2";
+   intra-group-connections="@CMAKE_SOURCE_DIR@/src/network-workloads/conf/dragonfly-dally/dfdally-72-intra";
+   inter-group-connections="@CMAKE_SOURCE_DIR@/src/network-workloads/conf/dragonfly-dally/dfdally-72-inter";
+   routing="minimal";
+   minimal-bias="1";
+   df-dally-vc = "1";
+}

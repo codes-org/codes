@@ -451,3 +451,26 @@ codes_add_config_equivalence_test(
     ARGS     --sync=1
     CONFIG_A "${_tconf}/modelnet-test.conf"
     CONFIG_B "${_tconf}/modelnet-test-simplenet.yaml")
+
+# fattree's lp-io switch stats are not reproducible run to run, so compare
+# committed-event counts rather than lp-io.
+codes_add_config_equivalence_test(
+    NAME     fattree-config-equivalence
+    BINARY   model-net-synthetic-fattree
+    ARGS     --sync=1
+    CONFIG_A "${_nwconf}/modelnet-synthetic-fattree.conf"
+    CONFIG_B "${_nwconf}/modelnet-synthetic-fattree.yaml")
+
+# dragonfly-dally is file-enumerated: it reads its binary connection files by a
+# working-directory-relative path. The equivalence runner executes each run in
+# its own subdir, so configure both configs with an absolute path to the
+# (shared, in-tree) connection files.
+configure_file(conf/dragonfly-dally/dfdally-72.conf.in conf/dragonfly-dally/dfdally-72.conf @ONLY)
+configure_file(conf/dragonfly-dally/dfdally-72.yaml.in conf/dragonfly-dally/dfdally-72.yaml @ONLY)
+codes_add_lpio_equivalence_test(
+    NAME     dragonfly-dally-lpio-equivalence
+    BINARY   model-net-synthetic-dragonfly-all
+    NP       1
+    ARGS     --sync=1 --num_messages=1
+    CONFIG_A "${CMAKE_CURRENT_BINARY_DIR}/conf/dragonfly-dally/dfdally-72.conf"
+    CONFIG_B "${CMAKE_CURRENT_BINARY_DIR}/conf/dragonfly-dally/dfdally-72.yaml")

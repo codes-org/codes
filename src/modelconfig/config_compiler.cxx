@@ -169,6 +169,14 @@ long shape_int(const kv_list& shape, const char* key) {
                        "\"");
 }
 
+/* Look up a shape value by name, returning a default when absent. */
+long shape_int_default(const kv_list& shape, const char* key, long dflt) {
+    for (const auto& kv : shape)
+        if (kv.first == key)
+            return std::strtol(kv.second.c_str(), nullptr, 10);
+    return dflt;
+}
+
 /* Regular (Kim-Dally) dragonfly: every count follows from num_routers, the
  * routers per group -- the same derivation the model does internally
  * (num_cn = num_routers/2, num_groups = num_routers*num_cn + 1). */
@@ -181,9 +189,34 @@ layout derive_dragonfly(const kv_list& shape) {
     return {num_groups * num_routers, num_cn, 1};
 }
 
+/* Dragonfly-dally (file-enumerated): the shape counts are genuine inputs that
+ * must match the connection files. total routers = num_groups * num_planes *
+ * num_routers; each router hosts num_cns_per_router terminals. */
+layout derive_dragonfly_dally(const kv_list& shape) {
+    long num_routers = shape_int(shape, "num_routers");
+    long num_groups = shape_int(shape, "num_groups");
+    long num_cns = shape_int(shape, "num_cns_per_router");
+    long num_planes = shape_int_default(shape, "num_planes", 1);
+    return {num_groups * num_planes * num_routers, num_cns, 1};
+}
+
+/* Fat-tree (internally-generated): one repetition per edge switch, each hosting
+ * switch_radix/2 terminals, with one switch LP per level. The fabric's switch is
+ * not a separate model-net method, so only the terminal appears in
+ * modelnet_order. */
+layout derive_fattree(const kv_list& shape) {
+    long switch_count = shape_int(shape, "switch_count");
+    long switch_radix = shape_int(shape, "switch_radix");
+    long num_levels = shape_int(shape, "num_levels");
+    return {switch_count, switch_radix / 2, num_levels};
+}
+
 const fabric_model fabric_models[] = {
     {"dragonfly", "modelnet_dragonfly", "modelnet_dragonfly_router", "dragonfly",
      "dragonfly_router", derive_dragonfly},
+    {"dragonfly-dally", "modelnet_dragonfly_dally", "modelnet_dragonfly_dally_router",
+     "dragonfly_dally", "dragonfly_dally_router", derive_dragonfly_dally},
+    {"fattree", "modelnet_fattree", "fattree_switch", "fattree", nullptr, derive_fattree},
 };
 
 const fabric_model* find_fabric_model(const std::string& name) {
