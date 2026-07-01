@@ -261,6 +261,10 @@ else()
     message(STATUS "ZeroMQ director-client/zmqml surrogate disabled")
 endif()
 
+
+# Vendored third-party dependencies (built before src, which links them).
+add_subdirectory(thirdparty)
+
 add_subdirectory(src)
 
 
