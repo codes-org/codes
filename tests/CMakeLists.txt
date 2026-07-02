@@ -2,6 +2,10 @@ enable_testing()
 
 configure_file(run-test.sh.in run-test.sh)
 
+option(CODES_ENABLE_ZMQML_HYBRID_TESTS
+       "Register ZMQML hybrid workflow tests that require a running zmqmlserver.py"
+       OFF)
+
 # codes_add_equivalence_test — register an equivalence/determinism test.
 #
 # Runs a model binary two or more times and asserts a marker line (default
@@ -262,7 +266,7 @@ if(USE_UNION)
     list(APPEND test-shell-files ${union-shell-files})
 endif()
 
-if(USE_ZEROMQ)
+if(USE_ZEROMQ AND CODES_ENABLE_ZMQML_HYBRID_TESTS)
     list(APPEND test-shell-files
         zmqml-iteration-time-hybrid-workflow.sh
         zmqml-event-time-hybrid-workflow.sh

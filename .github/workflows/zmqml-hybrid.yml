@@ -98,6 +98,7 @@ jobs:
                 -DCODES_USE_SWM=ON \
                 -DCODES_USE_TORCH=ON \
                 -DCODES_USE_ZEROMQ=ON \
+                -DCODES_ENABLE_ZMQML_HYBRID_TESTS=ON \
                 -DCMAKE_C_COMPILER=mpicc \
                 -DCMAKE_CXX_COMPILER=mpicxx \
                 -DCMAKE_PREFIX_PATH="/work/ross-install;/opt/swm;/opt/argobots" \
