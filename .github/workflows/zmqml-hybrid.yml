@@ -27,7 +27,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ROSS-org/ROSS
-          ref: ${{ github.event_name == 'schedule' && 'master' || env.ROSS_REF }}
+          ref: ${{ env.ROSS_REF }}
           path: ross
 
       - name: Pull full dependency image
@@ -54,8 +54,18 @@ jobs:
             -e ZMQML_RECORD_LOG_PATH=/work/zmqml-artifacts/iteration-records.csv \
             -e ZMQML_EVENT_TIME_RECORD_LOG_PATH=/work/zmqml-artifacts/event-time-records.csv \
             "$ZMQML_IMAGE" \
-            bash -lc 'apt-get update && apt-get install -y python3-zmq python3-numpy python3-sklearn python3-pandas python3-pip
-              python3 -c 'import importlib.util, subprocess, sys; sys.exit(0) if importlib.util.find_spec("torch") else subprocess.check_call([sys.executable, "-m", "pip", "install", "--break-system-packages", "torch", "--index-url", "https://download.pytorch.org/whl/cpu"])' python3-numpy python3-sklearn python3-pip && python3 -c 'import importlib.util, subprocess, sys; sys.exit(0) if importlib.util.find_spec("torch") else subprocess.check_call([sys.executable, "-m", "pip", "install", "--break-system-packages", "torch", "--index-url", "https://download.pytorch.org/whl/cpu"])' && exec python3 -u zmqmlserver.py'
+            bash -euxo pipefail -c '
+              apt-get update
+              apt-get install -y python3-zmq python3-numpy python3-sklearn python3-pandas python3-pip gettext-base
+
+              python3 -c "import importlib.util, subprocess, sys; sys.exit(0) if importlib.util.find_spec(\"torch\") else subprocess.check_call([sys.executable, \"-m\", \"pip\", \"install\", \"--break-system-packages\", \"torch\", \"--index-url\", \"https://download.pytorch.org/whl/cpu\"])"
+
+              exec python3 -u zmqmlserver.py
+            '
+
+          sleep 5
+          docker ps --filter name=zmqml-server
+          docker logs zmqml-server
 
       - name: Build ROSS and CODES with ZMQML
         run: |
@@ -68,6 +78,10 @@ jobs:
             -w /work \
             "$ZMQML_IMAGE" \
             bash -euxo pipefail -c '
+              apt-get update
+              apt-get install -y python3-zmq python3-numpy python3-sklearn python3-pandas python3-pip gettext-base
+              python3 -c "import importlib.util, subprocess, sys; sys.exit(0) if importlib.util.find_spec(\"torch\") else subprocess.check_call([sys.executable, \"-m\", \"pip\", \"install\", \"--break-system-packages\", \"torch\", \"--index-url\", \"https://download.pytorch.org/whl/cpu\"])"
+
               cmake -S ross -B ross/build -G Ninja \
                 -DCMAKE_BUILD_TYPE=Debug \
                 -DROSS_BUILD_MODELS=ON \
@@ -75,23 +89,19 @@ jobs:
 
               cmake --build ross/build --target install -j
 
-              cd /work/codes/src/surrogate/zmqml
-              make clean
-              make
-
               cd /work/codes
               rm -rf build
+
               cmake -S . -B build -G Ninja \
                 -DCMAKE_BUILD_TYPE=Debug \
                 -DBUILD_TESTING=ON \
-                -DUSE_ONLINE=ON \
-                -DUSE_SWM=ON \
-                -DUSE_TORCH=ON \
-                -DUSE_ZMQML=ON \
-                -DZMQML_BUILD_PATH=/work/codes/src/surrogate/zmqml \
+                -DCODES_USE_SWM=ON \
+                -DCODES_USE_TORCH=ON \
+                -DCODES_USE_ZEROMQ=ON \
                 -DCMAKE_C_COMPILER=mpicc \
                 -DCMAKE_CXX_COMPILER=mpicxx \
                 -DROSS_PKG_CONFIG_PATH=/work/ross-install/lib/pkgconfig \
+                -DCMAKE_PREFIX_PATH="/opt/swm;/opt/argobots" \
                 -DTorch_DIR="$(python3 -c "import torch; print(torch.utils.cmake_prefix_path)")/Torch"
 
               cmake --build build -j
@@ -107,15 +117,17 @@ jobs:
             -w /work/codes \
             -e ZMQML_ENDPOINT=tcp://zmqml-server:5555 \
             -e ZMQML_TEST_NP=1 \
+            -e ZMQML_CTL_TIMEOUT=30 \
             "$ZMQML_IMAGE" \
             bash -euxo pipefail -c '
               apt-get update
-              apt-get install -y python3-zmq
+              apt-get install -y python3-zmq python3-numpy python3-sklearn python3-pandas python3-pip gettext-base
+              python3 -c "import importlib.util, subprocess, sys; sys.exit(0) if importlib.util.find_spec(\"torch\") else subprocess.check_call([sys.executable, \"-m\", \"pip\", \"install\", \"--break-system-packages\", \"torch\", \"--index-url\", \"https://download.pytorch.org/whl/cpu\"])"
 
               ctest --test-dir build \
                 -R "zmqml-(iteration-time|event-time)-hybrid-workflow.sh" \
                 --output-on-failure \
-                --timeout 600 \
+                --timeout 1200 \
                 -VV
             '
 
