@@ -137,6 +137,39 @@ jobs:
                 -VV
             '
 
+      - name: Validate ZMQML server logs
+        run: |
+          mkdir -p "$PWD/zmqml-artifacts"
+          docker logs zmqml-server 2>&1 | tee "$PWD/zmqml-artifacts/zmqml-server.log"
+
+          require_log() {
+            local pattern="$1"
+            local description="$2"
+
+            if ! grep -nE "$pattern" "$PWD/zmqml-artifacts/zmqml-server.log"; then
+              echo "::error::Missing server-side ZMQML evidence: $description"
+              exit 1
+            fi
+          }
+
+          require_log '\[zmqmlserver\] director_debug_prints=1' \
+            'simulation configured the server debug flag'
+
+          require_log '\[iteration-time records\]' \
+            'iteration-time records reached the server'
+
+          require_log '\[iteration-time inference\].*predictions=' \
+            'iteration-time inference reached the server and returned predictions'
+
+          require_log '\[event-time records\]' \
+            'event-time records reached the server'
+
+          require_log '\[event-time inference\].*predictions=' \
+            'event-time inference reached the server and returned predictions'
+
+          test -s "$PWD/zmqml-artifacts/iteration-records.csv"
+          test -s "$PWD/zmqml-artifacts/event-time-records.csv"
+
       - name: Dump ZMQML server logs
         if: always()
         run: docker logs zmqml-server || true
@@ -147,8 +180,8 @@ jobs:
           docker rm -f zmqml-server || true
           docker network rm codes-zmqml-ci || true
 
-      - name: Upload logs on failure
-        if: failure()
+      - name: Upload ZMQML logs
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: zmqml-hybrid-logs

@@ -85,6 +85,29 @@ python3 "$srcdir/src/surrogate/zmqml/zmqmlctl.py" \
 
 grep '"status": "done"' "$artifacts/iteration-train-model.json"
 
+python3 - "$artifacts/iteration-train-model.json" <<'PY_ITER_TRAIN_CHECK'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+data = json.loads(path.read_text())
+
+total_records = int(data.get("total_records", "0"))
+trained_clients = int(data.get("trained_clients", "0"))
+
+if total_records <= 0:
+    raise SystemExit(f"iteration-time train reported no server-side records: {data}")
+
+if trained_clients <= 0:
+    raise SystemExit(f"iteration-time train reported no trained clients: {data}")
+
+print(
+    "iteration-time server train status: "
+    f"total_records={total_records} trained_clients={trained_clients}"
+)
+PY_ITER_TRAIN_CHECK
+
 python3 "$srcdir/src/surrogate/zmqml/zmqmlctl.py" \
     --endpoint "$endpoint" \
     --family iteration-time \

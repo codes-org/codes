@@ -98,6 +98,29 @@ python3 "$srcdir/src/surrogate/zmqml/zmqmlctl.py" \
 
 grep '"status": "done"' "$artifacts/event-time-train-model.json"
 
+python3 - "$artifacts/event-time-train-model.json" <<'PY_EVENT_TRAIN_CHECK'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+data = json.loads(path.read_text())
+
+total_rows = int(data.get("total_rows", "0"))
+trained_models = int(data.get("trained_models", "0"))
+
+if total_rows <= 0:
+    raise SystemExit(f"event-time train reported no server-side rows: {data}")
+
+if trained_models <= 0:
+    raise SystemExit(f"event-time train reported no trained models: {data}")
+
+print(
+    "event-time server train status: "
+    f"total_rows={total_rows} trained_models={trained_models}"
+)
+PY_EVENT_TRAIN_CHECK
+
 python3 "$srcdir/src/surrogate/zmqml/zmqmlctl.py" \
     --endpoint "$endpoint" \
     --family event-time \
