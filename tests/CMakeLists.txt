@@ -262,7 +262,7 @@ if(USE_UNION)
     list(APPEND test-shell-files ${union-shell-files})
 endif()
 
-if(USE_ZMQML)
+if(USE_ZEROMQ)
     list(APPEND test-shell-files
         zmqml-iteration-time-hybrid-workflow.sh
         zmqml-event-time-hybrid-workflow.sh

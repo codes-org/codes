@@ -123,6 +123,13 @@ jobs:
               apt-get install -y python3-zmq python3-numpy python3-sklearn python3-pandas python3-pip gettext-base
               python3 -c "import importlib.util, subprocess, sys; sys.exit(0) if importlib.util.find_spec(\"torch\") else subprocess.check_call([sys.executable, \"-m\", \"pip\", \"install\", \"--break-system-packages\", \"torch\", \"--index-url\", \"https://download.pytorch.org/whl/cpu\"])"
 
+              ctest --test-dir build -N \
+                -R "zmqml-(iteration-time|event-time)-hybrid-workflow.sh" \
+                | tee /tmp/zmqml-ctest-list.txt
+
+              grep -E "Test #[0-9]+: zmqml-(iteration-time|event-time)-hybrid-workflow.sh" \
+                /tmp/zmqml-ctest-list.txt
+
               ctest --test-dir build \
                 -R "zmqml-(iteration-time|event-time)-hybrid-workflow.sh" \
                 --output-on-failure \
