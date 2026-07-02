@@ -333,12 +333,23 @@ INNERPY
     fi
 fi
 
-cmake_prefix_path="$(realpath "$CUR_DIR/ross/build/bin")"
+ross_config="$(find "$CUR_DIR/ross/build" \( -name ROSSConfig.cmake -o -name ross-config.cmake \) | head -n 1)"
+if [ -z "$ross_config" ]; then
+    echo "ERROR: Could not find built ROSSConfig.cmake under $CUR_DIR/ross/build." >&2
+    echo "       Try rebuilding ROSS or check whether make install completed." >&2
+    exit 1
+fi
+
+ross_dir="$(dirname "$ross_config")"
+echo "Using ROSS_DIR=${ross_dir}"
+
+cmake_prefix_path="${ross_dir}"
 if [ "$torch_enable" = 1 ]; then
     cmake_prefix_path="${cmake_prefix_path};${torch_cmake_prefix}"
 fi
 
 make_args_codes=(
+    -DROSS_DIR="${ross_dir}"
     -DCMAKE_PREFIX_PATH="${cmake_prefix_path}"
     -DCMAKE_C_FLAGS="-g -Wall"
     -DCMAKE_CXX_FLAGS="-g -Wall"
