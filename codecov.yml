@@ -1,0 +1,38 @@
+# Codecov configuration for CODES. https://docs.codecov.com/docs/codecov-yaml
+#
+# Coverage is reported on PRs and commits but is INFORMATIONAL for now — it
+# annotates without failing checks, so it can't block a merge before the project
+# has an established baseline. Flip `informational: false` once coverage is
+# trusted and you want it to gate.
+coverage:
+  status:
+    project:
+      default:
+        informational: true
+    patch:
+      default:
+        informational: true
+
+# Files/paths excluded from the coverage metric. The coverage CI job also strips
+# matching paths via `lcov --remove`; this is the belt-and-suspenders side so the
+# Codecov UI agrees with the uploaded report.
+ignore:
+  - "tests/"             # the test harness itself
+  - "**/configlex.*"     # generated flex lexer (modelconfig)
+  - "**/configparser.*"  # generated bison parser (modelconfig)
+  - "**/codeslexer.*"    # generated flex lexer (iokernellang)
+  - "**/codesparser.*"   # generated bison parser (iokernellang; .y not committed)
+  - "doc/"               # examples/tutorials (the ping-pong example IS tested,
+                         # but it's teaching code, not the product — revisit if
+                         # you'd rather measure it)
+
+# PR comment from the Codecov bot. The defaults already post a comment; this just
+# makes it explicit. require_base/require_changes:false mean it still comments on
+# the first PRs, before master has an established coverage baseline to diff
+# against.
+comment:
+  layout: "reach, diff, flags, files"
+  behavior: default
+  require_changes: false
+  require_base: false
+  require_head: true

@@ -23,7 +23,7 @@
 #include "codes_config.h"
 #include "union_util.h"
 
-//#ifdef USE_SWM
+//#if CODES_HAVE_SWM
 #include "lammps.h"
 #include "nekbone_swm_user_code.h"
 #include "nearest_neighbor_swm_user_code.h"
@@ -959,7 +959,7 @@ void UNION_MPI_Alltoall(const void* sendbuf, int sendcount, UNION_Datatype sendt
 }
 
 
-//#ifdef USE_SWM
+//#if CODES_HAVE_SWM
 
 void SWM_Pass_app_data(struct swm_app_data* app_data) {
     /* Retreive the shared context state */

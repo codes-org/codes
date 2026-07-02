@@ -204,7 +204,7 @@ form "dumpi-YYYY.MM.DD.HH.MM.SS-XXXX.bin", then the input should be
 
 === Quality of Service
 
-Two models (dragonfly-dally.C and dragonfly-plus.C) can now support traffic 
+Two models (dragonfly-dally.cxx and dragonfly-plus.cxx) can now support traffic 
 differentiation and prioritization. The models support quality of service by
 directing the network traffic on separate class of virtual channels. Additional
 documentation on using traffic classes can be found at the wiki link:

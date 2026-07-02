@@ -1,20 +1,28 @@
+#ifndef CODES_CONFIG_H
+#define CODES_CONFIG_H
 
+// codes_config.h — generated from codes_config.h.cmake.in by CMake.
+//
+// Optional-feature availability: CODES_HAVE_<X> is ALWAYS defined — to 1 if that
+// optional subsystem was enabled at configure time (resolved from the
+// CODES_USE_<X> option) and 0 otherwise. Query it with `#if CODES_HAVE_<X>` (not
+// `#ifdef`): the value-based form, combined with the -Wundef build flag, turns a
+// forgotten `#include "codes_config.h"` or a typo'd name into a compiler warning
+// instead of a silently-disabled feature. This is the supported, namespaced way
+// for CODES sources and external consumers to query which subsystems a build
+// includes — it replaces the old bare -DUSE_<X> command-line defines.
 
+#cmakedefine01 CODES_HAVE_DUMPI
+#cmakedefine01 CODES_HAVE_ONLINE
+#cmakedefine01 CODES_HAVE_SWM
+#cmakedefine01 CODES_HAVE_UNION
+#cmakedefine01 CODES_HAVE_RECORDER
+#cmakedefine01 CODES_HAVE_TORCH
+#cmakedefine01 CODES_HAVE_ZEROMQ
+#cmakedefine01 CODES_HAVE_DARSHAN
 
-// ross
-
-// dumpi
-
-// swm
+// Data-install paths used by the SWM / UNION online-workload backends.
 #define SWM_DATAROOTDIR "${SWM_DATAROOTDIR}"
-// union
 #define UNION_DATADIR "${UNION_DATAROOTDIR}"
 
-
-// damaris
-
-
-// darshan
-
-
-// cortex
+#endif /* CODES_CONFIG_H */

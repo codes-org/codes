@@ -37,17 +37,6 @@ else
     echo "Using existing ross checkout: $(realpath ross)"
 fi
 
-
-if [ "$torch_enable" = 1 ]; then
-    make_args_codes=(
-        "${make_args_codes[@]}"
-    )
-else
-    make_args_codes=(
-        "${make_args_codes[@]}"
-    )
-fi
-
 if [ $swm_enable = 1 ]; then
     if [ ! -d argobots/.git ]; then
     git clone https://github.com/pmodels/argobots --depth=1
@@ -144,8 +133,8 @@ else
 fi
 # ---- end CODES CUDA arch autodetection ----
 
-cmake .. -DCMAKE_C_COMPILER=mpicc -DCMAKE_CXX_COMPILER=mpicxx -DROSS_BUILD_MODELS=ON -DCMAKE_INSTALL_PREFIX="$(realpath ./bin)" \
-  -DCMAKE_C_COMPILER=mpicc -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-g -Wall"
+cmake .. -DROSS_BUILD_MODELS=ON -DCMAKE_INSTALL_PREFIX="$(realpath ./bin)" \
+  -DCMAKE_BUILD_TYPE=Debug -DCMAKE_C_FLAGS="-g -Wall"
 #make VERBOSE=1
 make install -j4
 err=$?
@@ -203,41 +192,35 @@ fi
 
 
 
-if [ "$torch_enable" = 1 ]; then
-    # Make system pkg-config metadata visible even when Conda's pkg-config is active.
-    # This is needed for libzmq.pc on systems where ZeroMQ is installed through the OS
-    # but the active Conda environment's pkg-config only searches Conda pkgconfig dirs.
-    if ! pkg-config --exists libzmq 2>/dev/null; then
-        for pcdir in \
-            /usr/lib/x86_64-linux-gnu/pkgconfig \
-            /usr/lib64/pkgconfig \
-            /usr/lib/pkgconfig \
-            /usr/local/lib/pkgconfig \
-            /usr/local/lib64/pkgconfig \
-            /opt/homebrew/lib/pkgconfig \
-            /usr/share/pkgconfig
-        do
-            if [ -d "$pcdir" ]; then
-                export PKG_CONFIG_PATH="$pcdir:${PKG_CONFIG_PATH:-}"
-            fi
-        done
-    fi
-
-    if ! pkg-config --exists libzmq 2>/dev/null; then
-        echo "WARNING: pkg-config still cannot find libzmq.pc." >&2
-        echo "         If ZMQML requester support fails to build, install the ZeroMQ development package" >&2
-        echo "         or set PKG_CONFIG_PATH to the directory containing libzmq.pc." >&2
-    fi
-
-    # Build local ZMQML requester library required by director-client.C.
-    pushd codes/src/surrogate/zmqml
-    make clean
-    make
-    test -f libzmqmlrequester.so
-    test -f zmqmlrequester.h
-    popd
+# Make system pkg-config metadata visible even when Conda's pkg-config is active.
+# This is needed for libzmq.pc on systems where ZeroMQ is installed through the OS
+# but the active Conda environment's pkg-config only searches Conda pkgconfig dirs.
+if ! pkg-config --exists libzmq 2>/dev/null; then
+    for pcdir in \
+        /usr/lib/x86_64-linux-gnu/pkgconfig \
+        /usr/lib64/pkgconfig \
+        /usr/lib/pkgconfig \
+        /usr/local/lib/pkgconfig \
+        /usr/local/lib64/pkgconfig \
+        /opt/homebrew/lib/pkgconfig \
+        /usr/share/pkgconfig
+    do
+        if [ -d "$pcdir" ]; then
+            export PKG_CONFIG_PATH="$pcdir:${PKG_CONFIG_PATH:-}"
+        fi
+    done
 fi
 
+if ! pkg-config --exists libzmq 2>/dev/null; then
+    echo "WARNING: pkg-config still cannot find libzmq.pc." >&2
+    echo "         If ZMQML fails to build, install the ZeroMQ development package" >&2
+    echo "         or set PKG_CONFIG_PATH to the directory containing libzmq.pc." >&2
+fi
+
+# The zmqml requester is built by CODES' own CMake (src/surrogate/zmqml) when
+# CODES_USE_ZEROMQ resolves on — no separate make step. The pkg-config setup
+# above is what lets CMake find libzmq; rapidjson is picked up from the system
+# include path.
 
 mkdir -p codes/build
 pushd codes/build
@@ -357,7 +340,6 @@ fi
 
 make_args_codes=(
     -DCMAKE_PREFIX_PATH="${cmake_prefix_path}"
-    -DCMAKE_CXX_COMPILER=mpicxx -DCMAKE_C_COMPILER=mpicc
     -DCMAKE_C_FLAGS="-g -Wall"
     -DCMAKE_CXX_FLAGS="-g -Wall"
     -DTHREADS_PREFER_PTHREAD_FLAG=ON
@@ -368,29 +350,23 @@ make_args_codes=(
     -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTING=ON
     -DCMAKE_INSTALL_PREFIX="$(realpath bin)"
 )
-
+# SWM/argobots/union are located via pkg-config. Their .pc files sit in the
+# in-tree autotools build dirs (e.g. swm/build/maint), which are NOT under a
+# standard <prefix>/lib/pkgconfig, so CMAKE_PREFIX_PATH can't reach them —
+# expose them via PKG_CONFIG_PATH (the correct mechanism for that case, and it
+# avoids the deprecated *_PKG_CONFIG_PATH cache vars). Mirrors the zmq handling
+# above.
 if [ $swm_enable = 1 ]; then
-    make_args_codes=(
-        "${make_args_codes[@]}"
-        -DSWM_PKG_CONFIG_PATH="$(realpath "$CUR_DIR/swm-workloads/swm/build/maint")"
-        -DARGOBOTS_PKG_CONFIG_PATH="$(realpath "$CUR_DIR/argobots/build/maint")"
-    )
+    export PKG_CONFIG_PATH="$(realpath "$CUR_DIR/swm-workloads/swm/build/maint"):$(realpath "$CUR_DIR/argobots/build/maint"):${PKG_CONFIG_PATH:-}"
 fi
 if [ $union_enable = 1 ]; then
-    make_args_codes=(
-        "${make_args_codes[@]}"
-        -DUNION_PKG_CONFIG_PATH="$(realpath "$CUR_DIR/Union/install/lib/pkgconfig")"
-    )
+    export PKG_CONFIG_PATH="$(realpath "$CUR_DIR/Union/install/lib/pkgconfig"):${PKG_CONFIG_PATH:-}"
 fi
 if [ "$torch_enable" = 1 ]; then
     make_args_codes=(
         "${make_args_codes[@]}"
-        -DUSE_TORCH=true
+        -DCODES_USE_TORCH=ON
         -DTorch_DIR="${torch_dir}"
-        -DUSE_ZMQML=true
-        -DZMQML_BUILD_PATH="$(realpath "$CUR_DIR/codes/src/surrogate/zmqml")"
-        -DZeroMQ_INCLUDE_DIR=/usr/include
-        -DZeroMQ_LIBRARY=/usr/lib/x86_64-linux-gnu/libzmq.so
     )
 
     if [ -n "${CUDA_HOME:-}" ]; then
@@ -413,10 +389,7 @@ if [ "$torch_enable" = 1 ]; then
         )
     fi
 else
-    make_args_codes=(
-        "${make_args_codes[@]}"
-        -DUSE_TORCH=false
-    )
+    make_args_codes=("${make_args_codes[@]}" -DCODES_USE_TORCH=OFF)
 fi
 
 cmake .. "${make_args_codes[@]}"
