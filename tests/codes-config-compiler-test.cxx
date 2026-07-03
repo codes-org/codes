@@ -52,6 +52,27 @@ topology:
   nodes: 4
 )";
 
+// An explicit LP-groups config: two groups, custom LP types, an annotation, and
+// a PARAMS block -- the layout escape hatch for non-network configs.
+const char* kGroupsBase = R"(
+schema_version: 1
+topology:
+  format: groups
+  params:
+    message_size: 256
+  groups:
+    GRP1:
+      repetitions: 2
+      lps:
+        a: 1
+        b: 2
+        a@foo: 1
+    GRP2:
+      repetitions: 3
+      lps:
+        c: 2
+)";
+
 } // namespace
 
 // --- topology sanity (the compiler still does its normal job) ---------------
@@ -175,4 +196,88 @@ sections:
 )";
     compiled_config c = compile(yaml);
     EXPECT_NE(find_section(c, "my_new_feature"), nullptr);
+}
+
+// --- explicit LP-groups form (`format: groups`) -----------------------------
+
+TEST(ConfigCompiler, ExplicitGroupsEmitsLpgroupsAndParams) {
+    compiled_config c = compile(kGroupsBase);
+
+    const compiled_section* lpg = find_section(c, "LPGROUPS");
+    ASSERT_NE(lpg, nullptr);
+
+    const compiled_section* g1 = find_subsection(*lpg, "GRP1");
+    ASSERT_NE(g1, nullptr);
+    ASSERT_NE(find_key(*g1, "repetitions"), nullptr);
+    EXPECT_EQ(find_key(*g1, "repetitions")->values.at(0), "2");
+    ASSERT_NE(find_key(*g1, "b"), nullptr);
+    EXPECT_EQ(find_key(*g1, "b")->values.at(0), "2");
+
+    const compiled_section* g2 = find_subsection(*lpg, "GRP2");
+    ASSERT_NE(g2, nullptr);
+    EXPECT_EQ(find_key(*g2, "repetitions")->values.at(0), "3");
+
+    const compiled_section* params = find_section(c, "PARAMS");
+    ASSERT_NE(params, nullptr);
+    ASSERT_NE(find_key(*params, "message_size"), nullptr);
+    EXPECT_EQ(find_key(*params, "message_size")->values.at(0), "256");
+}
+
+TEST(ConfigCompiler, ExplicitGroupsCarriesAnnotationVerbatim) {
+    compiled_config c = compile(kGroupsBase);
+    const compiled_section* g1 = find_subsection(*find_section(c, "LPGROUPS"), "GRP1");
+    ASSERT_NE(g1, nullptr);
+    // the annotated LP type keeps its `type@annotation` spelling (codes_mapping
+    // splits on '@') and is distinct from the un-annotated `a`.
+    const compiled_key* annotated = find_key(*g1, "a@foo");
+    ASSERT_NE(annotated, nullptr);
+    EXPECT_EQ(annotated->values.at(0), "1");
+    EXPECT_NE(find_key(*g1, "a"), nullptr);
+}
+
+TEST(ConfigCompiler, ExplicitGroupsComposeWithPassthroughSections) {
+    std::string yaml = std::string(kGroupsBase) + R"(
+sections:
+  lsm:
+    request_sizes: [0]
+    write_rates: [12000.0]
+)";
+    compiled_config c = compile(yaml);
+    EXPECT_NE(find_section(c, "LPGROUPS"), nullptr);
+    const compiled_section* lsm = find_section(c, "lsm");
+    ASSERT_NE(lsm, nullptr);
+    EXPECT_NE(find_key(*lsm, "request_sizes"), nullptr);
+}
+
+TEST(ConfigCompiler, ExplicitGroupsRejectsMissingRepetitions) {
+    EXPECT_THROW(compile(R"(
+schema_version: 1
+topology:
+  format: groups
+  groups:
+    G: { lps: { a: 1 } }
+)"),
+                 config_error);
+}
+
+TEST(ConfigCompiler, ExplicitGroupsRejectsNonPositiveCount) {
+    EXPECT_THROW(compile(R"(
+schema_version: 1
+topology:
+  format: groups
+  groups:
+    G: { repetitions: 1, lps: { a: 0 } }
+)"),
+                 config_error);
+}
+
+TEST(ConfigCompiler, ExplicitGroupsRejectsUnknownGroupKey) {
+    EXPECT_THROW(compile(R"(
+schema_version: 1
+topology:
+  format: groups
+  groups:
+    G: { repetitions: 1, lps: { a: 1 }, bogus: 2 }
+)"),
+                 config_error);
 }

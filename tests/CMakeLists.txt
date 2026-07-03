@@ -228,9 +228,12 @@ endfunction()
 #       NAME <name> BINARY <target> [NP <n>]
 #       CONFIG_A <path>                  # e.g. legacy .conf
 #       CONFIG_B <path>                  # e.g. new .yaml
-#       [MARKER <line>] [ARGS <args>...])
+#       [MARKER <line>] [ARGS <args>...]
+#       [CONFIG_FLAG <prefix>])          # e.g. "--conf=" for binaries that take
+#                                        #   the config as a ROSS option instead
+#                                        #   of the trailing `-- <config>` positional
 function(codes_add_config_equivalence_test)
-    cmake_parse_arguments(T "" "NAME;BINARY;NP;CONFIG_A;CONFIG_B;MARKER" "ARGS" ${ARGN})
+    cmake_parse_arguments(T "" "NAME;BINARY;NP;CONFIG_A;CONFIG_B;MARKER;CONFIG_FLAG" "ARGS" ${ARGN})
     if(NOT T_NAME OR NOT T_BINARY OR NOT T_CONFIG_A OR NOT T_CONFIG_B)
         message(FATAL_ERROR "codes_add_config_equivalence_test: NAME, BINARY, CONFIG_A and CONFIG_B are required")
     endif()
@@ -242,12 +245,21 @@ function(codes_add_config_equivalence_test)
     endif()
     set(_bin    "$<TARGET_FILE:${T_BINARY}>")
     set(_launch ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${T_NP} ${MPIEXEC_PREFLAGS})
+    if(T_CONFIG_FLAG)
+        # config is a ROSS option (e.g. --conf=<path>): glue it to the prefix and
+        # pass it among the ROSS args, with no trailing `-- <config>` positional.
+        set(_run_a ${_launch} "${_bin}" ${T_ARGS} "${T_CONFIG_FLAG}${T_CONFIG_A}" ${MPIEXEC_POSTFLAGS})
+        set(_run_b ${_launch} "${_bin}" ${T_ARGS} "${T_CONFIG_FLAG}${T_CONFIG_B}" ${MPIEXEC_POSTFLAGS})
+    else()
+        set(_run_a ${_launch} "${_bin}" ${T_ARGS} ${MPIEXEC_POSTFLAGS} -- "${T_CONFIG_A}")
+        set(_run_b ${_launch} "${_bin}" ${T_ARGS} ${MPIEXEC_POSTFLAGS} -- "${T_CONFIG_B}")
+    endif()
     add_test(NAME ${T_NAME}
         COMMAND "${CMAKE_CURRENT_BINARY_DIR}/run-test.sh"
                 bash "${CMAKE_CURRENT_SOURCE_DIR}/equivalence-run.sh"
                 --marker "${T_MARKER}"
-                @@ ${_launch} "${_bin}" ${T_ARGS} ${MPIEXEC_POSTFLAGS} -- "${T_CONFIG_A}"
-                @@ ${_launch} "${_bin}" ${T_ARGS} ${MPIEXEC_POSTFLAGS} -- "${T_CONFIG_B}"
+                @@ ${_run_a}
+                @@ ${_run_b}
         WORKING_DIRECTORY "${CODES_BINARY_DIR}")
 endfunction()
 
@@ -492,6 +504,24 @@ codes_add_config_equivalence_test(
     ARGS     --sync=1
     CONFIG_A "${_tconf}/modelnet-test-slimfly.conf"
     CONFIG_B "${_tconf}/modelnet-test-slimfly.yaml")
+
+# Explicit-groups form (non-network layouts): a custom group with a workload LP
+# co-located with a storage/resource LP, plus that model's own pass-through
+# section. These binaries take the config as a ROSS option, not a positional.
+codes_add_config_equivalence_test(
+    NAME        lsm-config-equivalence
+    BINARY      lsm-test
+    CONFIG_FLAG "--conf="
+    ARGS        --sync=1
+    CONFIG_A    "${_tconf}/lsm-test.conf"
+    CONFIG_B    "${_tconf}/lsm-test.yaml")
+codes_add_config_equivalence_test(
+    NAME        resource-config-equivalence
+    BINARY      resource-test
+    CONFIG_FLAG "--codes-config="
+    ARGS        --sync=1
+    CONFIG_A    "${_tconf}/buffer_test.conf"
+    CONFIG_B    "${_tconf}/buffer_test.yaml")
 
 # fattree's lp-io switch stats are not reproducible run to run, so compare
 # committed-event counts rather than lp-io.

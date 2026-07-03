@@ -138,6 +138,13 @@ struct friendly_config {
      * Emitted after the topology sections. */
     std::vector<compiled_section> passthrough;
 
+    /* explicit LP-groups topology (`format: groups`): the user lays out groups,
+     * LP types, counts and annotations directly. The escape hatch for configs
+     * that are not a single friendly network. Built during parse. */
+    bool explicit_groups = false;
+    compiled_section explicit_lpgroups{"LPGROUPS", {}, {}};
+    compiled_section explicit_params{"PARAMS", {}, {}};
+
     const component* find_component(const std::string& k) const {
         for (const component& c : components)
             if (c.key == k)
@@ -428,6 +435,57 @@ void parse_fabric(ryml::ConstNodeRef fnode, fabric& fab) {
     }
 }
 
+/* defined with the other pass-through helpers below; used here to build PARAMS
+ * for the explicit-groups form. */
+compiled_section build_passthrough_section(const std::string& name, ryml::ConstNodeRef node);
+
+/* Build the LPGROUPS section from an explicit `groups` map. Each group names its
+ * repetitions and its LP types with counts; an LP-type key may carry an
+ * annotation as `type@annotation` (the .conf spelling codes_mapping splits on
+ * '@'). This is the general layout escape hatch for configs that are not a
+ * single friendly network -- storage clusters, multi-partition, mapping tests --
+ * where the compiler derives nothing and the user lays out the LPs directly. */
+void parse_explicit_groups(ryml::ConstNodeRef groups, friendly_config& cfg) {
+    if (!groups.is_map() || groups.num_children() == 0)
+        throw config_error("config error: topology.groups must be a non-empty map of "
+                           "group-name -> { repetitions, lps }");
+    for (ryml::ConstNodeRef g : groups.children()) {
+        std::string gname = key_of(g);
+        if (!g.is_map())
+            throw config_error("config error: topology.groups: \"" + gname +
+                               "\" must be a block with repetitions and lps");
+        for (ryml::ConstNodeRef c : g.children()) {
+            std::string k = key_of(c);
+            if (k != "repetitions" && k != "lps")
+                throw config_error("config error: topology.groups: \"" + gname +
+                                   "\": unexpected key \"" + k + "\" (only repetitions and lps)");
+        }
+        if (!has(g, "repetitions"))
+            throw config_error("config error: topology.groups: \"" + gname +
+                               "\" needs a repetitions count");
+        std::string reps_what = "topology.groups \"" + gname + "\" repetitions";
+        long reps = parse_int_strict(scalar(g["repetitions"]), reps_what.c_str());
+        if (reps <= 0)
+            throw config_error("config error: topology.groups: \"" + gname +
+                               "\" repetitions must be positive");
+        if (!has(g, "lps") || !g["lps"].is_map() || g["lps"].num_children() == 0)
+            throw config_error("config error: topology.groups: \"" + gname +
+                               "\" needs a non-empty lps map of lp-type -> count");
+        compiled_section& grp = cfg.explicit_lpgroups.add_subsection(gname);
+        grp.add_key("repetitions", std::to_string(reps));
+        for (ryml::ConstNodeRef lp : g["lps"].children()) {
+            std::string lptype = key_of(lp);
+            std::string count_what =
+                "topology.groups \"" + gname + "\" lp \"" + lptype + "\" count";
+            long count = parse_int_strict(scalar(lp), count_what.c_str());
+            if (count <= 0)
+                throw config_error("config error: topology.groups: \"" + gname + "\": lp \"" +
+                                   lptype + "\" count must be positive");
+            grp.add_key(lptype, std::to_string(count));
+        }
+    }
+}
+
 void parse_topology(ryml::ConstNodeRef root, friendly_config& cfg) {
     if (!has(root, "topology"))
         throw config_error("config error: missing required \"topology\" block");
@@ -470,8 +528,28 @@ void parse_topology(ryml::ConstNodeRef root, friendly_config& cfg) {
         cfg.node_count = parse_int_strict(scalar(topo["nodes"]), "topology.nodes");
         if (cfg.node_count <= 0)
             throw config_error("config error: topology.nodes must be positive");
+    } else if (format == "groups") {
+        cfg.explicit_groups = true;
+        /* only these keys are consumed for an explicit-groups topology. */
+        for (ryml::ConstNodeRef c : topo.children()) {
+            std::string k = key_of(c);
+            if (k != "format" && k != "groups" && k != "params")
+                throw config_error("config error: topology: unexpected key \"" + k +
+                                   "\" for an explicit-groups topology");
+        }
+        if (!has(topo, "groups"))
+            throw config_error("config error: explicit-groups topology needs a \"groups\" block");
+        parse_explicit_groups(topo["groups"], cfg);
+        /* PARAMS is written out directly here (the compiler derives nothing for
+         * this form); a scalar/list/nested map passes through like any section. */
+        if (has(topo, "params")) {
+            if (!topo["params"].is_map())
+                throw config_error("config error: topology.params must be a map of key -> value");
+            cfg.explicit_params = build_passthrough_section("PARAMS", topo["params"]);
+        }
     } else if (format.empty()) {
-        throw config_error("config error: topology needs a \"format\" (flat or parametric)");
+        throw config_error(
+            "config error: topology needs a \"format\" (flat, parametric, or groups)");
     } else {
         throw config_error("config error: unknown topology format \"" + format + "\"");
     }
@@ -752,7 +830,11 @@ compiled_config compile(std::string_view text) {
     friendly_config cfg = parse_friendly(root);
 
     compiled_config out;
-    if (cfg.parametric)
+    if (cfg.explicit_groups) {
+        /* explicit form: LPGROUPS and PARAMS were built verbatim during parse. */
+        out.sections.push_back(std::move(cfg.explicit_lpgroups));
+        out.sections.push_back(std::move(cfg.explicit_params));
+    } else if (cfg.parametric)
         compile_fabric(cfg, out);
     else if (cfg.flat)
         compile_flat(cfg, out);

@@ -558,6 +558,51 @@ topology:
 
 ---
 
+# Explicit LP groups: `format: groups`
+
+The flat and parametric forms above each describe a single network. Some configs
+aren't a single network at all — a storage cluster, a mapping test, several
+partitions side by side — and there is nothing for the compiler to derive. For
+those, lay the LP groups out directly with `format: groups`:
+
+```yaml
+schema_version: 1
+
+topology:
+  format: groups
+  params:                      # -> PARAMS, written out verbatim
+    message_size: 512
+  groups:                      # -> LPGROUPS, one entry per group
+    TRITON_GRP:
+      repetitions: 1
+      lps:                     # LP type -> count within each repetition
+        nw-lp: 1
+        lsm: 1
+```
+
+Each group names its `repetitions` and, under `lps`, the LP types with their
+per-repetition counts — a direct, validated transcription of a `.conf`
+`LPGROUPS`. There is no network to derive from, so `modelnet_order` and any other
+knobs come from whatever you put in `params`. Group and LP-type names are
+free-form (they match what each model registers).
+
+**Annotations.** `codes_mapping` lets the same LP type appear more than once in a
+group under different annotations. Write the annotation on the LP-type key as
+`type@annotation`:
+
+```yaml
+    lps:
+      a: 1
+      a@foo: 1     # LP type "a", annotation "foo" -- a distinct entry from "a"
+```
+
+Combine this with `sections:` (below) for a model that also reads its own config
+section — e.g. a storage model's `lsm` or `resource` block.
+`tests/conf/lsm-test.yaml` and `tests/conf/buffer_test.yaml` are full twins doing
+exactly that.
+
+---
+
 # Config a model reads directly: `sections:`
 
 Not every subsystem's config is topology the compiler derives. Many read their
@@ -653,6 +698,8 @@ produce identical results — the authoritative, runnable reference for each mod
 | dragonfly-dally | `tests/conf/dragonfly-dally/dfdally-72.yaml.in` |
 | dragonfly-plus  | `tests/conf/dragonfly-plus/dfp-test.yaml.in` |
 | dragonfly-custom| `tests/conf/dragonfly-custom/dfcustom-8group.yaml.in` |
+| explicit groups (storage/lsm) | `tests/conf/lsm-test.yaml` |
+| explicit groups (resource)    | `tests/conf/buffer_test.yaml` |
 
 The `.yaml.in` files are CMake templates (the `@CMAKE_SOURCE_DIR@` in their
 connection paths is substituted at configure time); the plain `.yaml` files are

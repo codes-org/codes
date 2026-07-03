@@ -1,0 +1,28 @@
+schema_version: 1
+
+# YAML twin of lsm-test.conf: a single TRITON_GRP with a workload LP co-located
+# with a local-storage-model (lsm) LP. This is not a network topology, so it uses
+# the explicit-groups form -- the group name, LP types and counts are laid out
+# directly. The lsm model reads its own `lsm` section, carried through verbatim.
+
+topology:
+  format: groups
+  params:
+    message_size: 512
+  groups:
+    TRITON_GRP:
+      repetitions: 1
+      lps:
+        nw-lp: 1
+        lsm: 1
+
+sections:
+  lsm:
+    use_scheduler: 1
+    request_sizes: [0]
+    write_rates: [12000.0]
+    read_rates: [12000.0]
+    write_seeks: [2500.0]
+    read_seeks: [2500.0]
+    write_overheads: [20.0]
+    read_overheads: [20.0]
