@@ -10,6 +10,7 @@
 
 #include <cerrno>
 #include <cstdlib>
+#include <strings.h> /* strcasecmp: section names are case-insensitive */
 #include <string>
 #include <utility>
 #include <vector>
@@ -131,6 +132,11 @@ struct friendly_config {
     bool flat = false;          /* flat enumerated topology */
     std::string flat_component; /* the component every node runs */
     long node_count = 0;        /* number of nodes = repetitions */
+
+    /* verbatim `sections:` blocks -- config a model reads directly (DIRECTOR,
+     * surrogate, storage, ...), passed straight through to the compiled output.
+     * Emitted after the topology sections. */
+    std::vector<compiled_section> passthrough;
 
     const component* find_component(const std::string& k) const {
         for (const component& c : components)
@@ -471,16 +477,122 @@ void parse_topology(ryml::ConstNodeRef root, friendly_config& cfg) {
     }
 }
 
+/* -------------------------------------------------------------------------
+ * Pass-through sections (`sections:`)
+ *
+ * Config a model reads directly by name (DIRECTOR, NETWORK_SURROGATE, storage,
+ * resource, ...) is not something the compiler derives or transforms, so it is
+ * carried through verbatim rather than modeled key-by-key. A new feature can
+ * add its section here with no compiler change: write the block under
+ * `sections:` and read it in the model. Section names are case-insensitive
+ * (matched so at lookup time); a section may optionally register a schema below
+ * to enforce required keys while still allowing any other key through.
+ * ---------------------------------------------------------------------- */
+
+bool iequals(const std::string& a, const char* b) {
+    return strcasecmp(a.c_str(), b) == 0;
+}
+
+/* Recursively turn a ryml map node into a compiled_section: scalars become
+ * single-value keys, sequences multi-value keys, nested maps subsections. */
+compiled_section build_passthrough_section(const std::string& name, ryml::ConstNodeRef node) {
+    compiled_section sec{name, {}, {}};
+    for (ryml::ConstNodeRef c : node.children()) {
+        std::string k = key_of(c);
+        if (c.is_seq()) {
+            std::vector<std::string> vals;
+            for (ryml::ConstNodeRef v : c.children())
+                vals.push_back(scalar(v));
+            sec.add_key(std::move(k), std::move(vals));
+        } else if (c.is_map()) {
+            sec.subsections.push_back(build_passthrough_section(k, c));
+        } else if (c.is_keyval()) {
+            sec.add_key(std::move(k), scalar(c));
+        } else {
+            throw config_error("config error: sections: \"" + name + "\": \"" + k +
+                               "\" must be a scalar, a list, or a nested block");
+        }
+    }
+    return sec;
+}
+
+/* Optional, open schema for a pass-through section: it enforces required keys
+ * but does NOT restrict the rest, so a section can carry keys not listed here
+ * (useful while a feature's config is still in flux). A section with no entry is
+ * passed through entirely unvalidated. To register one, add a row -- see
+ * doc/dev/yaml-config.md ("Adding a config section"). */
+struct section_schema {
+    const char* name;            /* section name, matched case-insensitively */
+    const char* const* required; /* nullptr-terminated required key names */
+};
+
+/* The resource LP aborts at runtime if its `resource` section lacks `available`
+ * (src/util/resource-lp.c); catch it here with a clearer, earlier diagnostic. */
+const char* const resource_required[] = {"available", nullptr};
+
+const section_schema section_schemas[] = {
+    {"resource", resource_required},
+};
+
+const section_schema* find_section_schema(const std::string& name) {
+    for (const section_schema& s : section_schemas)
+        if (iequals(name, s.name))
+            return &s;
+    return nullptr;
+}
+
+/* Required-key presence is checked case-sensitively: a model reads its keys by
+ * exact name, so the required key must be spelled as the model reads it. */
+bool section_has_key(const compiled_section& sec, const char* key) {
+    for (const compiled_key& k : sec.keys)
+        if (k.name == key)
+            return true;
+    return false;
+}
+
+void validate_section_schema(const compiled_section& sec) {
+    const section_schema* schema = find_section_schema(sec.name);
+    if (!schema || !schema->required)
+        return;
+    for (const char* const* r = schema->required; *r; ++r)
+        if (!section_has_key(sec, *r))
+            throw config_error("config error: section \"" + sec.name +
+                               "\" is missing required key \"" + std::string(*r) + "\"");
+}
+
+void parse_sections(ryml::ConstNodeRef root, friendly_config& cfg) {
+    if (!has(root, "sections"))
+        return;
+    ryml::ConstNodeRef secs = root["sections"];
+    if (!secs.is_map())
+        throw config_error("config error: \"sections\" must be a map of section-name -> keys");
+    for (ryml::ConstNodeRef s : secs.children()) {
+        std::string name = key_of(s);
+        if (!s.is_map())
+            throw config_error("config error: sections: \"" + name + "\" must be a block of keys");
+        /* the compiler emits LPGROUPS and PARAMS from the topology; a pass-through
+         * section must not shadow them. */
+        if (iequals(name, "LPGROUPS") || iequals(name, "PARAMS"))
+            throw config_error("config error: sections: \"" + name +
+                               "\" is reserved -- the compiler emits it from the topology; put "
+                               "model parameters on the component or fabric instead");
+        compiled_section sec = build_passthrough_section(name, s);
+        validate_section_schema(sec);
+        cfg.passthrough.push_back(std::move(sec));
+    }
+}
+
 friendly_config parse_friendly(ryml::ConstNodeRef root) {
     /* reject unknown top-level keys rather than silently ignoring them. */
     for (ryml::ConstNodeRef c : root.children()) {
         std::string k = key_of(c);
-        if (k != "schema_version" && k != "components" && k != "topology")
+        if (k != "schema_version" && k != "components" && k != "topology" && k != "sections")
             throw config_error("config error: unexpected top-level key \"" + k + "\"");
     }
     friendly_config cfg;
     parse_components(root, cfg);
     parse_topology(root, cfg);
+    parse_sections(root, cfg);
     return cfg;
 }
 
@@ -646,6 +758,10 @@ compiled_config compile(std::string_view text) {
         compile_flat(cfg, out);
     else
         throw config_error("config error: no supported topology found");
+
+    /* verbatim `sections:` blocks follow the compiler-derived topology sections. */
+    for (compiled_section& s : cfg.passthrough)
+        out.sections.push_back(std::move(s));
     return out;
 }
 

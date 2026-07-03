@@ -558,6 +558,83 @@ topology:
 
 ---
 
+# Config a model reads directly: `sections:`
+
+Not every subsystem's config is topology the compiler derives. Many read their
+own named section straight from the config — the storage model reads `resource`,
+the surrogate/director stack reads `NETWORK_SURROGATE`, `APPLICATION_SURROGATE`,
+and `DIRECTOR`, and so on. Those keys aren't transformed, just read, so the YAML
+front-end carries them through **verbatim** under a top-level `sections:` block:
+
+```yaml
+schema_version: 1
+topology: { ... }          # friendly, derived, strictly validated
+
+sections:                  # emitted verbatim as top-level config sections
+  resource:
+    available: 8192
+  network_surrogate:
+    enable: 1
+    fixed_switch_timestamps: [25.0e6, 400.0e6]   # a list -> a multi-value key
+    torch_jit:                                   # a nested block -> a subsection
+      mode: single-static-model-for-all-terminals
+```
+
+Inside a section, a scalar becomes a single-value key, a **list** becomes a
+multi-value key (`("a","b")`), and a **nested map** becomes a subsection. There
+is no fixed schema — a section can carry whatever keys the model reads.
+
+**Section names are case-insensitive.** The all-caps convention (`PARAMS`,
+`DIRECTOR`, `NETWORK_SURROGATE`) is a historical carryover; write `resource` or
+`network_surrogate` (or any case) and the model finds it. **Keys inside a section
+stay case-sensitive** — a model reads them by exact name, so `available` and
+`Available` are different keys. `LPGROUPS` and `PARAMS` are reserved: the compiler
+emits them from the topology, so they can't appear under `sections:` (put model
+parameters on the component or fabric instead).
+
+## Adding a config section
+
+When a new feature needs configuration, decide which of two tiers it belongs to.
+The test is one question: **does the compiler need to derive, rename, or
+cross-check anything?**
+
+**Tier 1 — the model reads the keys as-is (most sections).** No compiler change:
+
+1. read your keys in the model with `configuration_get_value(&config,
+   "my_section", ...)`;
+2. put them under `sections:` in the YAML;
+3. document the section and its keys here.
+
+Optionally, register an **open schema** to enforce required keys while still
+allowing anything else through — handy for a section that's still in flux, where
+you know a couple of keys are mandatory but the rest are unsettled. Add a row to
+`section_schemas[]` in `src/modelconfig/config_compiler.cxx`:
+
+```cpp
+const char* const my_required[] = {"must_have", nullptr};
+const section_schema section_schemas[] = {
+    {"resource", resource_required},
+    {"my_section", my_required},   // required keys checked; unlisted keys pass through
+};
+```
+
+A missing required key becomes a `config_error` up front (a clearer, earlier
+message than a mid-run abort). A section with no registered schema passes through
+with no validation at all.
+
+**Tier 2 — the compiler derives or transforms the config (topology, and later
+jobs).** This earns a first-class module: a parser, a compiler that emits the
+derived sections, a registry entry, and a `.conf`-equivalence test — the pattern
+the `fabric_models[]` table and `compile_fabric()` already follow. Reach for this
+only when the compiler is doing real work (shape→counts, friendly→internal names,
+cross-section consistency); otherwise Tier 1 is the answer.
+
+The compiler core is ROSS-free and unit-tested in isolation
+(`tests/codes-config-compiler-test.cxx`); add cases there for whatever a new
+section or tier introduces.
+
+---
+
 ## Worked examples in the tree
 
 Each of these YAML files is a twin of the `.conf` beside it, checked in CI to

@@ -7,6 +7,7 @@
 #include "codes_config.h"
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h> /* strcasecmp: case-insensitive section-name matching */
 #include <assert.h>
 #ifdef HAVE_MALLOC_H
 #include <malloc.h>
@@ -273,13 +274,20 @@ static mcs_entry* mcs_findchild(const mcs_entry* e, const char* name) {
 }
 
 
+/* Section names are case-insensitive. The all-caps convention (PARAMS,
+ * LPGROUPS, DIRECTOR, ...) is a historical carryover; the YAML front-end lets a
+ * config use any case, so section lookups must not depend on it. Keys stay
+ * case-sensitive -- models read them by exact name -- so only this section-only
+ * lookup is insensitive, not mcs_findkey. */
 mcs_entry* mcs_findsubsection(const mcs_entry* e, const char* name) {
-    mcs_entry* ret = mcs_findchild(e, name);
-    if (!ret)
-        return 0;
-    if (!ret->is_section)
-        return 0;
-    return ret;
+    mcs_entry* curchild = e->child;
+
+    while (curchild) {
+        if (curchild->is_section && curchild->name && !strcasecmp(curchild->name, name))
+            return curchild;
+        curchild = curchild->next;
+    }
+    return 0;
 }
 
 mcs_entry* mcs_findkey(const mcs_entry* e, const char* name) {

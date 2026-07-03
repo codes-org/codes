@@ -15,6 +15,19 @@ option(CODES_ENABLE_ZMQML_HYBRID_TESTS
 add_executable(codes-unit-smoke codes-unit-smoke.cxx)
 target_link_libraries(codes-unit-smoke PRIVATE GTest::gtest_main)
 add_test(NAME codes-unit-smoke COMMAND codes-unit-smoke)
+
+# Unit tests for the YAML config compiler core. The core (config_compiler.cxx)
+# is ROSS-free by design, so it compiles straight into the test with ryml -- no
+# codes/ROSS/MPI link -- and the tests assert on the returned compiled_config.
+# This is the first real unit-test consumer of the GoogleTest framework.
+add_executable(codes-config-compiler-test
+    codes-config-compiler-test.cxx
+    ${CMAKE_SOURCE_DIR}/src/modelconfig/config_compiler.cxx
+    ${CODES_RYML_IMPL_TU})
+target_include_directories(codes-config-compiler-test SYSTEM PRIVATE ${CODES_RYML_INCLUDE_DIRS})
+target_include_directories(codes-config-compiler-test PRIVATE ${CMAKE_SOURCE_DIR}/src/modelconfig)
+target_link_libraries(codes-config-compiler-test PRIVATE GTest::gtest_main)
+add_test(NAME codes-config-compiler-test COMMAND codes-config-compiler-test)
 # ---------------------------------------------------------------------------
 # MPI launch preflight. Fails loudly if mpiexec can't form a real multi-rank
 # MPI_COMM_WORLD, guarding against a broken launcher (e.g. Ubuntu 24.04's mpich
