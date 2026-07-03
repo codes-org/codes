@@ -1,0 +1,28 @@
+schema_version: 1
+
+# YAML twin of modelnet-test-torus.conf: a 3-dimensional 4x2x2 torus. torus is
+# internally generated and folds routing into the terminal node, so there is no
+# separate router LP -- the compiler derives repetitions = product(dim_length)
+# (16 nodes here) with one terminal each. dim_length is a comma-separated string
+# the model parses itself, so it is carried verbatim (not a YAML list).
+
+components:
+  compute_host:
+    model: nw-lp
+
+topology:
+  format: parametric
+  fabric:
+    model: torus
+    shape:
+      n_dims: 3
+      dim_length: "4,2,2"
+    packet_size: 512
+    chunk_size: 256
+    message_size: 464
+    modelnet_scheduler: fcfs
+    link_bandwidth: 2.0
+    buffer_size: 4096
+    num_vc: 1
+  hosts:
+    component: compute_host

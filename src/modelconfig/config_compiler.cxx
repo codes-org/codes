@@ -118,7 +118,9 @@ struct fabric {
     kv_list routing;               /* routing.* (algorithm maps to PARAMS "routing") */
     kv_list connections;           /* connections.{intra,inter}: file-enumerated wiring */
     kv_list extra;                 /* other scalar fabric keys -> PARAMS verbatim */
-    std::string hosts_component;   /* hosts.component: the per-terminal workload */
+    /* list-valued fabric keys (e.g. slimfly generator_set_X) -> multi-value PARAMS */
+    std::vector<std::pair<std::string, std::vector<std::string>>> extra_lists;
+    std::string hosts_component; /* hosts.component: the per-terminal workload */
 };
 
 struct friendly_config {
@@ -177,6 +179,42 @@ long shape_int_default(const kv_list& shape, const char* key, long dflt) {
     return dflt;
 }
 
+/* Look up a shape value by name as its raw string, throwing if absent. */
+const std::string& shape_str(const kv_list& shape, const char* key) {
+    for (const auto& kv : shape)
+        if (kv.first == key)
+            return kv.second;
+    throw config_error(std::string("config error: fabric shape is missing required key \"") + key +
+                       "\"");
+}
+
+/* Product of a comma-separated dimension list ("4,2,2" -> 16). Used by the
+ * mesh-style fabrics (torus, express_mesh) whose repetition count is the number
+ * of mesh nodes/routers implied by dim_length. */
+long dim_product(const kv_list& shape, const char* key) {
+    const std::string& s = shape_str(shape, key);
+    long prod = 1;
+    const char* p = s.c_str();
+    bool saw_digit = false;
+    while (*p) {
+        char* end = nullptr;
+        errno = 0;
+        long d = std::strtol(p, &end, 10);
+        if (end == p || errno != 0 || d <= 0)
+            throw config_error(std::string("config error: fabric shape \"") + key +
+                               "\" must be a comma-separated list of positive integers, got \"" +
+                               s + "\"");
+        prod *= d;
+        saw_digit = true;
+        p = end;
+        while (*p == ',' || *p == ' ')
+            ++p;
+    }
+    if (!saw_digit)
+        throw config_error(std::string("config error: fabric shape \"") + key + "\" is empty");
+    return prod;
+}
+
 /* Regular (Kim-Dally) dragonfly: every count follows from num_routers, the
  * routers per group -- the same derivation the model does internally
  * (num_cn = num_routers/2, num_groups = num_routers*num_cn + 1). */
@@ -211,12 +249,59 @@ layout derive_fattree(const kv_list& shape) {
     return {switch_count, switch_radix / 2, num_levels};
 }
 
+/* Torus (internally-generated): one repetition per torus node, each a single
+ * terminal, and no separate router LP (the torus node combines routing and the
+ * terminal). The node count is the product of the per-dimension lengths. */
+layout derive_torus(const kv_list& shape) {
+    long nodes = dim_product(shape, "dim_length");
+    return {nodes, 1, 0};
+}
+
+/* Express mesh (internally-generated): one repetition per mesh router, each
+ * hosting num_cn terminals plus one router LP. The router count is the product
+ * of the per-dimension lengths. */
+layout derive_express_mesh(const kv_list& shape) {
+    long routers = dim_product(shape, "dim_length");
+    long num_cn = shape_int(shape, "num_cn");
+    return {routers, num_cn, 1};
+}
+
+/* Slimfly (internally-generated, MMS topology): the two Cayley subgraphs give
+ * 2 * num_routers^2 routers total, one repetition each, hosting num_terminals
+ * terminals plus one router LP. */
+layout derive_slimfly(const kv_list& shape) {
+    long num_routers = shape_int(shape, "num_routers");
+    long num_terminals = shape_int(shape, "num_terminals");
+    if (num_routers <= 0)
+        throw config_error("config error: slimfly num_routers must be positive");
+    return {2 * num_routers * num_routers, num_terminals, 1};
+}
+
+/* Dragonfly-plus (file-enumerated): one repetition per group. Each group's
+ * routers split into a spine and a leaf level (num_router_spine + num_router_leaf
+ * router LPs); only the leaf routers host terminals, num_cns_per_router each. The
+ * shape counts are genuine inputs that must match the connection files. */
+layout derive_dragonfly_plus(const kv_list& shape) {
+    long num_groups = shape_int(shape, "num_groups");
+    long spine = shape_int(shape, "num_router_spine");
+    long leaf = shape_int(shape, "num_router_leaf");
+    long num_cns = shape_int(shape, "num_cns_per_router");
+    return {num_groups, leaf * num_cns, spine + leaf};
+}
+
 const fabric_model fabric_models[] = {
     {"dragonfly", "modelnet_dragonfly", "modelnet_dragonfly_router", "dragonfly",
      "dragonfly_router", derive_dragonfly},
     {"dragonfly-dally", "modelnet_dragonfly_dally", "modelnet_dragonfly_dally_router",
      "dragonfly_dally", "dragonfly_dally_router", derive_dragonfly_dally},
     {"fattree", "modelnet_fattree", "fattree_switch", "fattree", nullptr, derive_fattree},
+    {"torus", "modelnet_torus", nullptr, "torus", nullptr, derive_torus},
+    {"express-mesh", "modelnet_express_mesh", "modelnet_express_mesh_router", "express_mesh",
+     "express_mesh_router", derive_express_mesh},
+    {"slimfly", "modelnet_slimfly", "modelnet_slimfly_router", "slimfly", "slimfly_router",
+     derive_slimfly},
+    {"dragonfly-plus", "modelnet_dragonfly_plus", "modelnet_dragonfly_plus_router",
+     "dragonfly_plus", "dragonfly_plus_router", derive_dragonfly_plus},
 };
 
 const fabric_model* find_fabric_model(const std::string& name) {
@@ -238,6 +323,7 @@ struct network_model {
 const network_model network_models[] = {
     {"simplenet", "modelnet_simplenet", "simplenet"},
     {"simplep2p", "modelnet_simplep2p", "simplep2p"},
+    {"loggp", "modelnet_loggp", "loggp"},
 };
 
 const network_model* find_network_model(const std::string& name) {
@@ -306,6 +392,13 @@ void parse_fabric(ryml::ConstNodeRef fnode, fabric& fab) {
              * by path; the compiler maps intra/inter to the model's key names. */
             for (ryml::ConstNodeRef cn : c.children())
                 fab.connections.emplace_back(key_of(cn), scalar(cn));
+        } else if (c.is_seq()) {
+            /* a list-valued fabric param (e.g. slimfly generator_set_X: [1, 4])
+             * becomes a multi-value PARAMS key. */
+            std::vector<std::string> vals;
+            for (ryml::ConstNodeRef v : c.children())
+                vals.push_back(scalar(v));
+            fab.extra_lists.emplace_back(k, std::move(vals));
         } else if (c.is_keyval()) {
             fab.extra.emplace_back(k, scalar(c));
         } else {
@@ -416,7 +509,10 @@ void compile_fabric(const friendly_config& cfg, compiled_config& out) {
     grp.add_key("repetitions", std::to_string(lay.repetitions));
     grp.add_key(host->model, std::to_string(lay.terminals_per_rep));
     grp.add_key(model->terminal_lp, std::to_string(lay.terminals_per_rep));
-    grp.add_key(model->router_lp, std::to_string(lay.routers_per_rep));
+    /* Mesh-style fabrics (torus) fold routing into the terminal node and have no
+     * separate router LP; skip the router line for them. */
+    if (model->router_lp)
+        grp.add_key(model->router_lp, std::to_string(lay.routers_per_rep));
 
     /* --- PARAMS --- */
     compiled_section& params = out.add_section("PARAMS");
@@ -457,6 +553,11 @@ void compile_fabric(const friendly_config& cfg, compiled_config& out) {
     /* remaining scalar fabric keys (packet_size, chunk_size, parity pass-through
      * knobs) map to PARAMS verbatim. */
     for (const auto& kv : fab.extra)
+        params.add_key(kv.first, kv.second);
+
+    /* list-valued fabric keys (slimfly's generator_set_X / _X_prime) emit as
+     * multi-value PARAMS, e.g. generator_set_X=("1","4"). */
+    for (const auto& kv : fab.extra_lists)
         params.add_key(kv.first, kv.second);
 
     /* the workload component's own params (if any) also land in PARAMS. */

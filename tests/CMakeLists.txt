@@ -451,6 +451,34 @@ codes_add_config_equivalence_test(
     ARGS     --sync=1
     CONFIG_A "${_tconf}/modelnet-test.conf"
     CONFIG_B "${_tconf}/modelnet-test-simplenet.yaml")
+codes_add_config_equivalence_test(
+    NAME     loggp-config-equivalence
+    BINARY   modelnet-test
+    ARGS     --sync=1
+    CONFIG_A "${_tconf}/modelnet-test-loggp.conf"
+    CONFIG_B "${_tconf}/modelnet-test-loggp.yaml")
+
+# Internally-generated fabrics (torus / express-mesh / slimfly), each run through
+# the modelnet-test binary (fixed-path lp-io), so compare committed-event counts
+# between the .conf and its parametric-fabric YAML twin.
+codes_add_config_equivalence_test(
+    NAME     torus-config-equivalence
+    BINARY   modelnet-test
+    ARGS     --sync=1
+    CONFIG_A "${_tconf}/modelnet-test-torus.conf"
+    CONFIG_B "${_tconf}/modelnet-test-torus.yaml")
+codes_add_config_equivalence_test(
+    NAME     express-mesh-config-equivalence
+    BINARY   modelnet-test
+    ARGS     --sync=1
+    CONFIG_A "${_tconf}/modelnet-test-em.conf"
+    CONFIG_B "${_tconf}/modelnet-test-em.yaml")
+codes_add_config_equivalence_test(
+    NAME     slimfly-config-equivalence
+    BINARY   modelnet-test
+    ARGS     --sync=1
+    CONFIG_A "${_tconf}/modelnet-test-slimfly.conf"
+    CONFIG_B "${_tconf}/modelnet-test-slimfly.yaml")
 
 # fattree's lp-io switch stats are not reproducible run to run, so compare
 # committed-event counts rather than lp-io.
@@ -474,3 +502,15 @@ codes_add_lpio_equivalence_test(
     ARGS     --sync=1 --num_messages=1
     CONFIG_A "${CMAKE_CURRENT_BINARY_DIR}/conf/dragonfly-dally/dfdally-72.conf"
     CONFIG_B "${CMAKE_CURRENT_BINARY_DIR}/conf/dragonfly-dally/dfdally-72.yaml")
+
+# dragonfly-plus is likewise file-enumerated; same absolute-path treatment for
+# its binary connection files.
+configure_file(conf/dragonfly-plus/dfp-test.conf.in conf/dragonfly-plus/dfp-test.conf @ONLY)
+configure_file(conf/dragonfly-plus/dfp-test.yaml.in conf/dragonfly-plus/dfp-test.yaml @ONLY)
+codes_add_lpio_equivalence_test(
+    NAME     dragonfly-plus-lpio-equivalence
+    BINARY   model-net-synthetic-dragonfly-all
+    NP       1
+    ARGS     --sync=1 --num_messages=1
+    CONFIG_A "${CMAKE_CURRENT_BINARY_DIR}/conf/dragonfly-plus/dfp-test.conf"
+    CONFIG_B "${CMAKE_CURRENT_BINARY_DIR}/conf/dragonfly-plus/dfp-test.yaml")

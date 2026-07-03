@@ -39,9 +39,9 @@ fabric doesn't consume are errors, not silent drops.
 
 ## Flat networks
 
-The flat all-to-all network models — `simplenet` and `simplep2p` — are described
-as a single component plus a node count. The component bundles the workload model
-with the NIC model it runs over:
+The flat all-to-all network models — `simplenet`, `simplep2p`, and `loggp` — are
+described as a single component plus a node count. The component bundles the
+workload model with the NIC model it runs over:
 
 ```yaml
 schema_version: 1
@@ -64,8 +64,9 @@ topology:
 
 `nodes` becomes the number of compute-node slots. `simplep2p` takes its per-link
 latency/bandwidth from the existing matrix files, referenced by path from the
-component (`net_latency_ns_file`, `net_bw_mbps_file`); the flat form supplies
-only the node count. (A node/edge graph form — per-node overrides, per-edge link
+component (`net_latency_ns_file`, `net_bw_mbps_file`); `loggp` likewise references
+its LogGP parameter table by path (`net_config_file`); the flat form supplies only
+the node count. (A node/edge graph form — per-node overrides, per-edge link
 rates — is a separate representation that lands with the model that consumes it.)
 
 ## Parametric fabric (HPC networks)
@@ -107,10 +108,22 @@ The compiler derives the group, repetition, and per-router counts from the
 `links` and `routing` onto the model's parameters, and runs the fabric's
 connectivity generation exactly as today.
 
-Supported fabric `model`s are `dragonfly`, `dragonfly-dally`, and `fattree`.
-`dragonfly-dally` is *file-enumerated*: its wiring comes from binary connection
-files produced by the existing generator scripts, referenced by path so the
-model reads them unchanged:
+Supported fabric `model`s are `dragonfly`, `torus`, `slimfly`, `express-mesh`,
+`fattree`, `dragonfly-dally`, and `dragonfly-plus`. The internally-generated
+fabrics (`dragonfly`, `torus`, `slimfly`, `express-mesh`, `fattree`) take only
+their shape parameters and generate connectivity as today; `torus`'s node count
+is the product of its `dim_length`, and `slimfly`'s list-valued generator sets are
+written as YAML sequences:
+
+```yaml
+    shape:
+      dim_length: "4,2,2"        # torus: node count = 4*2*2 = 16
+    generator_set_X: [1, 4]      # slimfly: emitted as generator_set_X=("1","4")
+```
+
+`dragonfly-dally` and `dragonfly-plus` are *file-enumerated*: their wiring comes
+from binary connection files produced by the existing generator scripts,
+referenced by path so the model reads them unchanged:
 
 ```yaml
     connections:
@@ -128,6 +141,11 @@ produce identical results:
 
 - `tests/conf/modelnet-test-simplenet.yaml`
 - `tests/conf/modelnet-test-simplep2p.yaml`
+- `tests/conf/modelnet-test-loggp.yaml`
+- `tests/conf/modelnet-test-torus.yaml`
+- `tests/conf/modelnet-test-slimfly.yaml`
+- `tests/conf/modelnet-test-em.yaml` (express-mesh)
 - `src/network-workloads/conf/modelnet-synthetic-dragonfly.yaml`
 - `src/network-workloads/conf/modelnet-synthetic-fattree.yaml`
 - `tests/conf/dragonfly-dally/dfdally-72.yaml.in` (dragonfly-dally)
+- `tests/conf/dragonfly-plus/dfp-test.yaml.in` (dragonfly-plus)

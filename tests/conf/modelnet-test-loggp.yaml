@@ -1,0 +1,21 @@
+schema_version: 1
+
+# YAML twin of modelnet-test-loggp.conf: 16 peer compute nodes running a
+# workload over a loggp NIC. Like simplenet/simplep2p, loggp is a flat
+# point-to-point model with no router, so the friendly form just names the
+# component (workload + NIC model) and a node count. loggp's LogGP parameter
+# table is referenced by path (net_config_file); the model resolves it relative
+# to this config's directory, so a bare name finds tests/conf/ng-mpi-tukey.dat.
+
+components:
+  compute_node:
+    model: nw-lp
+    network: loggp
+    message_size: 464
+    modelnet_scheduler: fcfs-full
+    net_config_file: ng-mpi-tukey.dat
+
+topology:
+  format: flat
+  component: compute_node
+  nodes: 16
