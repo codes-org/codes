@@ -23,3 +23,7 @@ function(message_start_thirdparty)
 endfunction()
 
 add_subdirectory(rapidyaml)
+
+if(BUILD_TESTING)
+  add_subdirectory(googletest)
+endif()

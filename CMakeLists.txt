@@ -262,6 +262,12 @@ else()
 endif()
 
 
+# Ctest creates BUILD_TESTING option and sets true by default
+# We disable it by default
+option(BUILD_TESTING "Build the testing tree (unit + model tests)" OFF)
+include(CTest)
+mark_as_advanced(CLEAR BUILD_TESTING)
+
 # Vendored third-party dependencies (built before src, which links them).
 add_subdirectory(thirdparty)
 
@@ -289,13 +295,7 @@ if(CODES_BUILD_DOXYGEN)
     add_subdirectory(doc)
 endif()
 
-# Tests are gated solely on BUILD_TESTING (the canonical CTest knob). A
-# $<CONFIG:...> genex can't gate this since add_subdirectory() runs at
-# configure time, and the old `STREQUAL "RELEASE"` compare never matched the
-# conventional `Release` spelling anyway, so tests already built in every
-# standard config.
 if(BUILD_TESTING)
-    include(CTest)
     set(CODES_SOURCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}")
     set(CODES_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}")
     add_subdirectory(tests)
