@@ -289,6 +289,19 @@ layout derive_dragonfly_plus(const kv_list& shape) {
     return {num_groups, leaf * num_cns, spine + leaf};
 }
 
+/* Dragonfly-custom (file-enumerated): one repetition per router. Each group is a
+ * num_router_rows x num_router_cols mesh of routers, so total routers =
+ * num_groups * num_router_rows * num_router_cols; each router hosts
+ * num_cns_per_router terminals plus one router LP. The shape counts are genuine
+ * inputs that must match the connection files. */
+layout derive_dragonfly_custom(const kv_list& shape) {
+    long num_groups = shape_int(shape, "num_groups");
+    long rows = shape_int(shape, "num_router_rows");
+    long cols = shape_int(shape, "num_router_cols");
+    long num_cns = shape_int(shape, "num_cns_per_router");
+    return {num_groups * rows * cols, num_cns, 1};
+}
+
 const fabric_model fabric_models[] = {
     {"dragonfly", "modelnet_dragonfly", "modelnet_dragonfly_router", "dragonfly",
      "dragonfly_router", derive_dragonfly},
@@ -302,6 +315,8 @@ const fabric_model fabric_models[] = {
      derive_slimfly},
     {"dragonfly-plus", "modelnet_dragonfly_plus", "modelnet_dragonfly_plus_router",
      "dragonfly_plus", "dragonfly_plus_router", derive_dragonfly_plus},
+    {"dragonfly-custom", "modelnet_dragonfly_custom", "modelnet_dragonfly_custom_router",
+     "dragonfly_custom", "dragonfly_custom_router", derive_dragonfly_custom},
 };
 
 const fabric_model* find_fabric_model(const std::string& name) {

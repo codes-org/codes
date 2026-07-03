@@ -109,11 +109,11 @@ The compiler derives the group, repetition, and per-router counts from the
 connectivity generation exactly as today.
 
 Supported fabric `model`s are `dragonfly`, `torus`, `slimfly`, `express-mesh`,
-`fattree`, `dragonfly-dally`, and `dragonfly-plus`. The internally-generated
-fabrics (`dragonfly`, `torus`, `slimfly`, `express-mesh`, `fattree`) take only
-their shape parameters and generate connectivity as today; `torus`'s node count
-is the product of its `dim_length`, and `slimfly`'s list-valued generator sets are
-written as YAML sequences:
+`fattree`, `dragonfly-dally`, `dragonfly-plus`, and `dragonfly-custom`. The
+internally-generated fabrics (`dragonfly`, `torus`, `slimfly`, `express-mesh`,
+`fattree`) take only their shape parameters and generate connectivity as today;
+`torus`'s node count is the product of its `dim_length`, and `slimfly`'s
+list-valued generator sets are written as YAML sequences:
 
 ```yaml
     shape:
@@ -121,9 +121,9 @@ written as YAML sequences:
     generator_set_X: [1, 4]      # slimfly: emitted as generator_set_X=("1","4")
 ```
 
-`dragonfly-dally` and `dragonfly-plus` are *file-enumerated*: their wiring comes
-from binary connection files produced by the existing generator scripts,
-referenced by path so the model reads them unchanged:
+`dragonfly-dally`, `dragonfly-plus`, and `dragonfly-custom` are *file-enumerated*:
+their wiring comes from binary connection files produced by the existing generator
+scripts, referenced by path so the model reads them unchanged:
 
 ```yaml
     connections:
@@ -149,3 +149,4 @@ produce identical results:
 - `src/network-workloads/conf/modelnet-synthetic-fattree.yaml`
 - `tests/conf/dragonfly-dally/dfdally-72.yaml.in` (dragonfly-dally)
 - `tests/conf/dragonfly-plus/dfp-test.yaml.in` (dragonfly-plus)
+- `tests/conf/dragonfly-custom/dfcustom-8group.yaml.in` (dragonfly-custom)

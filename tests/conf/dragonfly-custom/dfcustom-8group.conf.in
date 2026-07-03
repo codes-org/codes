@@ -1,0 +1,39 @@
+# Golden dragonfly-custom config for the YAML-equivalence test: an 8-group Theta-
+# style custom dragonfly (6x16 router mesh per group -> 768 routers). Derived from
+# scripts/dragonfly-custom/example/network-model.conf, with the connection-file
+# paths made absolute (@CMAKE_SOURCE_DIR@ substituted by CMake) so the model
+# resolves them from any run directory. nw-lp matches modelnet_dragonfly_custom
+# (num_cns_per_router = 4); the example conf's nw-lp=8 was an inconsistency.
+LPGROUPS
+{
+   MODELNET_GRP
+   {
+      repetitions="768";
+      nw-lp="4";
+      modelnet_dragonfly_custom="4";
+      modelnet_dragonfly_custom_router="1";
+   }
+}
+PARAMS
+{
+   packet_size="4096";
+   message_size="656";
+   chunk_size="4096";
+   modelnet_scheduler="fcfs";
+   modelnet_order=( "dragonfly_custom","dragonfly_custom_router" );
+   num_router_rows="6";
+   num_router_cols="16";
+   num_groups="8";
+   num_cns_per_router="4";
+   num_global_channels="4";
+   local_vc_size="65536";
+   global_vc_size="65536";
+   cn_vc_size="65536";
+   local_bandwidth="12.5";
+   global_bandwidth="12.5";
+   cn_bandwidth="12.5";
+   router_delay="90";
+   intra-group-connections="@CMAKE_SOURCE_DIR@/scripts/dragonfly-custom/example/intra-theta-8group";
+   inter-group-connections="@CMAKE_SOURCE_DIR@/scripts/dragonfly-custom/example/inter-theta-8group";
+   routing="adaptive";
+}

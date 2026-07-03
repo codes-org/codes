@@ -514,3 +514,15 @@ codes_add_lpio_equivalence_test(
     ARGS     --sync=1 --num_messages=1
     CONFIG_A "${CMAKE_CURRENT_BINARY_DIR}/conf/dragonfly-plus/dfp-test.conf"
     CONFIG_B "${CMAKE_CURRENT_BINARY_DIR}/conf/dragonfly-plus/dfp-test.yaml")
+
+# dragonfly-custom is file-enumerated too; its connection files live under
+# scripts/dragonfly-custom/example (referenced by absolute path).
+configure_file(conf/dragonfly-custom/dfcustom-8group.conf.in conf/dragonfly-custom/dfcustom-8group.conf @ONLY)
+configure_file(conf/dragonfly-custom/dfcustom-8group.yaml.in conf/dragonfly-custom/dfcustom-8group.yaml @ONLY)
+codes_add_lpio_equivalence_test(
+    NAME     dragonfly-custom-lpio-equivalence
+    BINARY   model-net-synthetic-dragonfly-all
+    NP       1
+    ARGS     --sync=1 --num_messages=1
+    CONFIG_A "${CMAKE_CURRENT_BINARY_DIR}/conf/dragonfly-custom/dfcustom-8group.conf"
+    CONFIG_B "${CMAKE_CURRENT_BINARY_DIR}/conf/dragonfly-custom/dfcustom-8group.yaml")
