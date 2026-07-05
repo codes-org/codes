@@ -515,6 +515,15 @@ codes_add_config_equivalence_test(
     ARGS        --sync=1
     CONFIG_A    "${_tconf}/lsm-test.conf"
     CONFIG_B    "${_tconf}/lsm-test.yaml")
+# Same run, but the lsm section is factored into a shared fragment pulled in with
+# `include:` -- exercises the loader-boundary include resolution end to end.
+codes_add_config_equivalence_test(
+    NAME        lsm-include-equivalence
+    BINARY      lsm-test
+    CONFIG_FLAG "--conf="
+    ARGS        --sync=1
+    CONFIG_A    "${_tconf}/lsm-test.conf"
+    CONFIG_B    "${_tconf}/lsm-test-include.yaml")
 codes_add_config_equivalence_test(
     NAME        resource-config-equivalence
     BINARY      resource-test

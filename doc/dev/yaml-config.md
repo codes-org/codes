@@ -680,6 +680,36 @@ section or tier introduces.
 
 ---
 
+# Reusing config across files: `include:`
+
+A config can pull in other files with a top-level `include:` — a filename, or a
+list of them, resolved relative to the including file's directory:
+
+```yaml
+schema_version: 1
+include: [ common.yaml, sections/storage.yaml ]
+topology: { ... }        # this file's own keys
+```
+
+Included files are the **base**; the including file **overrides** them. So you
+can factor out a shared piece and vary the rest — define a network once and run
+it under different configs, or (as in `lsm-test-include.yaml`) share a model
+section across layouts. Merge rules:
+
+- `components:` and `sections:` merge **by name** — an included set plus your own
+  additions, with a local entry of the same name winning.
+- `topology:` and `schema_version:` are singular — a local one replaces the
+  included one.
+- Multiple includes apply in list order; the local file is applied last.
+
+Includes are resolved when the config is loaded, *before* compilation, so the
+referenced files must be readable by every rank. An included file may not itself
+use `include:` (one level deep, for now). The pure compiler core does no file
+I/O — the loader reads the fragments and hands them in — so `include:` is a
+loader feature a model never sees.
+
+---
+
 ## Worked examples in the tree
 
 Each of these YAML files is a twin of the `.conf` beside it, checked in CI to
@@ -700,6 +730,7 @@ produce identical results — the authoritative, runnable reference for each mod
 | dragonfly-custom| `tests/conf/dragonfly-custom/dfcustom-8group.yaml.in` |
 | explicit groups (storage/lsm) | `tests/conf/lsm-test.yaml` |
 | explicit groups (resource)    | `tests/conf/buffer_test.yaml` |
+| `include:` composition        | `tests/conf/lsm-test-include.yaml` (+ `lsm-workload.yaml`) |
 
 The `.yaml.in` files are CMake templates (the `@CMAKE_SOURCE_DIR@` in their
 connection paths is substituted at configure time); the plain `.yaml` files are

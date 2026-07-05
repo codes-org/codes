@@ -14,6 +14,7 @@ using codes::config::compiled_config;
 using codes::config::compiled_key;
 using codes::config::compiled_section;
 using codes::config::config_error;
+using codes::config::parse_includes;
 
 namespace {
 
@@ -280,4 +281,83 @@ topology:
     G: { repetitions: 1, lps: { a: 1 }, bogus: 2 }
 )"),
                  config_error);
+}
+
+// --- includes / multi-document merge ----------------------------------------
+
+TEST(ConfigCompiler, IncludeMergesComponentsFromBaseDoc) {
+    // the base defines the component; the main references it in its topology.
+    std::string base = R"(
+schema_version: 1
+components:
+  cn: { model: nw-lp, network: simplenet, message_size: 464 }
+)";
+    std::string main = R"(
+schema_version: 1
+topology: { format: flat, component: cn, nodes: 4 }
+)";
+    compiled_config c = compile(main, {base});
+    const compiled_section* grp = find_subsection(*find_section(c, "LPGROUPS"), "MODELNET_GRP");
+    ASSERT_NE(grp, nullptr);
+    EXPECT_NE(find_key(*grp, "modelnet_simplenet"), nullptr); // component from base resolved
+}
+
+TEST(ConfigCompiler, IncludeLocalOverridesBaseComponent) {
+    std::string base = R"(
+schema_version: 1
+components:
+  cn: { model: nw-lp, network: simplenet, message_size: 111 }
+)";
+    std::string main = R"(
+schema_version: 1
+components:
+  cn: { model: nw-lp, network: simplenet, message_size: 999 }
+topology: { format: flat, component: cn, nodes: 2 }
+)";
+    compiled_config c = compile(main, {base});
+    const compiled_section* params = find_section(c, "PARAMS");
+    ASSERT_NE(params, nullptr);
+    ASSERT_NE(find_key(*params, "message_size"), nullptr);
+    EXPECT_EQ(find_key(*params, "message_size")->values.at(0), "999"); // local wins
+}
+
+TEST(ConfigCompiler, IncludeMergesSectionsAndTopologyFromBase) {
+    // "same network, vary the rest": the base provides topology; main adds a section.
+    std::string base = kFlatBase;
+    std::string main = R"(
+schema_version: 1
+sections:
+  director: { start_iter: 1 }
+)";
+    compiled_config c = compile(main, {base});
+    EXPECT_NE(find_section(c, "LPGROUPS"), nullptr); // topology from base
+    EXPECT_NE(find_section(c, "director"), nullptr); // section from main
+}
+
+TEST(ConfigCompiler, NestedIncludeRejected) {
+    std::string base = R"(
+schema_version: 1
+include: [other.yaml]
+components:
+  cn: { model: nw-lp, network: simplenet }
+)";
+    std::string main = R"(
+schema_version: 1
+topology: { format: flat, component: cn, nodes: 2 }
+)";
+    EXPECT_THROW(compile(main, {base}), config_error);
+}
+
+TEST(ConfigCompiler, ParseIncludesExtractsList) {
+    EXPECT_TRUE(parse_includes("schema_version: 1\ntopology: {}\n").empty());
+
+    std::vector<std::string> one = parse_includes("include: common.yaml\nschema_version: 1\n");
+    ASSERT_EQ(one.size(), 1u);
+    EXPECT_EQ(one.at(0), "common.yaml");
+
+    std::vector<std::string> many =
+        parse_includes("include: [a.yaml, b.yaml]\nschema_version: 1\n");
+    ASSERT_EQ(many.size(), 2u);
+    EXPECT_EQ(many.at(0), "a.yaml");
+    EXPECT_EQ(many.at(1), "b.yaml");
 }

@@ -1,0 +1,19 @@
+schema_version: 1
+
+# Same run as lsm-test.yaml, but the lsm section is factored into a shared
+# fragment and pulled in with `include:`. Demonstrates config composition: the
+# storage-model config lives in one file (lsm-workload.yaml), the layout here.
+# Included files are the base; keys in this file override them.
+
+include: [ lsm-workload.yaml ]
+
+topology:
+  format: groups
+  params:
+    message_size: 512
+  groups:
+    TRITON_GRP:
+      repetitions: 1
+      lps:
+        nw-lp: 1
+        lsm: 1

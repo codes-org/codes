@@ -62,8 +62,9 @@ int configuration_load(const char* filepath, MPI_Comm comm, ConfigHandle* handle
     if (config_is_yaml(filepath)) {
         /* the YAML front-end compiles the friendly format into the same
          * ConfigVTable the text parser yields, reading the bytes already pulled
-         * in by the collective read above. */
-        *handle = yaml_configfile_load(txtdata, txtsize);
+         * in by the collective read above. filepath lets it resolve a top-level
+         * `include:` list relative to the config's directory. */
+        *handle = yaml_configfile_load(txtdata, txtsize, filepath);
     } else {
 #ifdef __APPLE__
         f = fopen(filepath, "r");

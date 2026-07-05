@@ -1,0 +1,17 @@
+schema_version: 1
+
+# A reusable fragment: just the local-storage-model (lsm) section. A run file
+# pulls this in with `include:` and supplies its own topology -- so the same
+# storage-model config can be shared across different layouts. See
+# lsm-test-include.yaml.
+
+sections:
+  lsm:
+    use_scheduler: 1
+    request_sizes: [0]
+    write_rates: [12000.0]
+    read_rates: [12000.0]
+    write_seeks: [2500.0]
+    read_seeks: [2500.0]
+    write_overheads: [20.0]
+    read_overheads: [20.0]

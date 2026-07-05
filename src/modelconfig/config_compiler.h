@@ -78,11 +78,25 @@ struct compiled_config {
 /**
  * Compile YAML/JSON configuration text into the compiled_config IR.
  *
- * @param text  the raw config bytes (JSON is a subset of YAML, so one parser
- *              handles both).
+ * @param main_doc   the raw config bytes of the top-level file (JSON is a subset
+ *                   of YAML, so one parser handles both).
+ * @param base_docs  the contents of any files named by `main_doc`'s top-level
+ *                   `include:` list, already read (the pure core does no file
+ *                   I/O), in listed order. They are merged as the base;
+ *                   `main_doc` overrides them (components and sections merge by
+ *                   name, a topology block replaces any earlier one).
  * @throws config_error on malformed YAML or any schema violation.
  */
-compiled_config compile(std::string_view text);
+compiled_config compile(std::string_view main_doc, const std::vector<std::string>& base_docs = {});
+
+/**
+ * Extract a document's top-level `include:` list (filenames), or an empty vector
+ * if it has none. The loader boundary uses this to read the referenced files and
+ * pass them to compile() as base documents, keeping this core free of file I/O.
+ *
+ * @throws config_error on malformed YAML or a malformed `include:` value.
+ */
+std::vector<std::string> parse_includes(std::string_view doc);
 
 } // namespace config
 } // namespace codes

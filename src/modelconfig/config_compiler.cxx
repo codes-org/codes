@@ -8,6 +8,7 @@
 
 #include <codes_ryml.hpp>
 
+#include <algorithm>
 #include <cerrno>
 #include <cstdlib>
 #include <strings.h> /* strcasecmp: section names are case-insensitive */
@@ -392,6 +393,11 @@ void parse_components(ryml::ConstNodeRef root, friendly_config& cfg) {
                                    "params (per-node data, edges and inline workloads are not "
                                    "supported)");
         }
+        /* include-merge: a later document's component overrides an earlier one of
+         * the same name (within one document, keys are already unique). */
+        cfg.components.erase(std::remove_if(cfg.components.begin(), cfg.components.end(),
+                                            [&](const component& e) { return e.key == c.key; }),
+                             cfg.components.end());
         cfg.components.push_back(std::move(c));
     }
 }
@@ -656,26 +662,53 @@ void parse_sections(ryml::ConstNodeRef root, friendly_config& cfg) {
                                "model parameters on the component or fabric instead");
         compiled_section sec = build_passthrough_section(name, s);
         validate_section_schema(sec);
+        /* include-merge: a later document's section overrides an earlier one of
+         * the same (case-insensitive) name. */
+        cfg.passthrough.erase(std::remove_if(cfg.passthrough.begin(), cfg.passthrough.end(),
+                                             [&](const compiled_section& e) {
+                                                 return iequals(e.name, sec.name.c_str());
+                                             }),
+                              cfg.passthrough.end());
         cfg.passthrough.push_back(std::move(sec));
     }
 }
 
-friendly_config parse_friendly(ryml::ConstNodeRef root) {
-    /* reject unknown top-level keys rather than silently ignoring them. */
-    for (ryml::ConstNodeRef c : root.children()) {
-        std::string k = key_of(c);
-        if (k != "schema_version" && k != "components" && k != "topology" && k != "sections")
-            throw config_error("config error: unexpected top-level key \"" + k + "\"");
-    }
-    friendly_config cfg;
-    parse_components(root, cfg);
-    parse_topology(root, cfg);
-    parse_sections(root, cfg);
-    return cfg;
+/* Parse one document with our throwing error handler installed (so ryml's own
+ * parse errors route through config_error, exactly like our validation errors),
+ * check it is a top-level map, and hand its root to `fn`. The parser and tree
+ * live for the duration of `fn`; the friendly IR copies out owned strings, so
+ * nothing references the tree afterward. */
+template <class F> void with_parsed_document(std::string_view text, F&& fn) {
+    ryml::Callbacks cb(nullptr, nullptr, nullptr, ryml_throw);
+    cb.set_error_parse(ryml_throw_parse);
+    ryml::EventHandlerTree evt_handler(cb);
+    ryml::Parser parser(&evt_handler);
+    ryml::Tree tree = ryml::parse_in_arena(&parser, ryml::to_csubstr("<config>"),
+                                           ryml::csubstr(text.data(), text.size()));
+    ryml::ConstNodeRef root = tree.rootref();
+    if (!root.readable() || !root.is_map())
+        throw config_error("config error: config must be a YAML/JSON mapping at the top level");
+    fn(root);
 }
 
-/* schema_version is required, integer, and any value this build doesn't
- * know is a hard error -- a newer config can't be interpreted safely. */
+/* reject unknown top-level keys rather than silently ignoring them. An
+ * included (base) document may not itself use `include` -- nested includes are
+ * not supported. */
+void validate_toplevel_keys(ryml::ConstNodeRef root, bool is_base) {
+    for (ryml::ConstNodeRef c : root.children()) {
+        std::string k = key_of(c);
+        if (k != "schema_version" && k != "components" && k != "topology" && k != "sections" &&
+            k != "include")
+            throw config_error("config error: unexpected top-level key \"" + k + "\"");
+        if (k == "include" && is_base)
+            throw config_error("config error: an included file cannot itself use \"include\" "
+                               "(nested includes are not supported)");
+    }
+}
+
+/* schema_version is required (on the main document), integer, and any value
+ * this build doesn't know is a hard error -- a newer config can't be interpreted
+ * safely. */
 void require_schema_version(ryml::ConstNodeRef root) {
     if (!has(root, "schema_version"))
         throw config_error(
@@ -685,6 +718,37 @@ void require_schema_version(ryml::ConstNodeRef root) {
     if (v != 1)
         throw config_error("config error: unsupported schema_version " + std::to_string(v) +
                            "; this build understands version 1");
+}
+
+/* An included document need not restate schema_version, but if it does it must
+ * agree with this build. */
+void validate_schema_version_if_present(ryml::ConstNodeRef root) {
+    if (has(root, "schema_version"))
+        require_schema_version(root);
+}
+
+/* Clear any topology state so a later document's topology fully replaces an
+ * earlier one (local-overrides-included). */
+void reset_topology(friendly_config& cfg) {
+    cfg.parametric = false;
+    cfg.flat = false;
+    cfg.explicit_groups = false;
+    cfg.fab = fabric{};
+    cfg.flat_component.clear();
+    cfg.node_count = 0;
+    cfg.explicit_lpgroups = compiled_section{"LPGROUPS", {}, {}};
+    cfg.explicit_params = compiled_section{"PARAMS", {}, {}};
+}
+
+/* Merge one document into the accumulating friendly config. Components and
+ * sections override by name; a topology block replaces any earlier one. */
+void merge_document(ryml::ConstNodeRef root, friendly_config& cfg) {
+    parse_components(root, cfg);
+    if (has(root, "topology")) {
+        reset_topology(cfg);
+        parse_topology(root, cfg);
+    }
+    parse_sections(root, cfg);
 }
 
 /* -------------------------------------------------------------------------
@@ -805,29 +869,47 @@ void compile_flat(const friendly_config& cfg, compiled_config& out) {
 
 } // namespace
 
-compiled_config compile(std::string_view text) {
-    /* Construct the parser with our throwing error handler so that ryml's own
-     * parse errors route through config_error -> tw_error at the shim, exactly
-     * like our validation errors. The no-parser parse_in_arena builds an event
-     * handler with ryml's default callbacks, which print + abort directly and
-     * bypass the shim, so we build the handler (and thus its callbacks)
-     * explicitly here. */
-    ryml::Callbacks cb(nullptr, nullptr, nullptr, ryml_throw);
-    /* The Callbacks ctor installs ryml's default parse-error handler (which
-     * prints + aborts); replace it with ours so parse errors reach the shim's
-     * tw_error like every other error. */
-    cb.set_error_parse(ryml_throw_parse);
-    ryml::EventHandlerTree evt_handler(cb);
-    ryml::Parser parser(&evt_handler);
-    ryml::Tree tree = ryml::parse_in_arena(&parser, ryml::to_csubstr("<config>"),
-                                           ryml::csubstr(text.data(), text.size()));
-    ryml::ConstNodeRef root = tree.rootref();
+std::vector<std::string> parse_includes(std::string_view doc) {
+    std::vector<std::string> out;
+    with_parsed_document(doc, [&](ryml::ConstNodeRef root) {
+        if (!has(root, "include"))
+            return;
+        ryml::ConstNodeRef inc = root["include"];
+        if (inc.is_seq()) {
+            for (ryml::ConstNodeRef c : inc.children()) {
+                if (!c.has_val())
+                    throw config_error("config error: \"include\" list must contain filenames");
+                out.push_back(scalar(c));
+            }
+        } else if (inc.has_val()) {
+            out.push_back(scalar(inc));
+        } else {
+            throw config_error(
+                "config error: \"include\" must be a filename or a list of filenames");
+        }
+    });
+    return out;
+}
 
-    if (!root.readable() || !root.is_map())
-        throw config_error("config error: config must be a YAML/JSON mapping at the top level");
+compiled_config compile(std::string_view main_doc, const std::vector<std::string>& base_docs) {
+    friendly_config cfg;
 
-    require_schema_version(root);
-    friendly_config cfg = parse_friendly(root);
+    /* Included documents are the base; the main document overrides them. Merge
+     * the bases first, in listed order, then the main document last. */
+    for (const std::string& doc : base_docs)
+        with_parsed_document(doc, [&](ryml::ConstNodeRef root) {
+            validate_toplevel_keys(root, /*is_base=*/true);
+            validate_schema_version_if_present(root);
+            merge_document(root, cfg);
+        });
+    with_parsed_document(main_doc, [&](ryml::ConstNodeRef root) {
+        validate_toplevel_keys(root, /*is_base=*/false);
+        require_schema_version(root);
+        merge_document(root, cfg);
+    });
+
+    if (!cfg.parametric && !cfg.flat && !cfg.explicit_groups)
+        throw config_error("config error: missing required \"topology\" block");
 
     compiled_config out;
     if (cfg.explicit_groups) {
@@ -838,8 +920,6 @@ compiled_config compile(std::string_view text) {
         compile_fabric(cfg, out);
     else if (cfg.flat)
         compile_flat(cfg, out);
-    else
-        throw config_error("config error: no supported topology found");
 
     /* verbatim `sections:` blocks follow the compiler-derived topology sections. */
     for (compiled_section& s : cfg.passthrough)

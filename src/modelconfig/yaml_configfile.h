@@ -21,11 +21,14 @@ extern "C" {
  * This is the thin C boundary of the front-end: it runs the pure C++ core
  * (compile) and the emitter (emit), and it is the only place that translates a
  * compile-time config_error into a ROSS tw_error. data/len are the raw file
- * bytes (already read, e.g. via the MPI collective read in configuration_load).
+ * bytes (already read, e.g. via the MPI collective read in configuration_load);
+ * path is the config file's path, used to resolve a top-level `include:` list
+ * relative to its directory (the boundary reads the referenced files -- the pure
+ * core does no file I/O -- so included files must be readable by every rank).
  * On success returns a newly-allocated ConfigVTable (free with cf_free); on a
  * syntax or validation error it aborts through tw_error with a diagnostic,
  * matching how the rest of the configuration front-end reports malformed input. */
-struct ConfigVTable* yaml_configfile_load(const char* data, size_t len);
+struct ConfigVTable* yaml_configfile_load(const char* data, size_t len, const char* path);
 
 #ifdef __cplusplus
 } /* extern "C" */
