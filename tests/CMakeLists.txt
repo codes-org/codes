@@ -2,6 +2,9 @@ enable_testing()
 
 configure_file(run-test.sh.in run-test.sh)
 
+option(CODES_ENABLE_ZMQML_HYBRID_TESTS
+       "Register ZMQML hybrid workflow tests that require a running zmqmlserver.py"
+       OFF)
 # ---------------------------------------------------------------------------
 # Unit-test smoke test. The GoogleTest framework (GTest::gtest / gtest_main) is
 # built by the thirdparty dispatcher when BUILD_TESTING is on — see
@@ -272,6 +275,13 @@ if(USE_UNION)
         union-workload-test-surrogate-parallel-deterministic-4.sh
     )
     list(APPEND test-shell-files ${union-shell-files})
+endif()
+
+if(USE_ZEROMQ AND CODES_ENABLE_ZMQML_HYBRID_TESTS)
+    list(APPEND test-shell-files
+        zmqml-iteration-time-hybrid-workflow.sh
+        zmqml-event-time-hybrid-workflow.sh
+    )
 endif()
 
 foreach(testname ${test-shell-files})

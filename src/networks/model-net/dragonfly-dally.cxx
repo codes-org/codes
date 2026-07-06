@@ -23,6 +23,10 @@
 #include "codes/model-net-method.h"
 #include "codes/model-net-lp.h"
 #include "codes/surrogate/init.h"
+#if CODES_HAVE_ZEROMQ
+#include "codes/surrogate/director-client.h"
+#include "zmqmlrequester.h"
+#endif
 #if CODES_HAVE_TORCH
 #include "codes/surrogate/packet-latency-predictor/torch-jit.h"
 #endif
@@ -48,34 +52,11 @@
 /*
  * Optional ZeroMQ Director requester.
  *
- * These symbols are defined only when CODES is built with CODES_HAVE_ZEROMQ=ON
- * (src/surrogate/director-client.cxx + the zmqml requester lib). CODES_HAVE_ZEROMQ
- * is all-or-nothing for a given build: src/CMakeLists.txt links the zmqmlrequester
- * target into *every* CODES executable when ON and into none when OFF. So whether the
- * requester is available is a compile-time fact, not a runtime one — the
- * original __attribute__((weak)) + runtime `if (!zmqml_director_request)`
- * checks could only ever take their "available" branch under ON and their
- * "null" branch under OFF.
- *
- * The declarations and every reference are therefore #if CODES_HAVE_ZEROMQ-guarded:
- * the ON build calls the requester directly, the OFF build compiles in only
- * the original-PDES fallback and emits no reference to the symbol. (Without
- * the guard the OFF build fails to link on macOS/Mach-O, where ld64 rejects an
- * undefined weak symbol with no providing library; Linux/ELF happens to
- * resolve it to null.)
+ * The ZeroMQ path is a compile-time feature controlled by CODES_HAVE_ZEROMQ:
+ * when enabled, CODES links the zmqml requester and calls it directly; when
+ * disabled, this file compiles only the original-PDES fallback paths and emits
+ * no ZeroMQ requester references.
  */
-#if CODES_HAVE_ZEROMQ
-extern std::vector<std::string> zmqml_director_request(const std::string& surrogate_family,
-                                                       const std::string& surrogate_backend,
-                                                       const std::string& operation,
-                                                       const std::vector<std::string>& args,
-                                                       const std::string& bindata);
-
-extern void director_record_zmq_latency_stats(const char* label,
-                                              const std::vector<std::string>& ret,
-                                              double local_latency_sec);
-#endif
-
 
 #ifdef ENABLE_CORTEX
 #include <cortex/cortex.h>
@@ -298,7 +279,18 @@ static std::vector<std::string> dfdally_event_time_director_request_with_latency
                                (double)(finish.tv_nsec - start.tv_nsec) / 1000000000.0;
 
 #if CODES_HAVE_ZEROMQ
-    director_record_zmq_latency_stats(label, ret, local_latency_sec);
+    double zmq_processing_time = 0.0;
+
+    if (ret.size() > 1) {
+        char* endptr = NULL;
+        double parsed = strtod(ret[1].c_str(), &endptr);
+
+        if (endptr != ret[1].c_str() && isfinite(parsed) && parsed >= 0.0) {
+            zmq_processing_time = parsed;
+        }
+    }
+
+    director_record_external_zmq_latency(zmq_processing_time, local_latency_sec);
 #endif
 
     return ret;
@@ -2696,14 +2688,8 @@ static void dragonfly_read_config(const char* anno, dragonfly_param* params) {
     char event_time_inference_enabled_str[MAX_NAME_LENGTH];
     event_time_inference_enabled_str[0] = '\0';
 
-    char const* inferencing_enabled_env = getenv("INFERENCING_ENABLED");
-    if (inferencing_enabled_env && strlen(inferencing_enabled_env) > 0) {
-        snprintf(event_time_inference_enabled_str, sizeof(event_time_inference_enabled_str), "%s",
-                 inferencing_enabled_env);
-    } else {
-        configuration_get_value(&config, "DIRECTOR", "inferencing_enabled", anno,
-                                event_time_inference_enabled_str, MAX_NAME_LENGTH);
-    }
+    configuration_get_value(&config, "DIRECTOR", "inferencing_enabled", anno,
+                            event_time_inference_enabled_str, MAX_NAME_LENGTH);
 
     /*
      * Do not expose a separate event-time inference flag.
@@ -2738,14 +2724,8 @@ static void dragonfly_read_config(const char* anno, dragonfly_param* params) {
     char event_time_training_enabled_str[MAX_NAME_LENGTH];
     event_time_training_enabled_str[0] = '\0';
 
-    char const* training_enabled_env = getenv("TRAINING_ENABLED");
-    if (training_enabled_env && strlen(training_enabled_env) > 0) {
-        snprintf(event_time_training_enabled_str, sizeof(event_time_training_enabled_str), "%s",
-                 training_enabled_env);
-    } else {
-        configuration_get_value(&config, "DIRECTOR", "training_enabled", anno,
-                                event_time_training_enabled_str, MAX_NAME_LENGTH);
-    }
+    configuration_get_value(&config, "DIRECTOR", "training_enabled", anno,
+                            event_time_training_enabled_str, MAX_NAME_LENGTH);
 
     event_time_surrogate_family_selected =
         strcmp(event_time_surrogate_family_str, "event-time") == 0;
@@ -2765,15 +2745,6 @@ static void dragonfly_read_config(const char* anno, dragonfly_param* params) {
         atexit(dfdally_event_time_zmq_flush_atexit);
         event_time_zmq_flush_registered = 1;
     }
-
-    if (dfdally_surrogate_debug_prints) {
-        fprintf(stderr,
-                "[event-time records] family=%s training_enabled=%s send_to_zmq=%d batch_size=%d\n",
-                event_time_surrogate_family_str, event_time_training_enabled_str,
-                event_time_training_records_enabled, event_time_zmq_batch_size);
-        fflush(stderr);
-    }
-
 
     // START Surrogate configuration
     char enable_str[MAX_NAME_LENGTH];
@@ -2798,6 +2769,14 @@ static void dragonfly_read_config(const char* anno, dragonfly_param* params) {
     }
 
     dfdally_surrogate_debug_prints = dfdally_string_is_true(debug_prints_str);
+
+    if (dfdally_surrogate_debug_prints) {
+        fprintf(stderr,
+                "[event-time records] family=%s training_enabled=%s send_to_zmq=%d batch_size=%d\n",
+                event_time_surrogate_family_str, event_time_training_enabled_str,
+                event_time_training_records_enabled, event_time_zmq_batch_size);
+        fflush(stderr);
+    }
 
     // if surrogate mode has been set up
     if (enable_network_surrogate) {

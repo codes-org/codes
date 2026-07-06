@@ -46,6 +46,9 @@ on:
 # See doc/dev/ci.md for when and how to bump this pin.
 env:
   ROSS_REF: 9b6ccb18f9b9db438bf41b5b221d0ef16a4dac48
+  # ROSS before the modern ROSS::ROSS CMake package target. This keeps CODES's
+  # temporary compatibility path covered until support for old ROSS installs is removed.
+  OLD_ROSS_COMPAT_REF: 5e14a26ebe909186f570ea3d17470e1a3a31d3bf
 
 jobs:
   build:
@@ -177,6 +180,70 @@ jobs:
           path: |
             codes/build/debug/Testing/Temporary/LastTest.log
             codes/build/debug/Testing/Temporary/LastTestsFailed.log
+            codes/build/debug/CMakeFiles/CMakeError.log
+            codes/build/debug/CMakeFiles/CMakeOutput.log
+            codes/build/debug/CMakeCache.txt
+            ross/build/CMakeFiles/CMakeError.log
+            ross/build/CMakeFiles/CMakeOutput.log
+            ross/build/CMakeCache.txt
+          if-no-files-found: ignore
+          retention-days: 14
+
+  old-ross-compat:
+    name: old ROSS compatibility build
+    runs-on: ubuntu-24.04
+    env:
+      ROSS_ROOT: ${{ github.workspace }}/ross-install
+    steps:
+      - name: Checkout CODES
+        uses: actions/checkout@v4
+        with:
+          path: codes
+
+      - name: Checkout old ROSS
+        uses: actions/checkout@v4
+        with:
+          repository: ROSS-org/ROSS
+          ref: ${{ env.OLD_ROSS_COMPAT_REF }}
+          path: ross
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            mpich libmpich-dev \
+            cmake ninja-build pkg-config \
+            flex bison
+
+      - name: Configure old ROSS
+        run: >
+          cmake -S ross -B ross/build -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DROSS_BUILD_MODELS=ON
+          -DCMAKE_INSTALL_PREFIX=$PWD/ross-install
+          -DCMAKE_C_COMPILER=mpicc
+
+      - name: Build and install old ROSS
+        run: cmake --build ross/build --target install -j
+
+      - name: Configure CODES with old ROSS
+        working-directory: codes
+        run: >
+          cmake --preset debug
+          -DROSS_DIR="$ROSS_ROOT/lib"
+          -DCODES_USE_TORCH=OFF
+          -DCODES_USE_ZEROMQ=OFF
+
+      - name: Build CODES with old ROSS
+        working-directory: codes
+        run: cmake --build --preset debug
+
+      - name: Upload logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs-old-ross-compat
+          path: |
             codes/build/debug/CMakeFiles/CMakeError.log
             codes/build/debug/CMakeFiles/CMakeOutput.log
             codes/build/debug/CMakeCache.txt

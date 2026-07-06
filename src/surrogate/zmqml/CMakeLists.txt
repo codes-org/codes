@@ -9,14 +9,27 @@
 add_library(zmqmlrequester STATIC zmqmlrequester.cpp)
 
 # PUBLIC libzmq: consumers (codes, and the executables that link codes) need the
-# zmq_* symbols on their final link line. zmq.hpp travels with PkgConfig::ZeroMQ.
-target_link_libraries(zmqmlrequester PUBLIC PkgConfig::ZeroMQ)
+# zmq_* symbols on their final link line.
+#
+# Do not link the imported PkgConfig::ZeroMQ target directly here.  On some
+# systems pkg-config expands libzmq include dirs to invalid paths such as
+# /usr/lib/include, and CMake rejects imported targets that contain non-existent
+# INTERFACE_INCLUDE_DIRECTORIES.  Use the raw pkg-config library variables and
+# the validated zmq.hpp include directory found by the top-level CMake instead.
+if(ZeroMQ_LIBRARY_DIRS)
+    target_link_directories(zmqmlrequester PUBLIC ${ZeroMQ_LIBRARY_DIRS})
+endif()
+
+target_link_libraries(zmqmlrequester PUBLIC ${ZeroMQ_LIBRARIES})
 
 target_include_directories(zmqmlrequester
     # zmqmlrequester.h is the public surface — director-client.cxx includes it.
-    PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>
+        ${ZMQ_CPP_INCLUDE_DIR}
     # rapidjson is header-only and used only inside zmqmlrequester.cpp.
-    PRIVATE ${RapidJSON_INCLUDE_DIR})
+    PRIVATE
+        ${RapidJSON_INCLUDE_DIR})
 
 # keep the requester PIC so it can be archived into one.
 set_target_properties(zmqmlrequester PROPERTIES POSITION_INDEPENDENT_CODE ON)

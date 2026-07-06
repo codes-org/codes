@@ -77,6 +77,63 @@ set(ARGOBOTS_PKG_CONFIG_PATH "" CACHE PATH "DEPRECATED: use CMAKE_PREFIX_PATH. W
 # dirs, the MPI dependency, and link libraries (linked in src/CMakeLists.txt).
 find_package(ROSS CONFIG REQUIRED)
 
+# Compatibility for older ROSS CMake package configs.
+# Some ROSS installs provide ROSSConfig.cmake but do not define the modern
+# imported target ROSS::ROSS. This CODES tree links against ROSS::ROSS, so
+# synthesize that target from the installed ROSS prefix when needed.
+if(NOT TARGET ROSS::ROSS)
+    message(DEPRECATION
+        "The installed ROSS package does not define ROSS::ROSS; CODES is creating "
+        "a compatibility imported target. This compatibility path is deprecated "
+        "and will be removed in a future release. Please update ROSS and point "
+        "CMAKE_PREFIX_PATH or ROSS_ROOT at a modern ROSS install.")
+
+    if(DEFINED ROSS_DIR)
+        get_filename_component(_ROSS_CONFIG_DIR "${ROSS_DIR}" ABSOLUTE)
+    else()
+        set(_ROSS_CONFIG_DIR "")
+    endif()
+
+    # In this install layout, ROSSConfig.cmake is under:
+    #   <prefix>/lib/ROSSConfig.cmake
+    # so the prefix is one directory above ROSS_DIR.
+    get_filename_component(_ROSS_PREFIX "${_ROSS_CONFIG_DIR}/.." ABSOLUTE)
+
+    find_library(_ROSS_COMPAT_LIBRARY
+        NAMES ROSS ross
+        PATHS
+            "${_ROSS_PREFIX}/lib"
+            "${_ROSS_CONFIG_DIR}"
+        NO_DEFAULT_PATH
+    )
+
+    find_path(_ROSS_COMPAT_INCLUDE_DIR
+        NAMES ross.h
+        PATHS
+            "${_ROSS_PREFIX}/include"
+            "${CMAKE_CURRENT_SOURCE_DIR}/../ross/core"
+            "$ENV{HOME}/ross/core"
+        NO_DEFAULT_PATH
+    )
+
+    if(NOT _ROSS_COMPAT_LIBRARY)
+        message(FATAL_ERROR "Could not locate ROSS library for compatibility target. Checked ${_ROSS_PREFIX}/lib and ${_ROSS_CONFIG_DIR}.")
+    endif()
+
+    if(NOT _ROSS_COMPAT_INCLUDE_DIR)
+        message(FATAL_ERROR "Could not locate ross.h for compatibility target. Checked ${_ROSS_PREFIX}/include and ~/ross/core.")
+    endif()
+
+    add_library(ROSS::ROSS UNKNOWN IMPORTED)
+    set_target_properties(ROSS::ROSS PROPERTIES
+        IMPORTED_LOCATION "${_ROSS_COMPAT_LIBRARY}"
+        INTERFACE_INCLUDE_DIRECTORIES "${_ROSS_COMPAT_INCLUDE_DIR}"
+    )
+
+    message(STATUS "Using compatibility ROSS::ROSS library: ${_ROSS_COMPAT_LIBRARY}")
+    message(STATUS "Using compatibility ROSS::ROSS include dir: ${_ROSS_COMPAT_INCLUDE_DIR}")
+endif()
+
 # PkgConfig discovers the optional SWM/UNION/ARGOBOTS deps below (as imported
 # targets). The recommended way to point at a non-standard install is
 # CMAKE_PREFIX_PATH (pkg_check_modules searches <prefix>/lib/pkgconfig etc. under
