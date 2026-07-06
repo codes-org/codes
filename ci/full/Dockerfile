@@ -12,8 +12,13 @@
 #   - MPICH + build toolchain + argobots + SWM
 #   - python2 + conceptual + UNION + ZeroMQ (the director-client path)
 #   - SST-DUMPI + LibTorch (CPU)
-# Torch and DUMPI are build-only checks: no trace data / no model ships, so the
-# `full` job just verifies CODES compiles + links with USE_DUMPI / USE_TORCH on.
+#   - ZMQML server Python runtime (pyzmq/numpy/pandas/scikit-learn) for the
+#     zmqml-hybrid workflow (.github/workflows/zmqml-hybrid.yml)
+# For the build.yml `full` job, Torch and DUMPI are build-only checks: no trace
+# data / no model ships, so that job just verifies CODES compiles + links with
+# USE_DUMPI / USE_TORCH on. The zmqml-hybrid workflow reuses this image and also
+# runs the Python ML server at test time (Torch is its model engine), which is
+# why the ZMQML server runtime deps below are baked in here.
 FROM ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
@@ -140,3 +145,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         python3 python3-pip \
     && rm -rf /var/lib/apt/lists/* \
     && pip3 install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
+
+# --- ZMQML server Python runtime: the zmqml-hybrid CI workflow
+#     (.github/workflows/zmqml-hybrid.yml) runs the Python ML server
+#     (src/surrogate/zmqml/zmqmlserver.py) and control client (zmqmlctl.py) inside
+#     this image. They need pyzmq for the ZMQ transport, numpy + pandas for record
+#     handling, and scikit-learn for the packet-delay model's scaler; Torch (the
+#     iteration-/event-time models) is already installed in the layer above.
+#     Kept as the LAST layer so a future dep tweak is a cheap one-layer rebuild.
+#     Torch (2.x CPU wheel) declares numpy optional and installs none of its own,
+#     so this apt python3-numpy is the only numpy in the image and the one Torch
+#     imports against — same as the workflow's runtime installs produce today. ---
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3-zmq python3-numpy python3-pandas python3-sklearn \
+    && rm -rf /var/lib/apt/lists/*

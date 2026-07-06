@@ -5,6 +5,17 @@ configure_file(run-test.sh.in run-test.sh)
 option(CODES_ENABLE_ZMQML_HYBRID_TESTS
        "Register ZMQML hybrid workflow tests that require a running zmqmlserver.py"
        OFF)
+# ---------------------------------------------------------------------------
+# Unit-test smoke test. The GoogleTest framework (GTest::gtest / gtest_main) is
+# built by the thirdparty dispatcher when BUILD_TESTING is on — see
+# thirdparty/googletest/. This smoke test proves the vendored framework builds,
+# links, runs, and reports through CTest. Real unit-test consumers land in
+# a future PR. Unit tests run serially (no MPI), distinct from the mpiexec-launched
+# model tests below.
+add_executable(codes-unit-smoke codes-unit-smoke.cxx)
+target_link_libraries(codes-unit-smoke PRIVATE GTest::gtest_main)
+add_test(NAME codes-unit-smoke COMMAND codes-unit-smoke)
+# ---------------------------------------------------------------------------
 
 # codes_add_equivalence_test — register an equivalence/determinism test.
 #
