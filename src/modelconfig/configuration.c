@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h> /* strcasecmp: the extension match is case-insensitive */
 #include <assert.h>
 #include <errno.h>
 #include <libgen.h>
@@ -18,12 +19,15 @@
 #include "yaml_configfile.h"
 
 /* A .yaml/.yml/.json path selects the YAML/JSON config front-end; anything else
- * is parsed by the legacy .conf text parser. */
+ * is parsed by the legacy .conf text parser. The extension is matched
+ * case-insensitively so .YAML/.Yml/.JSON select the front-end too rather than
+ * falling through and dying with an unrelated .conf syntax error. */
 static int config_is_yaml(const char* path) {
     const char* dot = strrchr(path, '.');
     if (!dot)
         return 0;
-    return strcmp(dot, ".yaml") == 0 || strcmp(dot, ".yml") == 0 || strcmp(dot, ".json") == 0;
+    return strcasecmp(dot, ".yaml") == 0 || strcasecmp(dot, ".yml") == 0 ||
+           strcasecmp(dot, ".json") == 0;
 }
 
 /*

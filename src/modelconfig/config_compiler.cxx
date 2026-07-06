@@ -10,6 +10,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <climits> /* LONG_MAX: guard dimension-product overflow */
 #include <cstdlib>
 #include <strings.h> /* strcasecmp: section names are case-insensitive */
 #include <string>
@@ -176,20 +177,29 @@ struct fabric_model {
     layout (*derive)(const kv_list& shape); /* shape -> LP layout */
 };
 
-/* Look up a shape value by name, throwing if absent. */
+/* Look up a shape value by name, throwing if absent. The value is parsed
+ * strictly, so a non-integer (num_groups: abc) or trailing garbage (9x) is a
+ * diagnostic naming the offending key rather than a silent 0/9. */
 long shape_int(const kv_list& shape, const char* key) {
-    for (const auto& kv : shape)
-        if (kv.first == key)
-            return std::strtol(kv.second.c_str(), nullptr, 10);
+    for (const auto& kv : shape) {
+        if (kv.first == key) {
+            std::string what = std::string("fabric shape \"") + key + "\"";
+            return parse_int_strict(kv.second, what.c_str());
+        }
+    }
     throw config_error(std::string("config error: fabric shape is missing required key \"") + key +
                        "\"");
 }
 
-/* Look up a shape value by name, returning a default when absent. */
+/* Look up a shape value by name, returning a default when absent. Present values
+ * are parsed strictly (see shape_int). */
 long shape_int_default(const kv_list& shape, const char* key, long dflt) {
-    for (const auto& kv : shape)
-        if (kv.first == key)
-            return std::strtol(kv.second.c_str(), nullptr, 10);
+    for (const auto& kv : shape) {
+        if (kv.first == key) {
+            std::string what = std::string("fabric shape \"") + key + "\"";
+            return parse_int_strict(kv.second, what.c_str());
+        }
+    }
     return dflt;
 }
 
@@ -202,30 +212,57 @@ const std::string& shape_str(const kv_list& shape, const char* key) {
                        "\"");
 }
 
-/* Product of a comma-separated dimension list ("4,2,2" -> 16). Used by the
- * mesh-style fabrics (torus, express_mesh) whose repetition count is the number
- * of mesh nodes/routers implied by dim_length. */
-long dim_product(const kv_list& shape, const char* key) {
+/* Parse a comma-separated dimension list ("4,2,2" -> {4,2,2}) strictly: a
+ * non-empty, strictly comma-separated list of positive integers (optional spaces
+ * around a value), rejecting empty segments ("4,,2"), a trailing comma ("4,2,"),
+ * and space-separated lists ("4 2"). */
+std::vector<long> parse_dim_lengths(const kv_list& shape, const char* key) {
     const std::string& s = shape_str(shape, key);
-    long prod = 1;
+    auto bad = [&]() -> config_error {
+        return config_error(std::string("config error: fabric shape \"") + key +
+                            "\" must be a comma-separated list of positive integers, got \"" + s +
+                            "\"");
+    };
+    std::vector<long> dims;
     const char* p = s.c_str();
-    bool saw_digit = false;
-    while (*p) {
+    for (;;) {
         char* end = nullptr;
         errno = 0;
-        long d = std::strtol(p, &end, 10);
+        long d = std::strtol(p, &end, 10); /* strtol skips any leading spaces */
         if (end == p || errno != 0 || d <= 0)
-            throw config_error(std::string("config error: fabric shape \"") + key +
-                               "\" must be a comma-separated list of positive integers, got \"" +
-                               s + "\"");
-        prod *= d;
-        saw_digit = true;
+            throw bad();
+        dims.push_back(d);
         p = end;
-        while (*p == ',' || *p == ' ')
+        while (*p == ' ') /* trailing spaces after this value */
             ++p;
+        if (*p == '\0')
+            break;
+        if (*p != ',') /* only a comma may separate values (rejects "4 2") */
+            throw bad();
+        ++p; /* consume the single comma; the next value is now required */
     }
-    if (!saw_digit)
-        throw config_error(std::string("config error: fabric shape \"") + key + "\" is empty");
+    return dims;
+}
+
+/* Node/router count of a mesh-style fabric (torus, express_mesh): the product of
+ * the per-dimension lengths in dim_length. The entry count is cross-checked
+ * against the n_dims shape value, and the running product is guarded against
+ * signed overflow. `model_name` names the offending fabric in diagnostics. */
+long mesh_node_count(const kv_list& shape, const char* model_name) {
+    long n_dims = shape_int(shape, "n_dims");
+    std::vector<long> dims = parse_dim_lengths(shape, "dim_length");
+    if (static_cast<long>(dims.size()) != n_dims)
+        throw config_error(std::string("config error: ") + model_name + " n_dims (" +
+                           std::to_string(n_dims) +
+                           ") does not match the number of dim_length entries (" +
+                           std::to_string(dims.size()) + ")");
+    long prod = 1;
+    for (long d : dims) {
+        if (prod > LONG_MAX / d) /* d >= 1, so the divide is safe */
+            throw config_error(std::string("config error: ") + model_name +
+                               " dim_length product overflows");
+        prod *= d;
+    }
     return prod;
 }
 
@@ -260,6 +297,12 @@ layout derive_fattree(const kv_list& shape) {
     long switch_count = shape_int(shape, "switch_count");
     long switch_radix = shape_int(shape, "switch_radix");
     long num_levels = shape_int(shape, "num_levels");
+    /* Each edge switch hosts switch_radix/2 terminals; an odd radix would
+     * silently truncate that split, so reject it rather than lose a terminal. */
+    if (switch_radix % 2 != 0)
+        throw config_error("config error: fattree switch_radix must be even (each edge switch "
+                           "hosts switch_radix/2 terminals), got " +
+                           std::to_string(switch_radix));
     return {switch_count, switch_radix / 2, num_levels};
 }
 
@@ -267,7 +310,7 @@ layout derive_fattree(const kv_list& shape) {
  * terminal, and no separate router LP (the torus node combines routing and the
  * terminal). The node count is the product of the per-dimension lengths. */
 layout derive_torus(const kv_list& shape) {
-    long nodes = dim_product(shape, "dim_length");
+    long nodes = mesh_node_count(shape, "torus");
     return {nodes, 1, 0};
 }
 
@@ -275,7 +318,7 @@ layout derive_torus(const kv_list& shape) {
  * hosting num_cn terminals plus one router LP. The router count is the product
  * of the per-dimension lengths. */
 layout derive_express_mesh(const kv_list& shape) {
-    long routers = dim_product(shape, "dim_length");
+    long routers = mesh_node_count(shape, "express-mesh");
     long num_cn = shape_int(shape, "num_cn");
     return {routers, num_cn, 1};
 }
@@ -383,7 +426,13 @@ void parse_components(ryml::ConstNodeRef root, friendly_config& cfg) {
             else if (k == "network")
                 c.network = scalar(f);
             else if (k == "type")
-                ; /* inferred from the model; not needed for the compiled config */
+                /* Reserved for a future schema version. Reject explicitly: a bare
+                 * `type:` scalar would otherwise fall through to the is_keyval()
+                 * branch below and silently become a model param in PARAMS. */
+                throw config_error("config error: component \"" + c.key +
+                                   "\": key \"type\" is reserved for a future schema version and "
+                                   "is not accepted yet; remove it (the model is inferred from "
+                                   "\"model:\")");
             else if (f.is_keyval())
                 c.params.emplace_back(k, scalar(f));
             else
@@ -511,11 +560,22 @@ void parse_topology(ryml::ConstNodeRef root, friendly_config& cfg) {
         if (!has(topo, "fabric"))
             throw config_error("config error: parametric topology needs a \"fabric\" block");
         parse_fabric(topo["fabric"], cfg.fab);
-        if (has(topo, "hosts") && has(topo["hosts"], "component"))
-            cfg.fab.hosts_component = scalar(topo["hosts"]["component"]);
-        else
+        if (!has(topo, "hosts"))
             throw config_error("config error: parametric topology needs hosts.component naming the "
                                "per-terminal workload");
+        ryml::ConstNodeRef hosts = topo["hosts"];
+        /* only `component` is consumed under hosts; anything else is an error
+         * rather than a silent drop. */
+        for (ryml::ConstNodeRef h : hosts.children()) {
+            std::string k = key_of(h);
+            if (k != "component")
+                throw config_error("config error: topology.hosts: unexpected key \"" + k +
+                                   "\" (only \"component\" is supported)");
+        }
+        if (!has(hosts, "component"))
+            throw config_error("config error: parametric topology needs hosts.component naming the "
+                               "per-terminal workload");
+        cfg.fab.hosts_component = scalar(hosts["component"]);
     } else if (format == "flat") {
         cfg.flat = true;
         /* only these keys are consumed for a flat topology. */
@@ -679,7 +739,8 @@ void parse_sections(ryml::ConstNodeRef root, friendly_config& cfg) {
  * live for the duration of `fn`; the friendly IR copies out owned strings, so
  * nothing references the tree afterward. */
 template <class F> void with_parsed_document(std::string_view text, F&& fn) {
-    ryml::Callbacks cb(nullptr, nullptr, nullptr, ryml_throw);
+    ryml::Callbacks cb;
+    cb.set_error_basic(ryml_throw);
     cb.set_error_parse(ryml_throw_parse);
     ryml::EventHandlerTree evt_handler(cb);
     ryml::Parser parser(&evt_handler);
@@ -767,8 +828,32 @@ void compile_fabric(const friendly_config& cfg, compiled_config& out) {
     if (!host)
         throw config_error("config error: hosts.component \"" + fab.hosts_component +
                            "\" is not defined under components:");
+    /* An empty model: would flow into LPGROUPS as an empty LP-type key and fail
+     * confusingly in codes_mapping later; reject it here with a clear message. */
+    if (host->model.empty())
+        throw config_error("config error: hosts.component \"" + fab.hosts_component +
+                           "\" has an empty \"model:\"; a component needs a model naming its "
+                           "workload LP type");
+    /* A parametric fabric defines the network itself, so a network: on the host
+     * component is meaningless here (it only applies to flat-topology components)
+     * and would otherwise be silently ignored. */
+    if (!host->network.empty())
+        throw config_error("config error: hosts.component \"" + fab.hosts_component +
+                           "\" sets \"network:\", which is only meaningful for a flat-topology "
+                           "component; a parametric fabric defines the network itself");
 
     layout lay = model->derive(fab.shape);
+
+    /* A backstop over every model's derivation: a shape that produces a
+     * degenerate layout (e.g. num_groups: 0) must not reach codes_mapping. Each
+     * repetition needs at least one terminal; routers may legitimately be 0 for
+     * mesh-style fabrics that fold routing into the terminal. */
+    if (lay.repetitions <= 0 || lay.terminals_per_rep <= 0 || lay.routers_per_rep < 0)
+        throw config_error(
+            "config error: fabric model \"" + fab.model +
+            "\" derived a degenerate layout (repetitions=" + std::to_string(lay.repetitions) +
+            ", terminals_per_rep=" + std::to_string(lay.terminals_per_rep) + ", routers_per_rep=" +
+            std::to_string(lay.routers_per_rep) + "); check the shape values");
 
     /* --- LPGROUPS: one group of `repetitions` slices, each with the
      * per-terminal workload + NIC LPs and the router/switch LPs, emitted in
@@ -843,6 +928,12 @@ void compile_flat(const friendly_config& cfg, compiled_config& out) {
     if (!comp)
         throw config_error("config error: topology.component \"" + cfg.flat_component +
                            "\" is not defined under components:");
+    /* An empty model: would flow into LPGROUPS as an empty LP-type key and fail
+     * confusingly in codes_mapping later; reject it here with a clear message. */
+    if (comp->model.empty())
+        throw config_error("config error: topology.component \"" + cfg.flat_component +
+                           "\" has an empty \"model:\"; a component needs a model naming its "
+                           "workload LP type");
     if (comp->network.empty())
         throw config_error("config error: component \"" + cfg.flat_component +
                            "\" needs a network: field naming its NIC model");

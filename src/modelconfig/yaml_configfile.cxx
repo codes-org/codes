@@ -25,6 +25,7 @@
 
 #include <ross.h>
 
+#include <exception>
 #include <fstream>
 #include <sstream>
 #include <string>
@@ -78,6 +79,12 @@ struct ConfigVTable* yaml_configfile_load(const char* data, size_t len, const ch
         return codes::config::emit(cfg);
     } catch (const codes::config::config_error& e) {
         tw_error(TW_LOC, "%s", e.what());
+        return nullptr; /* unreachable: tw_error aborts */
+    } catch (const std::exception& e) {
+        /* Any non-config_error exception (std::bad_alloc, a ryml internal, ...)
+         * must not escape this extern "C" frame -- that would call
+         * std::terminate with no diagnostic. Route it to tw_error too. */
+        tw_error(TW_LOC, "config error (internal): %s", e.what());
         return nullptr; /* unreachable: tw_error aborts */
     }
 }

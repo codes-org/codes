@@ -24,12 +24,14 @@ enable and no configure-time option to set.
 
 ## Shape of a config
 
-A config has a few top-level blocks:
+A config has up to five top-level blocks:
 
 ```yaml
 schema_version: 1   # required; this build understands version 1
 components:          # named component configs referenced by the topology
-topology:            # a flat network, or a parametric fabric
+topology:            # flat network, parametric fabric, or explicit LP groups
+sections:            # config a model reads directly, carried through verbatim
+include:             # other config files to reuse (base; this file overrides)
 ```
 
 - **`schema_version`** is required, an integer, and must be a version this build
@@ -39,14 +41,21 @@ topology:            # a flat network, or a parametric fabric
   (`model:`) with its parameters; a flat-network component also names the NIC
   model it runs over (`network:`). Components are referenced by name from the
   topology.
-- **`topology`** selects the network. `format: flat` is an all-to-all point-to-
-  point network described by a component and a node count; `format: parametric`
-  is an HPC fabric described by shape parameters.
+- **`topology`** selects the layout, via one of three `format`s: `flat` is an
+  all-to-all point-to-point network described by a component and a node count;
+  `parametric` is an HPC fabric described by shape parameters; `groups` lays the
+  LP groups out directly (the escape hatch for configs that aren't a single
+  network). Each is documented in its own section below.
+- **`sections`** carries config a model reads directly by name (DIRECTOR,
+  NETWORK_SURROGATE, resource, …) through verbatim — see `sections:` below.
+- **`include`** reuses other config files — see `include:` below.
 
 Validation is strict: unknown top-level keys, unknown topology keys, a block a
 component or fabric doesn't consume, and (for flat topologies) an unexpected
 `edges`/graph block are all **errors, not silent drops**. A malformed value
-(e.g. a non-integer node count) is likewise rejected with a diagnostic.
+(e.g. a non-integer node count) is likewise rejected with a diagnostic. On any
+such error the run aborts at config load with that diagnostic — on every rank,
+since every rank compiles the same bytes deterministically.
 
 ### How it compiles
 
@@ -199,6 +208,10 @@ Building blocks shared by all fabrics:
   `PARAMS` unchanged. A list value (e.g. `slimfly`'s generator sets) is emitted
   as a multi-value key.
 
+The `hosts.component`'s own scalar params, if it declares any, are also appended
+to `PARAMS` (after the fabric's keys). A parametric host component must not set
+`network:` — the fabric defines the network itself, so that key is rejected here.
+
 Supported fabric `model`s split into **internally-generated** (the compiler emits
 only shape params and the model generates its wiring) and **file-enumerated** (the
 wiring is read from binary connection files produced by the generator scripts).
@@ -246,10 +259,13 @@ topology:
 An n-dimensional torus. It folds routing into the terminal node, so there is
 **no separate router LP**; the node count is the product of the per-dimension
 lengths. `dim_length` is a comma-separated string the model parses itself, so it
-is written as a quoted scalar (not a YAML list). Bandwidth is a single flat
+is written as a quoted scalar (not a YAML list) — a strictly comma-separated list
+of positive integers whose count must equal `n_dims` (a mismatch, an empty
+segment, or a trailing comma is a config error). Bandwidth is a single flat
 `link_bandwidth`, not a per-link-class block.
 
-Shape: `n_dims`, `dim_length` (repetitions = product of `dim_length`).
+Shape: `n_dims`, `dim_length` (repetitions = product of `dim_length`, one entry
+per `n_dims`).
 
 ```yaml
 schema_version: 1
@@ -324,9 +340,11 @@ topology:
 An n-dimensional express mesh with a separate router LP. The router count is the
 product of the per-dimension lengths, and each router hosts `num_cn` terminals.
 Like torus it uses flat bandwidth keys (`link_bandwidth`, `cn_bandwidth`, ...)
-rather than a `links` block, and `dim_length` is a quoted scalar.
+rather than a `links` block, and `dim_length` is a quoted scalar — a strictly
+comma-separated list of positive integers whose count must equal `n_dims`.
 
-Shape: `n_dims`, `dim_length` (router count = product of `dim_length`), `num_cn`.
+Shape: `n_dims`, `dim_length` (router count = product of `dim_length`, one entry
+per `n_dims`), `num_cn`.
 
 ```yaml
 schema_version: 1
@@ -583,8 +601,10 @@ topology:
 Each group names its `repetitions` and, under `lps`, the LP types with their
 per-repetition counts — a direct, validated transcription of a `.conf`
 `LPGROUPS`. There is no network to derive from, so `modelnet_order` and any other
-knobs come from whatever you put in `params`. Group and LP-type names are
-free-form (they match what each model registers).
+knobs come from whatever you put in `params`. `params:` follows the same
+scalar/list/nested-map rules as a `sections:` block (below): a scalar becomes a
+single-value key, a list a multi-value key, and a nested map a subsection. Group
+and LP-type names are free-form (they match what each model registers).
 
 **Annotations.** `codes_mapping` lets the same LP type appear more than once in a
 group under different annotations. Write the annotation on the LP-type key as

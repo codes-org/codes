@@ -53,6 +53,24 @@ topology:
   nodes: 4
 )";
 
+// A minimal, valid parametric dragonfly config. With num_routers: 4 the
+// derivation is num_cn = 4/2 = 2, num_groups = 4*2+1 = 9, so repetitions =
+// num_groups*num_routers = 36, terminals per rep = 2, one router per rep.
+const char* kParametricDragonfly = R"(
+schema_version: 1
+components:
+  compute_host:
+    model: nw-lp
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly
+    shape:
+      num_routers: 4
+  hosts:
+    component: compute_host
+)";
+
 // An explicit LP-groups config: two groups, custom LP types, an annotation, and
 // a PARAMS block -- the layout escape hatch for non-network configs.
 const char* kGroupsBase = R"(
@@ -281,6 +299,254 @@ topology:
     G: { repetitions: 1, lps: { a: 1 }, bogus: 2 }
 )"),
                  config_error);
+}
+
+// --- parametric fabrics -----------------------------------------------------
+
+TEST(ConfigCompiler, ParametricDragonflyDerivesLayoutAndOrder) {
+    compiled_config c = compile(kParametricDragonfly);
+
+    const compiled_section* lpg = find_section(c, "LPGROUPS");
+    ASSERT_NE(lpg, nullptr);
+    const compiled_section* grp = find_subsection(*lpg, "MODELNET_GRP");
+    ASSERT_NE(grp, nullptr);
+
+    // num_routers: 4 -> num_cn 2, num_groups 9, repetitions 9*4 = 36.
+    ASSERT_NE(find_key(*grp, "repetitions"), nullptr);
+    EXPECT_EQ(find_key(*grp, "repetitions")->values.at(0), "36");
+    // [workload, terminal, router] LPs: 2 terminals + 1 router per repetition.
+    ASSERT_NE(find_key(*grp, "nw-lp"), nullptr);
+    EXPECT_EQ(find_key(*grp, "nw-lp")->values.at(0), "2");
+    ASSERT_NE(find_key(*grp, "modelnet_dragonfly"), nullptr);
+    EXPECT_EQ(find_key(*grp, "modelnet_dragonfly")->values.at(0), "2");
+    ASSERT_NE(find_key(*grp, "modelnet_dragonfly_router"), nullptr);
+    EXPECT_EQ(find_key(*grp, "modelnet_dragonfly_router")->values.at(0), "1");
+
+    const compiled_section* params = find_section(c, "PARAMS");
+    ASSERT_NE(params, nullptr);
+    const compiled_key* order = find_key(*params, "modelnet_order");
+    ASSERT_NE(order, nullptr);
+    ASSERT_EQ(order->values.size(), 2u) << "terminal + router are distinct model-net methods";
+    EXPECT_EQ(order->values.at(0), "dragonfly");
+    EXPECT_EQ(order->values.at(1), "dragonfly_router");
+    // shape values pass straight through to PARAMS.
+    ASSERT_NE(find_key(*params, "num_routers"), nullptr);
+    EXPECT_EQ(find_key(*params, "num_routers")->values.at(0), "4");
+}
+
+TEST(ConfigCompiler, ParametricRejectsMissingShapeKey) {
+    // dragonfly-dally needs num_groups etc.; drop a required shape key.
+    EXPECT_THROW(compile(R"(
+schema_version: 1
+components:
+  compute_host: { model: nw-lp }
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly-dally
+    shape:
+      num_routers: 4
+      num_cns_per_router: 2
+  hosts:
+    component: compute_host
+)"),
+                 config_error);
+}
+
+TEST(ConfigCompiler, ParametricRejectsNonIntegerShapeValue) {
+    // num_routers: abc previously parsed as 0; it is now a diagnostic.
+    EXPECT_THROW(compile(R"(
+schema_version: 1
+components:
+  compute_host: { model: nw-lp }
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly
+    shape:
+      num_routers: abc
+  hosts:
+    component: compute_host
+)"),
+                 config_error);
+}
+
+TEST(ConfigCompiler, ParametricRejectsDegenerateDerivedLayout) {
+    // num_groups: 0 -> repetitions 0; the backstop rejects it before codes_mapping.
+    EXPECT_THROW(compile(R"(
+schema_version: 1
+components:
+  compute_host: { model: nw-lp }
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly-dally
+    shape:
+      num_routers: 4
+      num_groups: 0
+      num_cns_per_router: 2
+  hosts:
+    component: compute_host
+)"),
+                 config_error);
+}
+
+TEST(ConfigCompiler, ParametricRejectsEmptyComponentModel) {
+    EXPECT_THROW(compile(R"(
+schema_version: 1
+components:
+  compute_host: { model: "" }
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly
+    shape:
+      num_routers: 4
+  hosts:
+    component: compute_host
+)"),
+                 config_error);
+}
+
+TEST(ConfigCompiler, ParametricRejectsExtraHostsKey) {
+    EXPECT_THROW(compile(R"(
+schema_version: 1
+components:
+  compute_host: { model: nw-lp }
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly
+    shape:
+      num_routers: 4
+  hosts:
+    component: compute_host
+    bogus: 1
+)"),
+                 config_error);
+}
+
+TEST(ConfigCompiler, ComponentTypeKeyRejected) {
+    // `type:` is reserved for a future schema version, not silently dropped nor
+    // (worse) folded into PARAMS as a model param.
+    EXPECT_THROW(compile(R"(
+schema_version: 1
+components:
+  compute_host: { model: nw-lp, type: router }
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly
+    shape:
+      num_routers: 4
+  hosts:
+    component: compute_host
+)"),
+                 config_error);
+}
+
+TEST(ConfigCompiler, ParametricRejectsNetworkOnHostComponent) {
+    // network: is a flat-topology concept; the fabric defines the network itself.
+    EXPECT_THROW(compile(R"(
+schema_version: 1
+components:
+  compute_host: { model: nw-lp, network: simplenet }
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly
+    shape:
+      num_routers: 4
+  hosts:
+    component: compute_host
+)"),
+                 config_error);
+}
+
+TEST(ConfigCompiler, FattreeRejectsOddSwitchRadix) {
+    EXPECT_THROW(compile(R"(
+schema_version: 1
+components:
+  compute_host: { model: nw-lp }
+topology:
+  format: parametric
+  fabric:
+    model: fattree
+    shape:
+      num_levels: 3
+      switch_count: 32
+      switch_radix: 7
+  hosts:
+    component: compute_host
+)"),
+                 config_error);
+}
+
+TEST(ConfigCompiler, TorusRejectsMalformedDimLength) {
+    // A helper that swaps in a given dim_length value and compiles a torus.
+    auto with_dim_length = [](const char* dim) {
+        return std::string(R"(
+schema_version: 1
+components:
+  compute_host: { model: nw-lp }
+topology:
+  format: parametric
+  fabric:
+    model: torus
+    shape:
+      n_dims: 3
+      dim_length: ")") +
+               dim + R"("
+  hosts:
+    component: compute_host
+)";
+    };
+    EXPECT_THROW(compile(with_dim_length("4,,2")), config_error);  // empty segment
+    EXPECT_THROW(compile(with_dim_length("abc")), config_error);   // non-integer
+    EXPECT_THROW(compile(with_dim_length("4,2,")), config_error);  // trailing comma
+    EXPECT_THROW(compile(with_dim_length("4 2 2")), config_error); // space-separated
+}
+
+TEST(ConfigCompiler, TorusRejectsNdimsDimLengthMismatch) {
+    // n_dims 3 but only two dim_length entries.
+    EXPECT_THROW(compile(R"(
+schema_version: 1
+components:
+  compute_host: { model: nw-lp }
+topology:
+  format: parametric
+  fabric:
+    model: torus
+    shape:
+      n_dims: 3
+      dim_length: "4,2"
+  hosts:
+    component: compute_host
+)"),
+                 config_error);
+}
+
+TEST(ConfigCompiler, TorusHappyPathMatchingNdims) {
+    // n_dims 3 with three entries: node count = 4*2*2 = 16, no separate router LP.
+    compiled_config c = compile(R"(
+schema_version: 1
+components:
+  compute_host: { model: nw-lp }
+topology:
+  format: parametric
+  fabric:
+    model: torus
+    shape:
+      n_dims: 3
+      dim_length: "4,2,2"
+  hosts:
+    component: compute_host
+)");
+    const compiled_section* grp = find_subsection(*find_section(c, "LPGROUPS"), "MODELNET_GRP");
+    ASSERT_NE(grp, nullptr);
+    EXPECT_EQ(find_key(*grp, "repetitions")->values.at(0), "16");
+    // torus folds routing into the terminal node -> no router LP line.
+    EXPECT_EQ(find_key(*grp, "modelnet_torus_router"), nullptr);
 }
 
 // --- includes / multi-document merge ----------------------------------------
