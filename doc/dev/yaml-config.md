@@ -722,11 +722,15 @@ section across layouts. Merge rules:
   included one.
 - Multiple includes apply in list order; the local file is applied last.
 
-Includes are resolved when the config is loaded, *before* compilation, so the
-referenced files must be readable by every rank. An included file may not itself
-use `include:` (one level deep, for now). The pure compiler core does no file
-I/O — the loader reads the fragments and hands them in — so `include:` is a
-loader feature a model never sees.
+Includes are resolved when the config is loaded, *before* compilation. The
+loader reads each included file with the **same collective MPI read as the main
+config** — one collective read per file across the job, not one open per rank —
+so the referenced files must be reachable at the same path from every node, and
+a missing or unreadable include aborts the whole job with a diagnostic naming
+the resolved path. An included file may not itself use `include:` (one level
+deep, for now). The pure compiler core does no file I/O — the loader reads the
+fragments and hands their bytes in — so `include:` is a loader feature a model
+never sees.
 
 ---
 

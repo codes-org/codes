@@ -47,6 +47,12 @@ int configuration_load(const char* filepath, MPI_Comm comm, ConfigHandle* handle
     char* error = NULL;
     int rc = 0;
     char* tmp_path = NULL;
+    /* Top-level `include:` files: resolved paths, per-file byte buffers, and
+     * their lengths. All read collectively below and freed at finalize. */
+    char** inc_paths = NULL;
+    char** inc_data = NULL;
+    size_t* inc_lens = NULL;
+    size_t n_inc = 0;
 
     rc = MPI_File_open(comm, (char*)filepath, MPI_MODE_RDONLY, MPI_INFO_NULL, &fh);
     if (rc != MPI_SUCCESS)
@@ -65,10 +71,49 @@ int configuration_load(const char* filepath, MPI_Comm comm, ConfigHandle* handle
 
     if (config_is_yaml(filepath)) {
         /* the YAML front-end compiles the friendly format into the same
-         * ConfigVTable the text parser yields, reading the bytes already pulled
-         * in by the collective read above. filepath lets it resolve a top-level
-         * `include:` list relative to the config's directory. */
-        *handle = yaml_configfile_load(txtdata, txtsize, filepath);
+         * ConfigVTable the text parser yields, consuming the bytes already
+         * pulled in by the collective read above. A top-level `include:` list
+         * names extra config fragments; resolve those paths (relative to the
+         * config's directory) and read EACH with the same collective MPI pattern
+         * as the main file, so at scale we do one collective read per file
+         * rather than one POSIX open per rank per include. */
+        inc_paths = yaml_configfile_list_includes(txtdata, txtsize, filepath, &n_inc);
+        if (n_inc > 0) {
+            inc_data = (char**)calloc(n_inc, sizeof(*inc_data));
+            inc_lens = (size_t*)malloc(n_inc * sizeof(*inc_lens));
+            assert(inc_data && inc_lens);
+            for (size_t i = 0; i < n_inc; i++) {
+                MPI_File inc_fh = MPI_FILE_NULL;
+                MPI_Offset inc_size = 0;
+
+                /* A collective failure here (missing/unreadable include) is seen
+                 * by every rank -- the whole job holds identical config bytes --
+                 * so aborting via tw_error is safe and, unlike the main-file
+                 * open's bare rc, names the resolved path so it's debuggable. */
+                rc = MPI_File_open(comm, inc_paths[i], MPI_MODE_RDONLY, MPI_INFO_NULL, &inc_fh);
+                if (rc != MPI_SUCCESS)
+                    tw_error(TW_LOC, "config error: cannot open included file \"%s\"",
+                             inc_paths[i]);
+
+                rc = MPI_File_get_size(inc_fh, &inc_size);
+                if (rc != MPI_SUCCESS)
+                    tw_error(TW_LOC, "config error: cannot stat included file \"%s\"",
+                             inc_paths[i]);
+
+                inc_data[i] = (char*)malloc(inc_size ? (size_t)inc_size : 1);
+                assert(inc_data[i]);
+
+                rc = MPI_File_read_all(inc_fh, inc_data[i], inc_size, MPI_BYTE, &status);
+                if (rc != MPI_SUCCESS)
+                    tw_error(TW_LOC, "config error: cannot read included file \"%s\"",
+                             inc_paths[i]);
+
+                inc_lens[i] = (size_t)inc_size;
+                MPI_File_close(&inc_fh);
+            }
+        }
+        *handle =
+            yaml_configfile_load(txtdata, txtsize, (const char* const*)inc_data, inc_lens, n_inc);
     } else {
 #ifdef __APPLE__
         f = fopen(filepath, "r");
@@ -102,6 +147,13 @@ finalize:
         fclose(f);
     free(txtdata);
     free(tmp_path);
+    if (inc_data) {
+        for (size_t i = 0; i < n_inc; i++)
+            free(inc_data[i]);
+        free(inc_data);
+    }
+    free(inc_lens);
+    yaml_configfile_free_includes(inc_paths, n_inc);
     if (error) {
         fprintf(stderr, "config error: %s\n", error);
         free(error);

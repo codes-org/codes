@@ -13,9 +13,13 @@
  * is therefore unchanged from the .conf path, while "abort" stays a boundary
  * policy rather than being baked into every validation site in the core.
  *
- * Determinism: every rank reads identical bytes and runs the identical
- * deterministic compile, so malformed input throws on every rank and this
- * tw_error fires everywhere at once -- no new divergence versus the .conf path.
+ * Determinism: every rank runs the identical deterministic compile over
+ * identical bytes -- the top-level config and every included file are read
+ * collectively by the loader (configuration_load), so malformed input throws on
+ * every rank and this tw_error fires everywhere at once. The shim itself does no
+ * file I/O: it consumes the bytes it is handed. It only computes the *names* of
+ * the include files (yaml_configfile_list_includes), leaving the reads to the
+ * loader's collective path.
  */
 
 #include "yaml_configfile.h"
@@ -25,9 +29,9 @@
 
 #include <ross.h>
 
+#include <cstdlib>
+#include <cstring>
 #include <exception>
-#include <fstream>
-#include <sstream>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -48,34 +52,57 @@ std::string resolve_path(const std::string& base_dir, const std::string& rel) {
     return base_dir + "/" + rel;
 }
 
-/* Read a whole file into a string, throwing config_error if it can't be read. */
-std::string read_file(const std::string& path) {
-    std::ifstream in(path, std::ios::binary);
-    if (!in)
-        throw codes::config::config_error("config error: cannot read included file \"" + path +
-                                          "\"");
-    std::ostringstream ss;
-    ss << in.rdbuf();
-    return ss.str();
-}
-
-/* Resolve the main document's top-level `include:` list into the contents of the
- * referenced files (in listed order), read relative to the config's directory. */
-std::vector<std::string> read_includes(std::string_view main_doc, const char* path) {
-    std::vector<std::string> docs;
-    std::string base_dir = dir_of(path);
-    for (const std::string& rel : codes::config::parse_includes(main_doc))
-        docs.push_back(read_file(resolve_path(base_dir, rel)));
-    return docs;
+/* malloc a NUL-terminated copy of s, for handoff to a C caller that frees it. */
+char* dup_cstr(const std::string& s) {
+    char* out = static_cast<char*>(std::malloc(s.size() + 1));
+    if (!out)
+        throw std::bad_alloc();
+    std::memcpy(out, s.c_str(), s.size() + 1);
+    return out;
 }
 
 } // namespace
 
-struct ConfigVTable* yaml_configfile_load(const char* data, size_t len, const char* path) {
+char** yaml_configfile_list_includes(const char* data, size_t len, const char* path,
+                                     size_t* count) {
+    try {
+        std::vector<std::string> rels = codes::config::parse_includes(std::string_view(data, len));
+        *count = rels.size();
+        if (rels.empty())
+            return nullptr;
+        std::string base_dir = dir_of(path);
+        char** paths = static_cast<char**>(std::malloc(rels.size() * sizeof(char*)));
+        if (!paths)
+            throw std::bad_alloc();
+        for (size_t i = 0; i < rels.size(); i++)
+            paths[i] = dup_cstr(resolve_path(base_dir, rels[i]));
+        return paths;
+    } catch (const codes::config::config_error& e) {
+        tw_error(TW_LOC, "%s", e.what());
+        return nullptr; /* unreachable: tw_error aborts */
+    } catch (const std::exception& e) {
+        tw_error(TW_LOC, "config error (internal): %s", e.what());
+        return nullptr; /* unreachable: tw_error aborts */
+    }
+}
+
+void yaml_configfile_free_includes(char** paths, size_t count) {
+    if (!paths)
+        return;
+    for (size_t i = 0; i < count; i++)
+        std::free(paths[i]);
+    std::free(paths);
+}
+
+struct ConfigVTable* yaml_configfile_load(const char* data, size_t len, const char* const* inc_data,
+                                          const size_t* inc_lens, size_t n_inc) {
     try {
         std::string_view main_doc(data, len);
-        std::vector<std::string> includes = read_includes(main_doc, path);
-        codes::config::compiled_config cfg = codes::config::compile(main_doc, includes);
+        std::vector<std::string> base_docs;
+        base_docs.reserve(n_inc);
+        for (size_t i = 0; i < n_inc; i++)
+            base_docs.emplace_back(inc_data[i], inc_lens[i]);
+        codes::config::compiled_config cfg = codes::config::compile(main_doc, base_docs);
         return codes::config::emit(cfg);
     } catch (const codes::config::config_error& e) {
         tw_error(TW_LOC, "%s", e.what());
