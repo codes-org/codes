@@ -82,7 +82,11 @@ find_package(ROSS CONFIG REQUIRED)
 # imported target ROSS::ROSS. This CODES tree links against ROSS::ROSS, so
 # synthesize that target from the installed ROSS prefix when needed.
 if(NOT TARGET ROSS::ROSS)
-    message(WARNING "ROSS package did not define ROSS::ROSS; creating compatibility imported target.")
+    message(DEPRECATION
+        "The installed ROSS package does not define ROSS::ROSS; CODES is creating "
+        "a compatibility imported target. This compatibility path is deprecated "
+        "and will be removed in a future release. Please update ROSS and point "
+        "CMAKE_PREFIX_PATH or ROSS_ROOT at a modern ROSS install.")
 
     if(DEFINED ROSS_DIR)
         get_filename_component(_ROSS_CONFIG_DIR "${ROSS_DIR}" ABSOLUTE)

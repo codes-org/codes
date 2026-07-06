@@ -131,7 +131,7 @@ static void director_record_zmq_latency_stats(const char* label,
     director_record_zmq_latency_values(zmq_processing_time, local_latency_sec);
 }
 
-extern "C" void director_record_external_zmq_latency(double processing_sec, double total_sec) {
+void director_record_external_zmq_latency(double processing_sec, double total_sec) {
     director_record_zmq_latency_values(processing_sec, total_sec);
 }
 

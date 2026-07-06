@@ -23,8 +23,11 @@
 #include "codes/model-net-method.h"
 #include "codes/model-net-lp.h"
 #include "codes/surrogate/init.h"
-#if CODES_HAVE_TORCH
+#if CODES_HAVE_ZEROMQ
 #include "codes/surrogate/director-client.h"
+#include "zmqmlrequester.h"
+#endif
+#if CODES_HAVE_TORCH
 #include "codes/surrogate/packet-latency-predictor/torch-jit.h"
 #endif
 #include "codes/net/dragonfly-dally.h"
@@ -49,33 +52,11 @@
 /*
  * Optional ZeroMQ Director requester.
  *
- * These symbols are defined only when CODES is built with CODES_HAVE_ZEROMQ=ON
- * (src/surrogate/director-client.cxx + the zmqml requester lib). CODES_HAVE_ZEROMQ
- * is all-or-nothing for a given build: src/CMakeLists.txt links the zmqmlrequester
- * target into *every* CODES executable when ON and into none when OFF. So whether the
- * requester is available is a compile-time fact, not a runtime one — the
- * original __attribute__((weak)) + runtime `if (!zmqml_director_request)`
- * checks could only ever take their "available" branch under ON and their
- * "null" branch under OFF.
- *
- * The declarations and every reference are therefore #if CODES_HAVE_ZEROMQ-guarded:
- * the ON build calls the requester directly, the OFF build compiles in only
- * the original-PDES fallback and emits no reference to the symbol. (Without
- * the guard the OFF build fails to link on macOS/Mach-O, where ld64 rejects an
- * undefined weak symbol with no providing library; Linux/ELF happens to
- * resolve it to null.)
+ * The ZeroMQ path is a compile-time feature controlled by CODES_HAVE_ZEROMQ:
+ * when enabled, CODES links the zmqml requester and calls it directly; when
+ * disabled, this file compiles only the original-PDES fallback paths and emits
+ * no ZeroMQ requester references.
  */
-
-#if CODES_HAVE_ZEROMQ
-extern "C" void director_record_external_zmq_latency(double processing_sec, double total_sec)
-    __attribute__((weak));
-extern std::vector<std::string> zmqml_director_request(const std::string& surrogate_family,
-                                                       const std::string& surrogate_backend,
-                                                       const std::string& operation,
-                                                       const std::vector<std::string>& args,
-                                                       const std::string& bindata);
-#endif
-
 
 #ifdef ENABLE_CORTEX
 #include <cortex/cortex.h>
@@ -309,9 +290,7 @@ static std::vector<std::string> dfdally_event_time_director_request_with_latency
         }
     }
 
-    if (director_record_external_zmq_latency) {
-        director_record_external_zmq_latency(zmq_processing_time, local_latency_sec);
-    }
+    director_record_external_zmq_latency(zmq_processing_time, local_latency_sec);
 #endif
 
     return ret;

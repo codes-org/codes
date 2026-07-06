@@ -55,11 +55,6 @@ jobs:
             -e ZMQML_EVENT_TIME_RECORD_LOG_PATH=/work/zmqml-artifacts/event-time-records.csv \
             "$ZMQML_IMAGE" \
             bash -euxo pipefail -c '
-              apt-get update
-              apt-get install -y python3-zmq python3-numpy python3-sklearn python3-pandas python3-pip gettext-base
-
-              python3 -c "import importlib.util, subprocess, sys; sys.exit(0) if importlib.util.find_spec(\"torch\") else subprocess.check_call([sys.executable, \"-m\", \"pip\", \"install\", \"--break-system-packages\", \"torch\", \"--index-url\", \"https://download.pytorch.org/whl/cpu\"])"
-
               exec python3 -u zmqmlserver.py
             '
 
@@ -78,10 +73,6 @@ jobs:
             -w /work \
             "$ZMQML_IMAGE" \
             bash -euxo pipefail -c '
-              apt-get update
-              apt-get install -y python3-zmq python3-numpy python3-sklearn python3-pandas python3-pip gettext-base
-              python3 -c "import importlib.util, subprocess, sys; sys.exit(0) if importlib.util.find_spec(\"torch\") else subprocess.check_call([sys.executable, \"-m\", \"pip\", \"install\", \"--break-system-packages\", \"torch\", \"--index-url\", \"https://download.pytorch.org/whl/cpu\"])"
-
               cmake -S ross -B ross/build -G Ninja \
                 -DCMAKE_BUILD_TYPE=Debug \
                 -DROSS_BUILD_MODELS=ON \
@@ -120,10 +111,6 @@ jobs:
             -e ZMQML_CTL_TIMEOUT=30 \
             "$ZMQML_IMAGE" \
             bash -euxo pipefail -c '
-              apt-get update
-              apt-get install -y python3-zmq python3-numpy python3-sklearn python3-pandas python3-pip gettext-base
-              python3 -c "import importlib.util, subprocess, sys; sys.exit(0) if importlib.util.find_spec(\"torch\") else subprocess.check_call([sys.executable, \"-m\", \"pip\", \"install\", \"--break-system-packages\", \"torch\", \"--index-url\", \"https://download.pytorch.org/whl/cpu\"])"
-
               ctest --test-dir build -N \
                 -R "zmqml-(iteration-time|event-time)-hybrid-workflow.sh" \
                 | tee /tmp/zmqml-ctest-list.txt
