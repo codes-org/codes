@@ -228,7 +228,11 @@ jobs:
 
       - name: Configure CODES with old ROSS
         working-directory: codes
-        run: cmake --preset debug -DCODES_USE_TORCH=OFF -DCODES_USE_ZEROMQ=OFF
+        run: >
+          cmake --preset debug
+          -DROSS_DIR="$ROSS_ROOT/lib"
+          -DCODES_USE_TORCH=OFF
+          -DCODES_USE_ZEROMQ=OFF
 
       - name: Build CODES with old ROSS
         working-directory: codes
