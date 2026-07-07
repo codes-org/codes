@@ -46,8 +46,8 @@ struct config_error : std::runtime_error {
 /** One key and its value(s): a scalar carries one value, a list-valued key
  *  (e.g. `modelnet_order`) several, emitted as `("a","b",...)`. */
 struct compiled_key {
-    std::string name;
-    std::vector<std::string> values;
+    std::string name;                ///< the key name, as it is emitted
+    std::vector<std::string> values; ///< one value for a scalar; several for a list-valued key
 };
 
 /** One configuration section: named keys plus nested subsections. LPGROUPS
@@ -55,9 +55,9 @@ struct compiled_key {
  *  preserved throughout, so a compiled config is byte-comparable to the `.conf`
  *  it replaces. */
 struct compiled_section {
-    std::string name;
-    std::vector<compiled_key> keys;
-    std::vector<compiled_section> subsections;
+    std::string name;                          ///< section name (e.g. LPGROUPS, PARAMS)
+    std::vector<compiled_key> keys;            ///< this section's keys, in insertion order
+    std::vector<compiled_section> subsections; ///< nested subsections, in insertion order
 
     /** Append a scalar key. */
     void add_key(std::string key, std::string value);
@@ -69,7 +69,7 @@ struct compiled_section {
 
 /** The whole compiled config: the top-level (ROOT) sections, in order. */
 struct compiled_config {
-    std::vector<compiled_section> sections;
+    std::vector<compiled_section> sections; ///< top-level (ROOT) sections, in order
 
     /** Append and return a top-level section. */
     compiled_section& add_section(std::string name);
