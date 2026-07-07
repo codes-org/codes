@@ -1,0 +1,24 @@
+topology:
+  switches:
+    A:
+      terminals: 2
+      terminal_bandwidth: "10 Mbps"
+      switch_buffer: "1000 Mb"
+      connections:
+        B: "20 Mbps"
+
+    B:
+      terminals: 2
+      terminal_bandwidth: "5 Mbps"
+      switch_buffer: "1000 Mb"
+      connections:
+        A: "15 Mbps"
+        C: "25 Mbps"
+
+    C:
+      terminals: 2
+      terminal_bandwidth: "15 Mbps"
+      switch_buffer: "1000 Mb"
+      connections:
+        A: "20 Mbps"
+        B: "15 Mbps"

@@ -206,6 +206,7 @@ add_executable(model-net-synthetic network-workloads/model-net-synthetic.c)
 add_executable(model-net-synthetic-slimfly network-workloads/model-net-synthetic-slimfly.c)
 add_executable(model-net-synthetic-fattree network-workloads/model-net-synthetic-fattree.c)
 add_executable(model-net-synthetic-dragonfly-all network-workloads/model-net-synthetic-dragonfly-all.c)
+add_executable(model-net-fluid-switch network-workloads/model-net-fluid-switch.cxx)
 
 set(CODES_TARGETS
     topology-test
@@ -214,6 +215,7 @@ set(CODES_TARGETS
     model-net-synthetic-slimfly
     model-net-synthetic-fattree
     model-net-synthetic-dragonfly-all
+    model-net-fluid-switch
 )
 
 if(USE_DUMPI)

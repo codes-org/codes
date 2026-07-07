@@ -14,6 +14,7 @@ configure_file(tutorial-ping-pong-surrogate.conf.in tutorial-ping-pong-surrogate
 configure_file(kb.dfdally-72-zeromq-director.conf.in kb.dfdally-72-zeromq-director.template.conf.in @ONLY)
 configure_file(kb.dfdally-72-event-time-director.conf.in kb.dfdally-72-event-time-director.template.conf.in @ONLY)
 configure_file(kb.dfdally-72-milc-small.workload.conf.in kb.dfdally-72-milc-small.workload.template.conf.in @ONLY)
+configure_file(fluid-switch.conf.in fluid-switch.template.conf.in @ONLY)
 configure_file(kb.dfdally-72-zeromq-director.conf.in kb.dfdally-72-zeromq-director.template.conf.in @ONLY)
 
 set(single_quote "'")
@@ -42,6 +43,8 @@ configure_file(tutorial-ping-pong-surrogate.conf.in tutorial-ping-pong-surrogate
 configure_file(kb.dfdally-72-zeromq-director.conf.in kb.dfdally-72-zeromq-director.conf)
 configure_file(kb.dfdally-72-event-time-director.conf.in kb.dfdally-72-event-time-director.conf)
 configure_file(kb.dfdally-72-milc-small.workload.conf.in kb.dfdally-72-milc-small.workload.conf)
+configure_file(fluid-switch.conf.in fluid-switch.conf)
 configure_file(kb.dfdally-72-milc-small.json kb.dfdally-72-milc-small.json COPYONLY)
 configure_file(kb.dfdally-72-milc-small.alloc.conf kb.dfdally-72-milc-small.alloc.conf COPYONLY)
+configure_file(fluid-switch-topology.yaml fluid-switch-topology.yaml COPYONLY)
 configure_file(kb.dfdally-72-zeromq-director.conf.in kb.dfdally-72-zeromq-director.conf)
