@@ -1,0 +1,33 @@
+schema_version: 1
+
+# YAML twin of modelnet-mpi-test-dfly-mul-cores.conf: a regular dragonfly (8
+# routers per group), but with 16 workload LPs per terminal (multiple cores per
+# NIC) -- nw-lp (16) differs from the terminal count modelnet_dragonfly (4), so
+# the layout is not the single-workload-per-terminal shape the parametric fabric
+# derives. It is laid out directly with the explicit-groups form; PARAMS are
+# carried through verbatim.
+
+topology:
+  format: groups
+  params:
+    packet_size: 512
+    modelnet_order: [dragonfly, dragonfly_router]
+    modelnet_scheduler: fcfs
+    chunk_size: 256
+    num_routers: 8
+    local_vc_size: 16384
+    global_vc_size: 32768
+    cn_vc_size: 16384
+    local_bandwidth: 5.25
+    global_bandwidth: 4.7
+    cn_bandwidth: 5.25
+    message_size: 592
+    routing: adaptive
+    self_msg_overhead: 20
+  groups:
+    MODELNET_GRP:
+      repetitions: 264
+      lps:
+        nw-lp: 16
+        modelnet_dragonfly: 4
+        modelnet_dragonfly_router: 1

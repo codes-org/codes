@@ -1,0 +1,27 @@
+schema_version: 1
+
+# YAML twin of modelnet-test-dragonfly.conf: a regular dragonfly with 4 routers
+# per group (num_cn = 2, num_groups = 9, repetitions = 36), nonminimal routing.
+
+components:
+  compute_host:
+    model: nw-lp
+
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly
+    shape:
+      num_routers: 4
+    links:
+      local:  { bandwidth: 5.25, vc_size: 2048 }
+      global: { bandwidth: 4.7,  vc_size: 8192 }
+      cn:     { bandwidth: 5.25, vc_size: 1024 }
+    routing:
+      algorithm: nonminimal
+    packet_size: 512
+    chunk_size: 256
+    modelnet_scheduler: fcfs
+    message_size: 464
+  hosts:
+    component: compute_host

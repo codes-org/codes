@@ -1,0 +1,26 @@
+schema_version: 1
+
+# YAML twin of mapping_test.conf: a codes_mapping test with two groups of custom
+# LP types, several carrying annotations (a@foo, c@bar, b@foo). Not a network, so
+# it uses the explicit-groups form; group order and the per-group LP entries are
+# transcribed directly.
+
+topology:
+  format: groups
+  params:
+    message_size: 256
+  groups:
+    GRP1:
+      repetitions: 2
+      lps:
+        a: 1
+        b: 2
+        a@foo: 1
+        c: 1
+    GRP2:
+      repetitions: 3
+      lps:
+        c@bar: 1
+        b@foo: 1
+        c: 2
+        a@foo: 1

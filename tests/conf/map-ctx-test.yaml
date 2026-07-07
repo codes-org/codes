@@ -1,0 +1,33 @@
+schema_version: 1
+
+# YAML twin of map-ctx-test.conf: a codes_mapping context test with four groups
+# of custom LP types (foo/bar) -- no network to derive, so it uses the explicit-
+# groups form. An LP type may appear under an annotation (bar@baz) as a distinct
+# entry. The .conf has no PARAMS section; the groups form always emits one, so
+# the twin carries a benign empty PARAMS (functionally identical -- the model
+# reads no PARAMS keys here).
+
+topology:
+  format: groups
+  groups:
+    FOO:
+      repetitions: 5
+      lps:
+        foo: 1
+        bar: 1
+    BAR:
+      repetitions: 5
+      lps:
+        foo: 3
+        bar: 2
+        bar@baz: 2
+    BAZ:
+      repetitions: 5
+      lps:
+        foo: 4
+        bar: 2
+    BAT:
+      repetitions: 5
+      lps:
+        foo: 5
+        bar: 3

@@ -1,0 +1,22 @@
+schema_version: 1
+
+# YAML twin of concurrent_msg_recv.conf: a single TRITON_GRP with a test-server
+# workload LP co-located with a simplenet NIC. The group name and custom LP type
+# (testsvr) are not the MODELNET_GRP/nw-lp a flat topology would emit, so the
+# layout is written directly with the explicit-groups form; PARAMS carried
+# through verbatim.
+
+topology:
+  format: groups
+  params:
+    packet_size: 2097152
+    message_size: 560
+    modelnet_order: [simplenet]
+    net_startup_ns: 6.782182
+    net_bw_mbps: 1930.00
+  groups:
+    TRITON_GRP:
+      repetitions: 3
+      lps:
+        testsvr: 1
+        modelnet_simplenet: 1
