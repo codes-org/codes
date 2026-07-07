@@ -1,0 +1,60 @@
+# ZeroMQ flow-control surrogate example for a two-terminal simplep2p workload.
+#
+# ML predicts raw egress packets by directed flow. CODES applies source queue
+# capacity, per-flow grant capacity, drops, feedback, and then injects granted
+# traffic into modelnet_simplep2p.
+
+LPGROUPS
+{
+    MODELNET_GRP
+    {
+        repetitions="2";
+        nw-lp="1";
+        modelnet_simplep2p="1";
+    }
+}
+
+PARAMS
+{
+    message_size="464";
+    packet_size="${PACKET_SIZE}";
+    modelnet_order=("simplep2p");
+    modelnet_scheduler="fcfs";
+
+    # simplep2p reads these with configuration_get_value_relpath(), so keep
+    # them relative to this generated config file in build/doc/example/.
+    net_latency_ns_file="flow-control-simplep2p-latency.conf";
+    net_bw_mbps_file="flow-control-simplep2p-bw.conf";
+}
+
+FLOW_CONTROL
+{
+    # CMake fills only the run mode and log path for generated concrete configs.
+    inferencing_enabled="${FLOW_CONTROL_INFERENCING_ENABLED}";
+    training_enabled="${FLOW_CONTROL_TRAINING_ENABLED}";
+    flow_log_path="${FLOW_CONTROL_LOG_PATH}";
+
+    debug_prints="1";
+
+    interval_seconds="10";
+    num_intervals="50";
+    packet_size_bytes="${PACKET_SIZE}";
+
+    # These source-side grant capacities should match the simplep2p bandwidth
+    # matrix for this first prototype.
+    bandwidth_0_to_1_mbps="200";
+    bandwidth_1_to_0_mbps="100";
+
+    queue_capacity_0_to_1_packets="500";
+    queue_capacity_1_to_0_packets="500";
+
+    # Pure-PDES synthetic demand generator defaults.
+    base_0_to_1_packets="50";
+    base_1_to_0_packets="25";
+    burst_0_to_1_packets="30";
+    burst_1_to_0_packets="15";
+    burst_period="5";
+    ingress_gain="0.10";
+
+    mark_threshold_ratio="0.8";
+}
