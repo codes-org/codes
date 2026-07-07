@@ -243,11 +243,20 @@ endfunction()
 #       CONFIG_A <path>                  # e.g. legacy .conf
 #       CONFIG_B <path>                  # e.g. new .yaml
 #       [MARKER <line>] [ARGS <args>...]
-#       [CONFIG_FLAG <prefix>])          # e.g. "--conf=" for binaries that take
+#       [CONFIG_FLAG <prefix>]           # e.g. "--conf=" for binaries that take
 #                                        #   the config as a ROSS option instead
 #                                        #   of the trailing `-- <config>` positional
+#       [SETUP   <script under tests/>]   # sourced in each run dir (env + conf gen)
+#       [REQUIRE <line that must appear in every run's output>])  # presence only
+#
+# With SETUP (mirroring codes_add_equivalence_test), CONFIG_A/CONFIG_B name the
+# files the setup script generates in each run dir (referenced by bare name), not
+# pre-existing paths -- so one setup script generating both the .conf and its .yaml
+# twin lets this compare a config format whose file is produced per run (e.g. the
+# surrogate config, assembled from a template by envsubst at run time). REQUIRE
+# asserts a line is present in every run (e.g. that the surrogate actually switched).
 function(codes_add_config_equivalence_test)
-    cmake_parse_arguments(T "" "NAME;BINARY;NP;CONFIG_A;CONFIG_B;MARKER;CONFIG_FLAG" "ARGS" ${ARGN})
+    cmake_parse_arguments(T "" "NAME;BINARY;NP;CONFIG_A;CONFIG_B;MARKER;CONFIG_FLAG;SETUP;REQUIRE" "ARGS" ${ARGN})
     if(NOT T_NAME OR NOT T_BINARY OR NOT T_CONFIG_A OR NOT T_CONFIG_B)
         message(FATAL_ERROR "codes_add_config_equivalence_test: NAME, BINARY, CONFIG_A and CONFIG_B are required")
     endif()
@@ -268,10 +277,21 @@ function(codes_add_config_equivalence_test)
         set(_run_a ${_launch} "${_bin}" ${T_ARGS} ${MPIEXEC_POSTFLAGS} -- "${T_CONFIG_A}")
         set(_run_b ${_launch} "${_bin}" ${T_ARGS} ${MPIEXEC_POSTFLAGS} -- "${T_CONFIG_B}")
     endif()
+    # SETUP is sourced inside each run dir before that run (env + config gen);
+    # REQUIRE asserts a line's presence in every run. Both are handed to the same
+    # equivalence-run.sh options codes_add_equivalence_test uses.
+    set(_setup "")
+    if(T_SETUP)
+        set(_setup --setup "${CMAKE_CURRENT_SOURCE_DIR}/${T_SETUP}")
+    endif()
+    set(_require "")
+    if(T_REQUIRE)
+        set(_require --require "${T_REQUIRE}")
+    endif()
     add_test(NAME ${T_NAME}
         COMMAND "${CMAKE_CURRENT_BINARY_DIR}/run-test.sh"
                 bash "${CMAKE_CURRENT_SOURCE_DIR}/equivalence-run.sh"
-                --marker "${T_MARKER}"
+                --marker "${T_MARKER}" ${_require} ${_setup}
                 @@ ${_run_a}
                 @@ ${_run_b}
         WORKING_DIRECTORY "${CODES_BINARY_DIR}")
@@ -411,6 +431,35 @@ codes_add_equivalence_test(
     CONFIG  tutorial-ping-pong-surrogate.conf
     SETUP   surrogate-determinism-freeze-setup.sh
     REQUIRE "Network switch completed")
+
+# Config-equivalence for the tutorial ping-pong: the legacy .conf against its YAML
+# twin. tutorial-synthetic-ping-pong writes its per-LP results to stdout and emits
+# no lp-io, so this compares the "Net Events Processed" marker (codes_add_config_
+# equivalence_test) rather than diffing lp-io. Args mirror example-ping-pong-
+# determinism; both configs are the build-dir files configure_file wrote from the
+# .conf.in / .yaml.in templates.
+codes_add_config_equivalence_test(
+    NAME     example-ping-pong-config-equivalence
+    BINARY   tutorial-synthetic-ping-pong
+    NP       3
+    ARGS     --sync=3 --num_messages=10 --payload_sz=8192
+    CONFIG_A "${CMAKE_BINARY_DIR}/doc/example/tutorial-ping-pong.conf"
+    CONFIG_B "${CMAKE_BINARY_DIR}/doc/example/tutorial-ping-pong.yaml")
+
+# Same, for the surrogate config. Its config is assembled per run from a template
+# by envsubst (the trace/switch env varies), so codes_add_config_equivalence_test's
+# SETUP generates both the .conf and .yaml twin in each run dir and CONFIG_A/B name
+# them by their bare generated names. REQUIRE asserts the surrogate actually
+# switched, so the two formats are compared on a run that exercised the director.
+codes_add_config_equivalence_test(
+    NAME     example-ping-pong-surrogate-config-equivalence
+    BINARY   tutorial-synthetic-ping-pong
+    NP       3
+    ARGS     --sync=3 --num_messages=100 --payload_sz=8192
+    CONFIG_A tutorial-ping-pong-surrogate.conf
+    CONFIG_B tutorial-ping-pong-surrogate.yaml
+    SETUP    surrogate-config-equivalence-setup.sh
+    REQUIRE  "Network switch completed")
 
 # Smoke test: the sim runs cleanly with an empty packet-latency trace path.
 # Single run (SETUP generates the config; MARKER asserts it produced output).

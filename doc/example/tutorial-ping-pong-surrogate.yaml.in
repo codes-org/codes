@@ -1,0 +1,99 @@
+# Run this example with:
+# > cd path-to-codes/build
+# > mpirun -np 3 doc/example/tutorial-synthetic-ping-pong --synch=3 --num_messages=10000 --lp-io-dir=codes-output -- doc/example/tutorial-ping-pong-surrogate.yaml
+schema_version: 1
+
+# YAML twin of tutorial-ping-pong-surrogate.conf: the same 72-terminal dragonfly-
+# dally fabric as tutorial-ping-pong.yaml, plus the NETWORK_SURROGATE section that
+# drives the surrogate/high-fidelity director. dragonfly-dally is file-enumerated,
+# so the shape counts must match the binary connection files (referenced by
+# absolute path; @CMAKE_SOURCE_DIR@ is substituted by CMake). The configure-time
+# placeholders are filled in by CMake for the build-dir .yaml, or by envsubst for
+# the .template.yaml.in -- exactly as in the .conf.
+
+components:
+  compute_host:
+# name of this lp changes according to the model
+    model: nw-lp
+
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly-dally
+    shape:
+# number of routers in group
+      num_routers: 4
+# number of groups in the network
+      num_groups: 9
+# number of compute nodes connected to router, dictated by dragonfly config file
+      num_cns_per_router: 2
+# number of global channels per router
+      num_global_channels: 2
+    links:
+# bandwidth in GiB/s and virtual-channel buffer size in bytes, per link class:
+# local + global channels, and the compute node-router channel
+      local:  { bandwidth: 2.0, vc_size: 16384 }
+      global: { bandwidth: 2.0, vc_size: 16384 }
+      cn:     { bandwidth: 2.0, vc_size: 32768 }
+    routing:
+# routing protocol to be used
+      algorithm: prog-adaptive
+    connections:
+# network config files for intra-group and inter-group connections
+      intra: "@CMAKE_SOURCE_DIR@/src/network-workloads/conf/dragonfly-dally/dfdally-72-intra"
+      inter: "@CMAKE_SOURCE_DIR@/src/network-workloads/conf/dragonfly-dally/dfdally-72-inter"
+# packet size in the network
+    packet_size: ${PACKET_SIZE}
+# chunk size in the network (when chunk size = packet size, packets will not be
+# divided into chunks)
+    chunk_size: ${CHUNK_SIZE}
+# scheduler options (alternative: round-robin)
+    modelnet_scheduler: fcfs
+# ROSS message size
+    message_size: 440
+# folder path to store packet latency from terminal to terminal, if no value is given it won't save anything
+    save_packet_latency_path: "${PACKET_LATENCY_TRACE_PATH}"
+# folder path to store router-local timing rows for router queueing-delay training
+    save_router_timing_trace_path: "${ROUTER_TIMING_TRACE_PATH}"
+    save_router_timing_trace_stride: "${ROUTER_TIMING_TRACE_STRIDE}"
+# router buffer occupancy snapshots
+    router_buffer_snapshots: [ ${BUFFER_SNAPSHOTS} ]
+  hosts:
+    component: compute_host
+
+sections:
+# read verbatim by the surrogate/director stack (section names are case-insensitive,
+# so network_surrogate here is the NETWORK_SURROGATE the model reads).
+  network_surrogate:
+    enable: 1                                # Options: 0 or 1
+
+# determines the director switching from surrogate to high-def simulation strategy
+    director_mode: at-fixed-virtual-times
+
+# director configuration for: director_mode == "at-fixed-virtual-times"
+# timestamps at which to switch to surrogate-mode and back
+    #fixed_switch_timestamps: [ "100e4", "8900e4" ]   # first switch at ~100 ping messages, second at ~9900 pings
+    #fixed_switch_timestamps: [ "1000e4", "8900e4" ]  # first switch at ~1000 ping messages, second at ~9900 pings
+    fixed_switch_timestamps: [ ${SWITCH_TIMESTAMPS} ]
+
+# latency predictor to use. Options: average, torch-jit
+    packet_latency_predictor: "${PREDICTOR_TYPE}"
+# some workload models need some time to stabilize, a point where the network behaviour stabilizes. The predictor will ignore all packet latencies that arrive during this period
+    ignore_until: "${IGNORE_UNTIL}"
+
+# parameters for torch-jit latency predictor
+# accepted modes:
+#   single-static-model-for-all-terminals: uses torch_jit_model_path, input [1,4], output [1,2]
+#   lp-aware-single-static-model: uses torch_jit_model_path, input [1,12], output [1,2]
+#   lp-aware-lp-type-models: uses the terminal/router/default paths below
+    torch_jit_mode: "${TORCH_JIT_MODE}"
+    torch_jit_model_path: "${TORCH_JIT_MODEL_PATH}"
+    torch_jit_terminal_model_path: "${TORCH_JIT_TERMINAL_MODEL_PATH}"
+    torch_jit_router_timing_model_path: "${TORCH_JIT_ROUTER_TIMING_MODEL_PATH}"
+    torch_jit_default_model_path: "${TORCH_JIT_DEFAULT_MODEL_PATH}"
+
+# temporary surrogate debug prints. Options: 0 or 1
+    debug_prints: "${SURROGATE_DEBUG_PRINTS}"
+
+# selecting network treatment on switching to surrogate. Options: freeze, nothing
+    network_treatment_on_switch: "${NETWORK_TREATMENT}"
