@@ -196,9 +196,11 @@ endfunction()
 #       CONFIG_B <path>                  # e.g. new .yaml (or a second .conf)
 #       [NP      <ranks>]                # default 1
 #       [ARGS    <args shared by both runs, placed before the config>]
-#   )
+#       [CONFIG_FLAG <prefix>])          # e.g. "--conf=" for binaries that take
+#                                        #   the config as a ROSS option instead
+#                                        #   of the trailing `-- <config>` positional
 function(codes_add_lpio_equivalence_test)
-    cmake_parse_arguments(T "" "NAME;BINARY;NP;CONFIG_A;CONFIG_B" "ARGS" ${ARGN})
+    cmake_parse_arguments(T "" "NAME;BINARY;NP;CONFIG_A;CONFIG_B;CONFIG_FLAG" "ARGS" ${ARGN})
     if(NOT T_NAME OR NOT T_BINARY OR NOT T_CONFIG_A OR NOT T_CONFIG_B)
         message(FATAL_ERROR "codes_add_lpio_equivalence_test: NAME, BINARY, CONFIG_A and CONFIG_B are required")
     endif()
@@ -210,19 +212,31 @@ function(codes_add_lpio_equivalence_test)
     # Each run writes lp-io into a fresh "lp-io" dir inside its own run-N subdir
     # (lp_io_prepare mkdir's it and aborts if it already exists, so it must be
     # relative + per-run-isolated, which the runner's subdirs provide).
+    if(T_CONFIG_FLAG)
+        # config is a ROSS option (e.g. --conf=<path>): glue it to the prefix and
+        # pass it among the ROSS args, with no trailing `-- <config>` positional.
+        set(_run_a ${_launch} "${_bin}" ${T_ARGS} --lp-io-dir=lp-io "${T_CONFIG_FLAG}${T_CONFIG_A}" ${MPIEXEC_POSTFLAGS})
+        set(_run_b ${_launch} "${_bin}" ${T_ARGS} --lp-io-dir=lp-io "${T_CONFIG_FLAG}${T_CONFIG_B}" ${MPIEXEC_POSTFLAGS})
+    else()
+        set(_run_a ${_launch} "${_bin}" ${T_ARGS} --lp-io-dir=lp-io ${MPIEXEC_POSTFLAGS} -- "${T_CONFIG_A}")
+        set(_run_b ${_launch} "${_bin}" ${T_ARGS} --lp-io-dir=lp-io ${MPIEXEC_POSTFLAGS} -- "${T_CONFIG_B}")
+    endif()
     add_test(NAME ${T_NAME}
         COMMAND "${CMAKE_CURRENT_BINARY_DIR}/run-test.sh"
                 bash "${CMAKE_CURRENT_SOURCE_DIR}/equivalence-run.sh"
                 --marker "Net Events Processed" --lp-io lp-io
-                @@ ${_launch} "${_bin}" ${T_ARGS} --lp-io-dir=lp-io ${MPIEXEC_POSTFLAGS} -- "${T_CONFIG_A}"
-                @@ ${_launch} "${_bin}" ${T_ARGS} --lp-io-dir=lp-io ${MPIEXEC_POSTFLAGS} -- "${T_CONFIG_B}"
+                @@ ${_run_a}
+                @@ ${_run_b}
         WORKING_DIRECTORY "${CODES_BINARY_DIR}")
 endfunction()
 
 # codes_add_config_equivalence_test — assert two configs drive a model to the
-# same committed work, comparing a marker line rather than lp-io. For models
-# whose test binary writes lp-io to a fixed (non-per-run) path, so two lp-io dirs
-# can't coexist: the old .conf vs new .yaml check for those.
+# same committed work, comparing a marker line rather than lp-io. The fallback
+# for the cases where a per-LP lp-io diff can't be used: the binary emits no
+# lp-io at all (e.g. resource-test / buffer_test), or its lp-io is not
+# reproducible run to run (e.g. fattree's switch stats). The old .conf vs new
+# .yaml check for those. Everything whose lp-io *is* per-run reproducible should
+# use codes_add_lpio_equivalence_test instead -- a strictly stronger check.
 #
 #   codes_add_config_equivalence_test(
 #       NAME <name> BINARY <target> [NP <n>]
@@ -461,22 +475,22 @@ codes_add_lpio_equivalence_test(
     CONFIG_A "${_nwconf}/modelnet-synthetic-dragonfly.conf"
     CONFIG_B "${_nwconf}/modelnet-synthetic-dragonfly.yaml")
 
-# Flat networks (component + node count). These test binaries write lp-io to a
-# fixed path, so compare committed-event counts between the .conf and its YAML
-# twin rather than lp-io dirs.
-codes_add_config_equivalence_test(
+# Flat networks (component + node count). The modelnet test binaries now honor
+# --lp-io-dir, so each run writes lp-io to its own per-run dir: diff the per-LP
+# lp-io output of the .conf against its YAML twin directly.
+codes_add_lpio_equivalence_test(
     NAME     simplep2p-config-equivalence
     BINARY   modelnet-simplep2p-test
     ARGS     --sync=1
     CONFIG_A "${_tconf}/modelnet-test-simplep2p.conf"
     CONFIG_B "${_tconf}/modelnet-test-simplep2p.yaml")
-codes_add_config_equivalence_test(
+codes_add_lpio_equivalence_test(
     NAME     simplenet-config-equivalence
     BINARY   modelnet-test
     ARGS     --sync=1
     CONFIG_A "${_tconf}/modelnet-test.conf"
     CONFIG_B "${_tconf}/modelnet-test-simplenet.yaml")
-codes_add_config_equivalence_test(
+codes_add_lpio_equivalence_test(
     NAME     loggp-config-equivalence
     BINARY   modelnet-test
     ARGS     --sync=1
@@ -484,21 +498,21 @@ codes_add_config_equivalence_test(
     CONFIG_B "${_tconf}/modelnet-test-loggp.yaml")
 
 # Internally-generated fabrics (torus / express-mesh / slimfly), each run through
-# the modelnet-test binary (fixed-path lp-io), so compare committed-event counts
-# between the .conf and its parametric-fabric YAML twin.
-codes_add_config_equivalence_test(
+# the modelnet-test binary (per-run lp-io via --lp-io-dir), so diff the per-LP
+# lp-io output between the .conf and its parametric-fabric YAML twin.
+codes_add_lpio_equivalence_test(
     NAME     torus-config-equivalence
     BINARY   modelnet-test
     ARGS     --sync=1
     CONFIG_A "${_tconf}/modelnet-test-torus.conf"
     CONFIG_B "${_tconf}/modelnet-test-torus.yaml")
-codes_add_config_equivalence_test(
+codes_add_lpio_equivalence_test(
     NAME     express-mesh-config-equivalence
     BINARY   modelnet-test
     ARGS     --sync=1
     CONFIG_A "${_tconf}/modelnet-test-em.conf"
     CONFIG_B "${_tconf}/modelnet-test-em.yaml")
-codes_add_config_equivalence_test(
+codes_add_lpio_equivalence_test(
     NAME     slimfly-config-equivalence
     BINARY   modelnet-test
     ARGS     --sync=1
@@ -507,8 +521,9 @@ codes_add_config_equivalence_test(
 
 # Explicit-groups form (non-network layouts): a custom group with a workload LP
 # co-located with a storage/resource LP, plus that model's own pass-through
-# section. These binaries take the config as a ROSS option, not a positional.
-codes_add_config_equivalence_test(
+# section. lsm-test now honors --lp-io-dir (config still via the --conf= ROSS
+# option, not a positional), so diff its per-LP lp-io output directly.
+codes_add_lpio_equivalence_test(
     NAME        lsm-config-equivalence
     BINARY      lsm-test
     CONFIG_FLAG "--conf="
@@ -517,13 +532,15 @@ codes_add_config_equivalence_test(
     CONFIG_B    "${_tconf}/lsm-test.yaml")
 # Same run, but the lsm section is factored into a shared fragment pulled in with
 # `include:` -- exercises the loader-boundary include resolution end to end.
-codes_add_config_equivalence_test(
+codes_add_lpio_equivalence_test(
     NAME        lsm-include-equivalence
     BINARY      lsm-test
     CONFIG_FLAG "--conf="
     ARGS        --sync=1
     CONFIG_A    "${_tconf}/lsm-test.conf"
     CONFIG_B    "${_tconf}/lsm-test-include.yaml")
+# resource-test (buffer_test) writes no lp-io at all, so there is nothing to diff:
+# fall back to comparing the marker line. Config is passed as a ROSS option.
 codes_add_config_equivalence_test(
     NAME        resource-config-equivalence
     BINARY      resource-test
@@ -532,8 +549,13 @@ codes_add_config_equivalence_test(
     CONFIG_A    "${_tconf}/buffer_test.conf"
     CONFIG_B    "${_tconf}/buffer_test.yaml")
 
-# fattree's lp-io switch stats are not reproducible run to run, so compare
-# committed-event counts rather than lp-io.
+# The fat-tree *network* lp-io (switch / msg stats, model-net categories) is in
+# fact reproducible run to run -- but the model-net-synthetic-fattree binary also
+# dumps a PARAMS_LOG "sim_log.txt" into the same lp-io dir carrying wall-clock-
+# derived ROSS runtime columns (running_time, event_rate, ...) that differ every
+# run. A per-LP lp-io diff compares every file in the dir, so it would spuriously
+# fail on sim_log.txt; the binary also hardcodes its lp-io path (no --lp-io-dir).
+# So this one falls back to comparing the marker line.
 codes_add_config_equivalence_test(
     NAME     fattree-config-equivalence
     BINARY   model-net-synthetic-fattree
