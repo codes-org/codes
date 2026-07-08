@@ -8,8 +8,9 @@
  * switch-wide buffer, and send per-flowlet fragments subject to interval link
  * capacity.
  *
- * Intended first-run mode: --synch=1.  Reverse computation is intentionally
- * disabled until the pure sequential model is validated.
+ * Supports sequential validation and optimistic execution.  Optimistic mode uses
+ * event-local reverse metadata to undo terminal generation, switch arrivals,
+ * queue mutations, egress byte deltas, and RNG draws.
  */
 
 #include <algorithm>
@@ -42,6 +43,7 @@ static const char* SWITCH_LP_NAME = "fluid-switch-lp";
 static constexpr int MAX_SWITCHES = 64;
 static constexpr int MAX_TERMINALS = 4096;
 static constexpr int MAX_PORTS_PER_SWITCH = 128;
+static constexpr int MAX_RC_ALLOCATIONS = 256;
 static constexpr double EPS = 1e-9;
 
 static constexpr double PHASE_GENERATE = 0.10;
@@ -145,6 +147,13 @@ enum fluid_event_type {
     SWITCH_EGRESS = 3,
 };
 
+struct rc_alloc_record {
+    int valid;
+    int queue_index;
+    queued_flowlet before;
+    double send_mbit;
+};
+
 struct fluid_msg {
     int event_type;
     int interval_id;
@@ -156,6 +165,21 @@ struct fluid_msg {
     int creation_interval;
     unsigned long long flowlet_id;
     double mbit;
+
+    /*
+     * Reverse-computation metadata. These fields are written by the forward
+     * event handler and consumed by the reverse handler if the event rolls back.
+     */
+    int rc_rng_count;
+    int rc_generated;
+    int rc_no_route;
+    int rc_port_id;
+    int rc_queue_index;
+    int rc_coalesced;
+    double rc_accepted_mbit;
+    double rc_dropped_mbit;
+    int rc_alloc_count;
+    rc_alloc_record rc_allocs[MAX_RC_ALLOCATIONS];
 };
 
 static void terminal_init(terminal_state* ns, tw_lp* lp);
@@ -196,6 +220,32 @@ static const tw_lptype* switch_get_lp_type(void) { return &switch_lp; }
 static void add_lp_types(void) {
     lp_type_register(TERMINAL_LP_NAME, terminal_get_lp_type());
     lp_type_register(SWITCH_LP_NAME, switch_get_lp_type());
+}
+
+static int get_configured_message_size_bytes(void) {
+    int configured_message_size = 0;
+    if (configuration_get_value_int(&config, "PARAMS", "message_size", NULL,
+                                    &configured_message_size) != 0) {
+        return 0;
+    }
+    return configured_message_size;
+}
+
+static void validate_ross_message_size_or_abort(int rank) {
+    int configured_message_size = get_configured_message_size_bytes();
+    size_t required_message_size = sizeof(fluid_msg);
+
+    if (configured_message_size <= 0 ||
+        (size_t)configured_message_size < required_message_size) {
+        if (rank == 0) {
+            fprintf(stderr,
+                    "fluid-switch error: PARAMS.message_size=%d is too small for "
+                    "sizeof(fluid_msg)=%zu. Increase PARAMS.message_size in the "
+                    "CODES config before calling codes_mapping_setup().\n",
+                    configured_message_size, required_message_size);
+        }
+        MPI_Abort(MPI_COMM_WORLD, 1);
+    }
 }
 
 static double seconds_to_ns(double seconds) { return seconds * 1000.0 * 1000.0 * 1000.0; }
@@ -620,7 +670,8 @@ static double enqueue_flowlet(switch_state* ns, int port_id, const fluid_msg* m,
                               double* shared_queued_after_out,
                               double* dropped_out,
                               double* flowlet_remaining_after_out,
-                              int* coalesced_out) {
+                              int* coalesced_out,
+                              int* queue_index_out) {
     if (port_queued_before_out != NULL) {
         *port_queued_before_out = 0.0;
     }
@@ -638,6 +689,9 @@ static double enqueue_flowlet(switch_state* ns, int port_id, const fluid_msg* m,
     }
     if (coalesced_out != NULL) {
         *coalesced_out = 0;
+    }
+    if (queue_index_out != NULL) {
+        *queue_index_out = -1;
     }
 
     if (port_id < 0 || port_id >= ns->num_ports || ns->queues[port_id] == NULL) {
@@ -705,6 +759,9 @@ static double enqueue_flowlet(switch_state* ns, int port_id, const fluid_msg* m,
             if (coalesced_out != NULL) {
                 *coalesced_out = 1;
             }
+            if (queue_index_out != NULL) {
+                *queue_index_out = (int)i;
+            }
             if (shared_queued_after_out != NULL) {
                 *shared_queued_after_out = shared_queued_before + accepted;
             }
@@ -725,6 +782,9 @@ static double enqueue_flowlet(switch_state* ns, int port_id, const fluid_msg* m,
     q.remaining_mbit = accepted;
 
     qv.push_back(q);
+    if (queue_index_out != NULL) {
+        *queue_index_out = (int)qv.size() - 1;
+    }
     ns->enqueued_mbit += accepted;
 
     if (flowlet_remaining_after_out != NULL) {
@@ -773,6 +833,53 @@ static int active_flowlet_count_on_port(const switch_state* ns, int port_id) {
     return count;
 }
 
+static int find_queue_index_for_flowlet(const switch_state* ns, int port_id,
+                                        const queued_flowlet& needle) {
+    if (port_id < 0 || port_id >= ns->num_ports || ns->queues[port_id] == NULL) {
+        return -1;
+    }
+
+    const std::vector<queued_flowlet>& qv = *ns->queues[port_id];
+
+    for (int i = 0; i < (int)qv.size(); ++i) {
+        if (!qv[i].valid) {
+            continue;
+        }
+
+        if (qv[i].flowlet_id == needle.flowlet_id &&
+            qv[i].source_terminal == needle.source_terminal &&
+            qv[i].destination_terminal == needle.destination_terminal &&
+            qv[i].creation_interval == needle.creation_interval) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+static int find_queue_index_for_msg(const switch_state* ns, int port_id, const fluid_msg* m) {
+    if (port_id < 0 || port_id >= ns->num_ports || ns->queues[port_id] == NULL) {
+        return -1;
+    }
+
+    const std::vector<queued_flowlet>& qv = *ns->queues[port_id];
+
+    for (int i = 0; i < (int)qv.size(); ++i) {
+        if (!qv[i].valid) {
+            continue;
+        }
+
+        if (qv[i].flowlet_id == m->flowlet_id &&
+            qv[i].source_terminal == m->source_terminal &&
+            qv[i].destination_terminal == m->destination_terminal &&
+            qv[i].creation_interval == m->creation_interval) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
 static void compact_port_queue(switch_state* ns, int port_id) {
     if (port_id < 0 || port_id >= ns->num_ports || ns->queues[port_id] == NULL) {
         return;
@@ -784,9 +891,19 @@ static void compact_port_queue(switch_state* ns, int port_id) {
              qv.end());
 }
 
+static bool fluid_csv_logs_enabled(void) {
+    /*
+     * CSV logging is intentionally sequential-only. Optimistic execution may
+     * roll events back after a forward handler has already appended a row.
+     * Until we add commit-time logging, skip CSV output under optimistic modes
+     * and use final LP summaries for optimistic validation.
+     */
+    return g_tw_synchronization_protocol == SEQUENTIAL;
+}
+
 static void append_terminal_log(int interval_id, const char* event_name, int terminal_id,
                                 int peer_id, double mbit) {
-    if (cfg.terminal_log_path[0] == '\0') {
+    if (cfg.terminal_log_path[0] == '\0' || !fluid_csv_logs_enabled()) {
         return;
     }
     std::ofstream out(cfg.terminal_log_path, std::ios::app);
@@ -804,7 +921,7 @@ static void append_switch_log(int interval_id, const char* event_name, int switc
                               double shared_buffer_mbit,
                               double dropped_mbit,
                               int active_queue_entries) {
-    if (cfg.switch_log_path[0] == '\0') {
+    if (cfg.switch_log_path[0] == '\0' || !fluid_csv_logs_enabled()) {
         return;
     }
     std::ofstream out(cfg.switch_log_path, std::ios::app);
@@ -825,7 +942,7 @@ static void append_flowlet_log(int interval_id, const char* event_name, int swit
                                double capacity_mbit, double queued_before_mbit,
                                double send_mbit, double remaining_after_mbit,
                                double dropped_mbit) {
-    if (cfg.flowlet_log_path[0] == '\0') {
+    if (cfg.flowlet_log_path[0] == '\0' || !fluid_csv_logs_enabled()) {
         return;
     }
     std::ofstream out(cfg.flowlet_log_path, std::ios::app);
@@ -845,7 +962,7 @@ static void append_switch_training_log(int interval_id, int switch_id, int port_
                                        double dropped_mbit, int active_before,
                                        int active_after,
                                        const std::vector<std::string>& allocations) {
-    if (cfg.switch_training_log_path[0] == '\0') {
+    if (cfg.switch_training_log_path[0] == '\0' || !fluid_csv_logs_enabled()) {
         return;
     }
     std::ofstream out(cfg.switch_training_log_path, std::ios::app);
@@ -938,11 +1055,24 @@ static double random_workload_mbit(int terminal_id, tw_lp* lp) {
 
 static void handle_workload_generate(terminal_state* ns, fluid_msg* m, tw_lp* lp) {
     int interval = m->interval_id;
+
+    m->rc_rng_count = 0;
+    m->rc_generated = 0;
+    m->mbit = 0.0;
+    m->destination_terminal = -1;
+    m->flowlet_id = 0;
+
     if (interval % cfg.terminal_send_every_n_intervals == 0) {
         double p = tw_rand_unif(lp->rng);
+        m->rc_rng_count++;
+
         if (p <= cfg.terminal_send_probability) {
             int dst = choose_random_destination(ns->terminal_id, lp);
+            m->rc_rng_count++;
+
             double mbit = random_workload_mbit(ns->terminal_id, lp);
+            m->rc_rng_count++;
+
             if (mbit > EPS) {
                 fluid_msg out_msg;
                 memset(&out_msg, 0, sizeof(out_msg));
@@ -963,6 +1093,12 @@ static void handle_workload_generate(terminal_state* ns, fluid_msg* m, tw_lp* lp
                 ns->generated_mbit += mbit;
                 ns->sent_to_switch_mbit += mbit;
                 ns->generated_flowlets++;
+
+                m->rc_generated = 1;
+                m->destination_terminal = dst;
+                m->flowlet_id = out_msg.flowlet_id;
+                m->mbit = mbit;
+
                 append_terminal_log(interval, "generate_send", ns->terminal_id, dst, mbit);
 
                 if (cfg.debug_prints) {
@@ -972,8 +1108,10 @@ static void handle_workload_generate(terminal_state* ns, fluid_msg* m, tw_lp* lp
             }
         }
     }
+
     schedule_workload_generate(ns, interval + 1, lp);
 }
+
 
 static void handle_terminal_arrival(terminal_state* ns, fluid_msg* m) {
     ns->received_mbit += m->mbit;
@@ -996,11 +1134,37 @@ static void terminal_event(terminal_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp
 }
 
 static void terminal_rev_event(terminal_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp) {
-    (void)ns;
     (void)b;
-    (void)m;
-    (void)lp;
-    tw_error(TW_LOC, "model-net-fluid-switch currently supports sequential validation runs only");
+
+    switch (m->event_type) {
+    case WORKLOAD_GENERATE:
+        if (m->rc_generated) {
+            ns->generated_mbit -= m->mbit;
+            ns->sent_to_switch_mbit -= m->mbit;
+            ns->generated_flowlets--;
+
+            if (ns->next_flowlet_seq == 0) {
+                tw_error(TW_LOC, "terminal %d next_flowlet_seq underflow during rollback",
+                         ns->terminal_id);
+            }
+
+            ns->next_flowlet_seq--;
+        }
+
+        for (int i = 0; i < m->rc_rng_count; ++i) {
+            tw_rand_reverse_unif(lp->rng);
+        }
+
+        break;
+
+    case FLOWLET_ARRIVAL:
+        ns->received_mbit -= m->mbit;
+        ns->received_fragments--;
+        break;
+
+    default:
+        tw_error(TW_LOC, "terminal reverse received unknown event type %d", m->event_type);
+    }
 }
 
 static void terminal_finalize(terminal_state* ns, tw_lp* lp) {
@@ -1076,6 +1240,10 @@ static void handle_switch_arrival(switch_state* ns, fluid_msg* m) {
 
     if (port_id < 0) {
         double shared_before = queued_mbit_on_switch(ns);
+        m->rc_no_route = 1;
+        m->rc_port_id = -1;
+        m->rc_accepted_mbit = 0.0;
+        m->rc_dropped_mbit = m->mbit;
         ns->dropped_mbit += m->mbit;
         append_switch_log(m->interval_id, "drop_no_route", ns->switch_id, -1, 0, -1,
                           0.0, 0.0, 0.0, 0.0, shared_before, shared_before,
@@ -1093,10 +1261,24 @@ static void handle_switch_arrival(switch_state* ns, fluid_msg* m) {
     double dropped = 0.0;
     double flowlet_remaining_after = 0.0;
     int coalesced = 0;
+    int queue_index = -1;
+
+    m->rc_no_route = 0;
+    m->rc_port_id = port_id;
+    m->rc_queue_index = -1;
+    m->rc_coalesced = 0;
+    m->rc_accepted_mbit = 0.0;
+    m->rc_dropped_mbit = 0.0;
 
     double accepted = enqueue_flowlet(ns, port_id, m, &port_queued_before,
                                       &shared_queued_before, &shared_queued_after,
-                                      &dropped, &flowlet_remaining_after, &coalesced);
+                                      &dropped, &flowlet_remaining_after, &coalesced,
+                                      &queue_index);
+
+    m->rc_queue_index = queue_index;
+    m->rc_coalesced = coalesced;
+    m->rc_accepted_mbit = accepted;
+    m->rc_dropped_mbit = dropped;
 
     double port_queued_after = queued_mbit_on_port(ns, port_id);
     int active_after = active_flowlet_count_on_port(ns, port_id);
@@ -1176,6 +1358,7 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
 
     std::vector<std::string> allocations;
     std::vector<double> send_plan(qv.size(), 0.0);
+    m->rc_alloc_count = 0;
 
     auto add_to_plan = [&](int idx, double requested_send) -> double {
         if (idx < 0 || idx >= (int)send_plan.size() || requested_send <= EPS) {
@@ -1275,6 +1458,21 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
         queued_flowlet before = qv[i];
         send = std::min(send, qv[i].remaining_mbit);
 
+        if (m->rc_alloc_count >= MAX_RC_ALLOCATIONS) {
+            tw_error(TW_LOC,
+                     "too many egress allocations for reverse metadata: switch %d port %d "
+                     "interval %d count %d max %d",
+                     ns->switch_id, port_id, m->interval_id, m->rc_alloc_count,
+                     MAX_RC_ALLOCATIONS);
+        }
+
+        rc_alloc_record* rc = &m->rc_allocs[m->rc_alloc_count++];
+        memset(rc, 0, sizeof(*rc));
+        rc->valid = 1;
+        rc->queue_index = i;
+        rc->before = before;
+        rc->send_mbit = send;
+
         send_flowlet_fragment(ns, port_id, &before, send, m->interval_id, lp);
         qv[i].remaining_mbit -= send;
         sent_total += send;
@@ -1315,12 +1513,120 @@ static void switch_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp) {
     }
 }
 
+static void rollback_switch_arrival(switch_state* ns, fluid_msg* m) {
+    ns->received_fragments--;
+
+    if (m->rc_no_route) {
+        ns->dropped_mbit -= m->rc_dropped_mbit;
+        return;
+    }
+
+    int port_id = m->rc_port_id;
+
+    if (port_id < 0 || port_id >= ns->num_ports || ns->queues[port_id] == NULL) {
+        tw_error(TW_LOC, "invalid rollback arrival port %d on switch %d", port_id,
+                 ns->switch_id);
+    }
+
+    ns->dropped_mbit -= m->rc_dropped_mbit;
+
+    if (m->rc_accepted_mbit <= EPS) {
+        return;
+    }
+
+    std::vector<queued_flowlet>& qv = *ns->queues[port_id];
+
+    int idx = m->rc_queue_index;
+    if (idx < 0 || idx >= (int)qv.size() || qv[idx].flowlet_id != m->flowlet_id) {
+        idx = find_queue_index_for_msg(ns, port_id, m);
+    }
+
+    if (idx < 0) {
+        tw_error(TW_LOC,
+                 "could not find flowlet %llu on switch %d port %d during arrival rollback",
+                 (unsigned long long)m->flowlet_id, ns->switch_id, port_id);
+    }
+
+    if (m->rc_coalesced) {
+        qv[idx].remaining_mbit -= m->rc_accepted_mbit;
+
+        if (qv[idx].remaining_mbit <= EPS) {
+            tw_error(TW_LOC,
+                     "coalesced flowlet %llu became empty during arrival rollback on switch %d port %d",
+                     (unsigned long long)m->flowlet_id, ns->switch_id, port_id);
+        }
+    } else {
+        qv.erase(qv.begin() + idx);
+    }
+
+    ns->enqueued_mbit -= m->rc_accepted_mbit;
+}
+
+static void rollback_switch_egress(switch_state* ns, fluid_msg* m) {
+    int port_id = m->port_id;
+
+    if (port_id < 0 || port_id >= ns->num_ports || ns->queues[port_id] == NULL) {
+        tw_error(TW_LOC, "invalid rollback egress port %d on switch %d", port_id,
+                 ns->switch_id);
+    }
+
+    std::vector<queued_flowlet>& qv = *ns->queues[port_id];
+    const port_desc* p = &ns->ports[port_id];
+
+    for (int r = m->rc_alloc_count - 1; r >= 0; --r) {
+        rc_alloc_record* rc = &m->rc_allocs[r];
+
+        if (!rc->valid || rc->send_mbit <= EPS) {
+            continue;
+        }
+
+        int idx = rc->queue_index;
+
+        if (idx < 0 || idx >= (int)qv.size() ||
+            qv[idx].flowlet_id != rc->before.flowlet_id) {
+            idx = find_queue_index_for_flowlet(ns, port_id, rc->before);
+        }
+
+        if (idx >= 0) {
+            qv[idx] = rc->before;
+        } else {
+            int insert_idx = rc->queue_index;
+
+            if (insert_idx < 0) {
+                insert_idx = 0;
+            }
+            if (insert_idx > (int)qv.size()) {
+                insert_idx = (int)qv.size();
+            }
+
+            qv.insert(qv.begin() + insert_idx, rc->before);
+        }
+
+        ns->sent_mbit -= rc->send_mbit;
+        ns->sent_fragments--;
+
+        if (p->is_terminal) {
+            ns->delivered_local_mbit -= rc->send_mbit;
+        }
+    }
+}
+
 static void switch_rev_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp) {
-    (void)ns;
     (void)b;
-    (void)m;
     (void)lp;
-    tw_error(TW_LOC, "model-net-fluid-switch currently supports sequential validation runs only");
+
+    switch (m->event_type) {
+    case FLOWLET_ARRIVAL:
+        rollback_switch_arrival(ns, m);
+        break;
+
+    case SWITCH_EGRESS:
+        rollback_switch_egress(ns, m);
+        break;
+
+    default:
+        tw_error(TW_LOC, "switch reverse received unknown event type %d", m->event_type);
+    }
 }
 
 static void switch_finalize(switch_state* ns, tw_lp* lp) {
@@ -1355,7 +1661,7 @@ static const char* find_config_arg(int argc, char** argv) {
 }
 
 static void write_log_headers(int rank) {
-    if (rank != 0) {
+    if (rank != 0 || !fluid_csv_logs_enabled()) {
         return;
     }
     if (cfg.terminal_log_path[0] != '\0') {
@@ -1404,6 +1710,7 @@ int main(int argc, char** argv) {
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     configuration_load(config_file, MPI_COMM_WORLD, &config);
     load_config();
+    validate_ross_message_size_or_abort(rank);
 
     add_lp_types();
     codes_mapping_setup();
@@ -1425,9 +1732,11 @@ int main(int argc, char** argv) {
     if (rank == 0) {
         printf("fluid-switch config: switches=%zu terminals=%zu interval_seconds=%.6f "
                "num_send_intervals=%d num_drain_intervals=%d switch_scheduler=%s "
-               "buffer_mode=shared\n",
+               "buffer_mode=shared csv_logs=%s ross_message_size=%d fluid_msg_size=%zu\n",
                switches.size(), terminals.size(), cfg.interval_seconds, cfg.num_send_intervals,
-               cfg.num_drain_intervals, cfg.switch_scheduler);
+               cfg.num_drain_intervals, cfg.switch_scheduler,
+               fluid_csv_logs_enabled() ? "enabled" : "disabled_for_rollback_safety",
+               get_configured_message_size_bytes(), sizeof(fluid_msg));
     }
 
     tw_run();
