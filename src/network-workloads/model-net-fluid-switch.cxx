@@ -133,6 +133,14 @@ struct switch_state {
     double shared_buffer_mbit;
     port_desc ports[MAX_PORTS_PER_SWITCH];
     std::vector<queued_flowlet>* queues[MAX_PORTS_PER_SWITCH];
+
+    /*
+     * Demand-driven egress scheduling.  Each port may have at most one
+     * outstanding SWITCH_EGRESS event.  -1 means no egress event is currently
+     * outstanding for that port.
+     */
+    int scheduled_egress_interval[MAX_PORTS_PER_SWITCH];
+
     double enqueued_mbit;
     double sent_mbit;
     double delivered_local_mbit;
@@ -179,6 +187,10 @@ struct fluid_msg {
     double rc_accepted_mbit;
     double rc_dropped_mbit;
     int rc_alloc_count;
+
+    int rc_scheduled_egress;
+    int rc_prev_scheduled_egress_interval;
+
     rc_alloc_record rc_allocs[MAX_RC_ALLOCATIONS];
 };
 
@@ -980,10 +992,53 @@ static void append_switch_training_log(int interval_id, int switch_id, int port_
     out << '\n';
 }
 
+static int next_terminal_generate_interval_after(int interval_id) {
+    int period = cfg.terminal_send_every_n_intervals;
+    if (period <= 0) {
+        period = 1;
+    }
+
+    if (interval_id < 0) {
+        return 0;
+    }
+
+    return interval_id + period;
+}
+
+static int first_terminal_generate_interval(void) {
+    /*
+     * The first eligible terminal workload interval is always 0.  Later events
+     * advance by terminal_send_every_n_intervals, so terminals do not carry a
+     * speculative self-event chain through intervals where no workload can be
+     * generated.
+     */
+    return 0;
+}
+
 static void schedule_workload_generate(terminal_state* ns, int interval_id, tw_lp* lp) {
     if (interval_id >= cfg.num_send_intervals) {
         return;
     }
+
+    int period = cfg.terminal_send_every_n_intervals;
+    if (period <= 0) {
+        period = 1;
+    }
+
+    /*
+     * Defensive alignment: callers should already pass eligible send intervals,
+     * but if a future caller passes an arbitrary interval, round up to the next
+     * eligible workload-generation interval instead of scheduling a no-op event.
+     */
+    int rem = interval_id % period;
+    if (rem != 0) {
+        interval_id += period - rem;
+    }
+
+    if (interval_id >= cfg.num_send_intervals) {
+        return;
+    }
+
     tw_event* e = tw_event_new(lp->gid, delay_until_ns(interval_id, PHASE_GENERATE, lp), lp);
     fluid_msg* m = (fluid_msg*)tw_event_data(e);
     memset(m, 0, sizeof(*m));
@@ -1004,6 +1059,51 @@ static void schedule_switch_egress(int interval_id, int port_id, tw_lp* lp) {
     m->interval_id = interval_id;
     m->port_id = port_id;
     tw_event_send(e);
+}
+
+static void request_switch_egress(switch_state* ns, int interval_id, int port_id, tw_lp* lp,
+                                  fluid_msg* cause_msg) {
+    if (port_id < 0 || port_id >= ns->num_ports) {
+        tw_error(TW_LOC, "invalid request_switch_egress port %d on switch %d",
+                 port_id, ns->switch_id);
+    }
+
+    int prev = ns->scheduled_egress_interval[port_id];
+
+    if (cause_msg != NULL) {
+        cause_msg->rc_scheduled_egress = 0;
+        cause_msg->rc_prev_scheduled_egress_interval = prev;
+    }
+
+    if (interval_id >= cfg.num_send_intervals + cfg.num_drain_intervals) {
+        return;
+    }
+
+    if (prev == interval_id) {
+        return;
+    }
+
+    if (prev >= 0 && prev < interval_id) {
+        /*
+         * An earlier egress is already outstanding.  Let that earlier event
+         * decide whether residual bytes require a later egress.
+         */
+        return;
+    }
+
+    if (prev >= 0 && prev > interval_id) {
+        tw_error(TW_LOC,
+                 "switch %d port %d has future egress interval %d while trying "
+                 "to schedule earlier interval %d",
+                 ns->switch_id, port_id, prev, interval_id);
+    }
+
+    schedule_switch_egress(interval_id, port_id, lp);
+    ns->scheduled_egress_interval[port_id] = interval_id;
+
+    if (cause_msg != NULL) {
+        cause_msg->rc_scheduled_egress = 1;
+    }
 }
 
 static void schedule_arrival(int interval_id, tw_lpid dst_gid, const fluid_msg* src_msg, double mbit,
@@ -1032,7 +1132,7 @@ static void terminal_init(terminal_state* ns, tw_lp* lp) {
     ns->attached_switch = terminals[ns->terminal_id].switch_id;
     ns->local_terminal_id = terminals[ns->terminal_id].local_id;
     ns->next_flowlet_seq = 0;
-    schedule_workload_generate(ns, 0, lp);
+    schedule_workload_generate(ns, first_terminal_generate_interval(), lp);
 }
 
 static int choose_random_destination(int self, tw_lp* lp) {
@@ -1062,54 +1162,52 @@ static void handle_workload_generate(terminal_state* ns, fluid_msg* m, tw_lp* lp
     m->destination_terminal = -1;
     m->flowlet_id = 0;
 
-    if (interval % cfg.terminal_send_every_n_intervals == 0) {
-        double p = tw_rand_unif(lp->rng);
+    double p = tw_rand_unif(lp->rng);
+    m->rc_rng_count++;
+
+    if (p <= cfg.terminal_send_probability) {
+        int dst = choose_random_destination(ns->terminal_id, lp);
         m->rc_rng_count++;
 
-        if (p <= cfg.terminal_send_probability) {
-            int dst = choose_random_destination(ns->terminal_id, lp);
-            m->rc_rng_count++;
+        double mbit = random_workload_mbit(ns->terminal_id, lp);
+        m->rc_rng_count++;
 
-            double mbit = random_workload_mbit(ns->terminal_id, lp);
-            m->rc_rng_count++;
+        if (mbit > EPS) {
+            fluid_msg out_msg;
+            memset(&out_msg, 0, sizeof(out_msg));
+            out_msg.event_type = FLOWLET_ARRIVAL;
+            out_msg.interval_id = interval + 1;
+            out_msg.source_terminal = ns->terminal_id;
+            out_msg.destination_terminal = dst;
+            out_msg.source_switch = ns->attached_switch;
+            out_msg.destination_switch = ns->attached_switch;
+            out_msg.creation_interval = interval;
+            out_msg.flowlet_id = ((unsigned long long)ns->terminal_id << 48) |
+                                 (unsigned long long)ns->next_flowlet_seq++;
+            out_msg.mbit = mbit;
 
-            if (mbit > EPS) {
-                fluid_msg out_msg;
-                memset(&out_msg, 0, sizeof(out_msg));
-                out_msg.event_type = FLOWLET_ARRIVAL;
-                out_msg.interval_id = interval + 1;
-                out_msg.source_terminal = ns->terminal_id;
-                out_msg.destination_terminal = dst;
-                out_msg.source_switch = ns->attached_switch;
-                out_msg.destination_switch = ns->attached_switch;
-                out_msg.creation_interval = interval;
-                out_msg.flowlet_id = ((unsigned long long)ns->terminal_id << 48) |
-                                     (unsigned long long)ns->next_flowlet_seq++;
-                out_msg.mbit = mbit;
+            tw_lpid sw_gid = get_switch_gid(ns->attached_switch);
+            schedule_arrival(interval + 1, sw_gid, &out_msg, mbit, ns->attached_switch, lp);
 
-                tw_lpid sw_gid = get_switch_gid(ns->attached_switch);
-                schedule_arrival(interval + 1, sw_gid, &out_msg, mbit, ns->attached_switch, lp);
+            ns->generated_mbit += mbit;
+            ns->sent_to_switch_mbit += mbit;
+            ns->generated_flowlets++;
 
-                ns->generated_mbit += mbit;
-                ns->sent_to_switch_mbit += mbit;
-                ns->generated_flowlets++;
+            m->rc_generated = 1;
+            m->destination_terminal = dst;
+            m->flowlet_id = out_msg.flowlet_id;
+            m->mbit = mbit;
 
-                m->rc_generated = 1;
-                m->destination_terminal = dst;
-                m->flowlet_id = out_msg.flowlet_id;
-                m->mbit = mbit;
+            append_terminal_log(interval, "generate_send", ns->terminal_id, dst, mbit);
 
-                append_terminal_log(interval, "generate_send", ns->terminal_id, dst, mbit);
-
-                if (cfg.debug_prints) {
-                    printf("[fluid terminal] interval=%d terminal=%d dst=%d mbit=%.6f\n",
-                           interval, ns->terminal_id, dst, mbit);
-                }
+            if (cfg.debug_prints) {
+                printf("[fluid terminal] interval=%d terminal=%d dst=%d mbit=%.6f\n",
+                       interval, ns->terminal_id, dst, mbit);
             }
         }
     }
 
-    schedule_workload_generate(ns, interval + 1, lp);
+    schedule_workload_generate(ns, next_terminal_generate_interval_after(interval), lp);
 }
 
 
@@ -1182,6 +1280,10 @@ static void switch_init(switch_state* ns, tw_lp* lp) {
         tw_error(TW_LOC, "switch LP relative id %d out of range", ns->switch_id);
     }
 
+    for (int p = 0; p < MAX_PORTS_PER_SWITCH; ++p) {
+        ns->scheduled_egress_interval[p] = -1;
+    }
+
     const switch_info& sw = switches[ns->switch_id];
 
     /*
@@ -1219,13 +1321,16 @@ static void switch_init(switch_state* ns, tw_lp* lp) {
         ns->queues[ns->num_ports - 1] = new std::vector<queued_flowlet>();
     }
 
-    for (int p = 0; p < ns->num_ports; ++p) {
-        schedule_switch_egress(0, p, lp);
-    }
+    /*
+     * Egress is demand-driven.  We no longer pre-schedule periodic empty
+     * egress events for every port.  Arrivals schedule the first egress, and
+     * egress events reschedule themselves only while residual queued bytes
+     * remain.
+     */
 }
 
 
-static void handle_switch_arrival(switch_state* ns, fluid_msg* m) {
+static void handle_switch_arrival(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     ns->received_fragments++;
     int dst_sw = terminals[m->destination_terminal].switch_id;
     int port_id = -1;
@@ -1244,6 +1349,8 @@ static void handle_switch_arrival(switch_state* ns, fluid_msg* m) {
         m->rc_port_id = -1;
         m->rc_accepted_mbit = 0.0;
         m->rc_dropped_mbit = m->mbit;
+        m->rc_scheduled_egress = 0;
+        m->rc_prev_scheduled_egress_interval = -1;
         ns->dropped_mbit += m->mbit;
         append_switch_log(m->interval_id, "drop_no_route", ns->switch_id, -1, 0, -1,
                           0.0, 0.0, 0.0, 0.0, shared_before, shared_before,
@@ -1269,6 +1376,8 @@ static void handle_switch_arrival(switch_state* ns, fluid_msg* m) {
     m->rc_coalesced = 0;
     m->rc_accepted_mbit = 0.0;
     m->rc_dropped_mbit = 0.0;
+    m->rc_scheduled_egress = 0;
+    m->rc_prev_scheduled_egress_interval = ns->scheduled_egress_interval[port_id];
 
     double accepted = enqueue_flowlet(ns, port_id, m, &port_queued_before,
                                       &shared_queued_before, &shared_queued_after,
@@ -1301,6 +1410,10 @@ static void handle_switch_arrival(switch_state* ns, fluid_msg* m) {
                            m->source_terminal, m->destination_terminal, m->creation_interval,
                            p->capacity_mbit_per_interval, port_queued_before, 0.0,
                            flowlet_remaining_after, dropped);
+    }
+
+    if (port_queued_after > EPS) {
+        request_switch_egress(ns, m->interval_id, port_id, lp, m);
     }
 }
 
@@ -1342,12 +1455,19 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
         tw_error(TW_LOC, "invalid switch egress port %d", port_id);
     }
     if (ns->queues[port_id] == NULL) {
-        schedule_switch_egress(m->interval_id + 1, port_id, lp);
+        m->rc_prev_scheduled_egress_interval = -1;
+        m->rc_scheduled_egress = 0;
         return;
     }
 
     port_desc* p = &ns->ports[port_id];
     std::vector<queued_flowlet>& qv = *ns->queues[port_id];
+
+    m->rc_prev_scheduled_egress_interval = ns->scheduled_egress_interval[port_id];
+    m->rc_scheduled_egress = 0;
+    if (ns->scheduled_egress_interval[port_id] == m->interval_id) {
+        ns->scheduled_egress_interval[port_id] = -1;
+    }
 
     double capacity = p->capacity_mbit_per_interval;
     double remaining_capacity = capacity;
@@ -1495,7 +1615,14 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
                                p->target_index, capacity, queued_before, sent_total, queued_after,
                                0.0, active_before, active_after, allocations);
 
-    schedule_switch_egress(m->interval_id + 1, port_id, lp);
+    if (queued_after > EPS) {
+        /*
+         * This event's reverse handler restores scheduled_egress_interval from
+         * rc_prev_scheduled_egress_interval.  Pass NULL here so the next-event
+         * scheduling does not overwrite this event's saved pre-state.
+         */
+        request_switch_egress(ns, m->interval_id + 1, port_id, lp, NULL);
+    }
 }
 
 
@@ -1503,7 +1630,7 @@ static void switch_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp) {
     (void)b;
     switch (m->event_type) {
     case FLOWLET_ARRIVAL:
-        handle_switch_arrival(ns, m);
+        handle_switch_arrival(ns, m, lp);
         break;
     case SWITCH_EGRESS:
         handle_switch_egress(ns, m, lp);
@@ -1515,6 +1642,11 @@ static void switch_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp) {
 
 static void rollback_switch_arrival(switch_state* ns, fluid_msg* m) {
     ns->received_fragments--;
+
+    if (!m->rc_no_route && m->rc_port_id >= 0 && m->rc_port_id < ns->num_ports) {
+        ns->scheduled_egress_interval[m->rc_port_id] =
+            m->rc_prev_scheduled_egress_interval;
+    }
 
     if (m->rc_no_route) {
         ns->dropped_mbit -= m->rc_dropped_mbit;
@@ -1569,6 +1701,8 @@ static void rollback_switch_egress(switch_state* ns, fluid_msg* m) {
         tw_error(TW_LOC, "invalid rollback egress port %d on switch %d", port_id,
                  ns->switch_id);
     }
+
+    ns->scheduled_egress_interval[port_id] = m->rc_prev_scheduled_egress_interval;
 
     std::vector<queued_flowlet>& qv = *ns->queues[port_id];
     const port_desc* p = &ns->ports[port_id];
