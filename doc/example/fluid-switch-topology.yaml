@@ -2,23 +2,23 @@ topology:
   switches:
     A:
       terminals: 2
-      terminal_bandwidth: "10 Mbps"
+      terminal_bandwidth: "20 Mbps"
       switch_buffer: "1000 Mb"
       connections:
-        B: "20 Mbps"
+        B: "15 Mbps"
 
     B:
       terminals: 2
-      terminal_bandwidth: "5 Mbps"
+      terminal_bandwidth: "25 Mbps"
       switch_buffer: "1000 Mb"
       connections:
         A: "15 Mbps"
-        C: "25 Mbps"
+        C: "10 Mbps"
 
     C:
       terminals: 2
-      terminal_bandwidth: "15 Mbps"
+      terminal_bandwidth: "20 Mbps"
       switch_buffer: "1000 Mb"
       connections:
-        A: "20 Mbps"
+        A: "10 Mbps"
         B: "15 Mbps"

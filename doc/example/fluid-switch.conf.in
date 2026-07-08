@@ -33,7 +33,10 @@ FLUID_SWITCH
     terminal_max_send_fraction_of_link_capacity="1.0";
 
     debug_prints="0";
+    switch_scheduler="max_min_fair";
 
     terminal_log_path="../../zmqml_artifacts/fluid-switch/terminal-events.csv";
     switch_log_path="../../zmqml_artifacts/fluid-switch/switch-events.csv";
+    flowlet_log_path="../../zmqml_artifacts/fluid-switch/flowlet-events.csv";
+    switch_training_log_path="../../zmqml_artifacts/fluid-switch/switch-training.csv";
 }

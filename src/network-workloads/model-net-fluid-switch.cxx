@@ -81,6 +81,9 @@ struct sim_config {
     char topology_yaml_file[1024] = "";
     char terminal_log_path[1024] = "";
     char switch_log_path[1024] = "";
+    char flowlet_log_path[1024] = "";
+    char switch_training_log_path[1024] = "";
+    char switch_scheduler[64] = "max_min_fair";
 };
 
 static sim_config cfg;
@@ -118,7 +121,7 @@ struct terminal_state {
     double sent_to_switch_mbit;
     double received_mbit;
     int generated_flowlets;
-    int received_flowlets;
+    int received_fragments;
 };
 
 struct switch_state {
@@ -130,7 +133,7 @@ struct switch_state {
     double sent_mbit;
     double delivered_local_mbit;
     double dropped_mbit;
-    int received_flowlets;
+    int received_fragments;
     int sent_fragments;
 };
 
@@ -503,6 +506,13 @@ static void read_double_param(const char* section, const char* key, double* valu
     }
 }
 
+static void read_string_param(const char* section, const char* key, char* value, size_t len) {
+    char tmp[1024];
+    memset(tmp, 0, sizeof(tmp));
+    if (configuration_get_value(&config, section, key, NULL, tmp, sizeof(tmp)) > 0) {
+        snprintf(value, len, "%s", tmp);
+    }
+}
 
 static void read_relpath_param(const char* section, const char* key, char* value, size_t len) {
     char tmp[1024];
@@ -519,6 +529,12 @@ static void load_config(void) {
                        sizeof(cfg.terminal_log_path));
     read_relpath_param("FLUID_SWITCH", "switch_log_path", cfg.switch_log_path,
                        sizeof(cfg.switch_log_path));
+    read_relpath_param("FLUID_SWITCH", "flowlet_log_path", cfg.flowlet_log_path,
+                       sizeof(cfg.flowlet_log_path));
+    read_relpath_param("FLUID_SWITCH", "switch_training_log_path", cfg.switch_training_log_path,
+                       sizeof(cfg.switch_training_log_path));
+    read_string_param("FLUID_SWITCH", "switch_scheduler", cfg.switch_scheduler,
+                      sizeof(cfg.switch_scheduler));
     read_double_param("FLUID_SWITCH", "interval_seconds", &cfg.interval_seconds);
     read_int_param("FLUID_SWITCH", "num_send_intervals", &cfg.num_send_intervals);
     read_int_param("FLUID_SWITCH", "num_drain_intervals", &cfg.num_drain_intervals);
@@ -529,6 +545,13 @@ static void load_config(void) {
     read_double_param("FLUID_SWITCH", "terminal_max_send_fraction_of_link_capacity",
                       &cfg.terminal_max_send_fraction_of_link_capacity);
     read_int_param("FLUID_SWITCH", "debug_prints", &cfg.debug_prints);
+
+    if (strcmp(cfg.switch_scheduler, "max_min_fair") != 0 &&
+        strcmp(cfg.switch_scheduler, "fifo") != 0) {
+        tw_error(TW_LOC,
+                 "FLUID_SWITCH.switch_scheduler must be one of: max_min_fair, fifo; got '%s'",
+                 cfg.switch_scheduler);
+    }
 
     if (cfg.topology_yaml_file[0] == '\0') {
         tw_error(TW_LOC, "FLUID_SWITCH.topology_yaml_file is required");
@@ -587,10 +610,30 @@ static int find_terminal_port(const switch_state* ns, int dst_terminal) {
     return -1;
 }
 
-static int enqueue_flowlet(switch_state* ns, int port_id, const fluid_msg* m) {
-    if (port_id < 0 || port_id >= ns->num_ports || ns->queues[port_id] == NULL) {
-        return 0;
+static double enqueue_flowlet(switch_state* ns, int port_id, const fluid_msg* m,
+                              double* queued_before_out, double* dropped_out,
+                              double* flowlet_remaining_after_out,
+                              int* coalesced_out) {
+    if (queued_before_out != NULL) {
+        *queued_before_out = 0.0;
     }
+    if (dropped_out != NULL) {
+        *dropped_out = 0.0;
+    }
+    if (flowlet_remaining_after_out != NULL) {
+        *flowlet_remaining_after_out = 0.0;
+    }
+    if (coalesced_out != NULL) {
+        *coalesced_out = 0;
+    }
+
+    if (port_id < 0 || port_id >= ns->num_ports || ns->queues[port_id] == NULL) {
+        if (dropped_out != NULL) {
+            *dropped_out = m->mbit;
+        }
+        return 0.0;
+    }
+
     std::vector<queued_flowlet>& qv = *ns->queues[port_id];
 
     double queued_on_port = 0.0;
@@ -598,13 +641,61 @@ static int enqueue_flowlet(switch_state* ns, int port_id, const fluid_msg* m) {
         queued_on_port += qv[i].remaining_mbit;
     }
 
+    if (queued_before_out != NULL) {
+        *queued_before_out = queued_on_port;
+    }
+
     double accepted = m->mbit;
+    double dropped = 0.0;
+
     if (queued_on_port + accepted > ns->ports[port_id].buffer_mbit + EPS) {
         accepted = std::max(0.0, ns->ports[port_id].buffer_mbit - queued_on_port);
-        ns->dropped_mbit += std::max(0.0, m->mbit - accepted);
+        dropped = std::max(0.0, m->mbit - accepted);
+        ns->dropped_mbit += dropped;
     }
+
+    if (dropped_out != NULL) {
+        *dropped_out = dropped;
+    }
+
     if (accepted <= EPS) {
-        return 0;
+        return 0.0;
+    }
+
+    /*
+     * Fragments of the same original interval-fluid flowlet can reconverge at
+     * the same switch output queue. Coalesce them into one queue entry so that
+     * each switch-port interval has at most one mutable queue record and one
+     * allocation target per original flowlet_id.
+     *
+     * This makes future reverse computation simpler:
+     *
+     *   - one bytes_remaining delta per flowlet
+     *   - at most one scheduled send fragment per flowlet per egress event
+     *   - one ML training target per flowlet per switch-port interval
+     */
+    for (size_t i = 0; i < qv.size(); ++i) {
+        if (!qv[i].valid) {
+            continue;
+        }
+
+        if (qv[i].flowlet_id == m->flowlet_id &&
+            qv[i].source_terminal == m->source_terminal &&
+            qv[i].destination_terminal == m->destination_terminal &&
+            qv[i].creation_interval == m->creation_interval) {
+            qv[i].remaining_mbit += accepted;
+            qv[i].age_intervals = m->interval_id - m->creation_interval;
+            ns->enqueued_mbit += accepted;
+
+            if (flowlet_remaining_after_out != NULL) {
+                *flowlet_remaining_after_out = qv[i].remaining_mbit;
+            }
+            if (coalesced_out != NULL) {
+                *coalesced_out = 1;
+            }
+
+            return accepted;
+        }
     }
 
     queued_flowlet q;
@@ -617,9 +708,15 @@ static int enqueue_flowlet(switch_state* ns, int port_id, const fluid_msg* m) {
     q.enqueue_interval = m->interval_id;
     q.age_intervals = m->interval_id - m->creation_interval;
     q.remaining_mbit = accepted;
+
     qv.push_back(q);
     ns->enqueued_mbit += accepted;
-    return 1;
+
+    if (flowlet_remaining_after_out != NULL) {
+        *flowlet_remaining_after_out = accepted;
+    }
+
+    return accepted;
 }
 
 static double queued_mbit_on_port(const switch_state* ns, int port_id) {
@@ -632,6 +729,20 @@ static double queued_mbit_on_port(const switch_state* ns, int port_id) {
         total += qv[i].remaining_mbit;
     }
     return total;
+}
+
+static int active_flowlet_count_on_port(const switch_state* ns, int port_id) {
+    if (port_id < 0 || port_id >= ns->num_ports || ns->queues[port_id] == NULL) {
+        return 0;
+    }
+    int count = 0;
+    const std::vector<queued_flowlet>& qv = *ns->queues[port_id];
+    for (size_t i = 0; i < qv.size(); ++i) {
+        if (qv[i].valid && qv[i].remaining_mbit > EPS) {
+            ++count;
+        }
+    }
+    return count;
 }
 
 static void compact_port_queue(switch_state* ns, int port_id) {
@@ -658,8 +769,9 @@ static void append_terminal_log(int interval_id, const char* event_name, int ter
 
 static void append_switch_log(int interval_id, const char* event_name, int switch_id, int port_id,
                               int target_is_terminal, int target_index, double capacity_mbit,
-                              double sent_mbit, double queued_after_mbit, double dropped_mbit,
-                              int active_flowlets) {
+                              double queued_before_mbit, double sent_mbit,
+                              double queued_after_mbit, double dropped_mbit,
+                              int active_queue_entries) {
     if (cfg.switch_log_path[0] == '\0') {
         return;
     }
@@ -667,8 +779,53 @@ static void append_switch_log(int interval_id, const char* event_name, int switc
     out << interval_id << ',' << event_name << ',' << switch_id << ','
         << switches[switch_id].name << ',' << port_id << ','
         << (target_is_terminal ? "terminal" : "switch") << ',' << target_index << ','
-        << capacity_mbit << ',' << sent_mbit << ',' << queued_after_mbit << ','
-        << dropped_mbit << ',' << active_flowlets << '\n';
+        << capacity_mbit << ',' << queued_before_mbit << ',' << sent_mbit << ','
+        << queued_after_mbit << ',' << dropped_mbit << ',' << active_queue_entries << '\n';
+}
+
+static void append_flowlet_log(int interval_id, const char* event_name, int switch_id, int port_id,
+                               int target_is_terminal, int target_index,
+                               unsigned long long flowlet_id, int source_terminal,
+                               int destination_terminal, int creation_interval,
+                               double capacity_mbit, double queued_before_mbit,
+                               double send_mbit, double remaining_after_mbit,
+                               double dropped_mbit) {
+    if (cfg.flowlet_log_path[0] == '\0') {
+        return;
+    }
+    std::ofstream out(cfg.flowlet_log_path, std::ios::app);
+    out << interval_id << ',' << event_name << ',' << switch_id << ','
+        << switches[switch_id].name << ',' << port_id << ','
+        << (target_is_terminal ? "terminal" : "switch") << ',' << target_index << ','
+        << flowlet_id << ',' << source_terminal << ',' << destination_terminal << ','
+        << creation_interval << ',' << (interval_id - creation_interval) << ','
+        << capacity_mbit << ',' << queued_before_mbit << ',' << send_mbit << ','
+        << remaining_after_mbit << ',' << dropped_mbit << '\n';
+}
+
+static void append_switch_training_log(int interval_id, int switch_id, int port_id,
+                                       int target_is_terminal, int target_index,
+                                       double capacity_mbit, double queued_before_mbit,
+                                       double sent_mbit, double queued_after_mbit,
+                                       double dropped_mbit, int active_before,
+                                       int active_after,
+                                       const std::vector<std::string>& allocations) {
+    if (cfg.switch_training_log_path[0] == '\0') {
+        return;
+    }
+    std::ofstream out(cfg.switch_training_log_path, std::ios::app);
+    out << interval_id << ',' << switch_id << ',' << switches[switch_id].name << ','
+        << port_id << ',' << (target_is_terminal ? "terminal" : "switch") << ','
+        << target_index << ',' << cfg.switch_scheduler << ',' << capacity_mbit << ','
+        << queued_before_mbit << ',' << sent_mbit << ',' << queued_after_mbit << ','
+        << dropped_mbit << ',' << active_before << ',' << active_after << ',';
+    for (size_t i = 0; i < allocations.size(); ++i) {
+        if (i > 0) {
+            out << ';';
+        }
+        out << allocations[i];
+    }
+    out << '\n';
 }
 
 static void schedule_workload_generate(terminal_state* ns, int interval_id, tw_lp* lp) {
@@ -785,7 +942,7 @@ static void handle_workload_generate(terminal_state* ns, fluid_msg* m, tw_lp* lp
 
 static void handle_terminal_arrival(terminal_state* ns, fluid_msg* m) {
     ns->received_mbit += m->mbit;
-    ns->received_flowlets++;
+    ns->received_fragments++;
     append_terminal_log(m->interval_id, "receive", ns->terminal_id, m->source_terminal, m->mbit);
 }
 
@@ -813,10 +970,10 @@ static void terminal_rev_event(terminal_state* ns, tw_bf* b, fluid_msg* m, tw_lp
 
 static void terminal_finalize(terminal_state* ns, tw_lp* lp) {
     printf("fluid-terminal gid=%llu terminal=%d switch=%d generated_mbit=%.6f sent_mbit=%.6f "
-           "received_mbit=%.6f generated_flowlets=%d received_flowlets=%d\n",
+           "received_mbit=%.6f generated_flowlets=%d received_fragments=%d\n",
            (unsigned long long)lp->gid, ns->terminal_id, ns->attached_switch,
            ns->generated_mbit, ns->sent_to_switch_mbit, ns->received_mbit,
-           ns->generated_flowlets, ns->received_flowlets);
+           ns->generated_flowlets, ns->received_fragments);
 }
 
 static void switch_init(switch_state* ns, tw_lp* lp) {
@@ -858,7 +1015,7 @@ static void switch_init(switch_state* ns, tw_lp* lp) {
 }
 
 static void handle_switch_arrival(switch_state* ns, fluid_msg* m) {
-    ns->received_flowlets++;
+    ns->received_fragments++;
     int dst_sw = terminals[m->destination_terminal].switch_id;
     int port_id = -1;
     if (dst_sw == ns->switch_id) {
@@ -873,10 +1030,42 @@ static void handle_switch_arrival(switch_state* ns, fluid_msg* m) {
     if (port_id < 0) {
         ns->dropped_mbit += m->mbit;
         append_switch_log(m->interval_id, "drop_no_route", ns->switch_id, -1, 0, -1,
-                          0.0, 0.0, 0.0, m->mbit, 0);
+                          0.0, 0.0, 0.0, 0.0, m->mbit, 0);
+        append_flowlet_log(m->interval_id, "drop_no_route", ns->switch_id, -1, 0, -1,
+                           m->flowlet_id, m->source_terminal, m->destination_terminal,
+                           m->creation_interval, 0.0, 0.0, 0.0, 0.0, m->mbit);
         return;
     }
-    enqueue_flowlet(ns, port_id, m);
+
+    port_desc* p = &ns->ports[port_id];
+    double queued_before = 0.0;
+    double dropped = 0.0;
+    double flowlet_remaining_after = 0.0;
+    int coalesced = 0;
+
+    double accepted = enqueue_flowlet(ns, port_id, m, &queued_before, &dropped,
+                                      &flowlet_remaining_after, &coalesced);
+
+    double queued_after = queued_mbit_on_port(ns, port_id);
+    int active_after = active_flowlet_count_on_port(ns, port_id);
+
+    if (accepted > EPS) {
+        append_flowlet_log(m->interval_id, coalesced ? "enqueue_coalesce" : "enqueue",
+                           ns->switch_id, port_id, p->is_terminal, p->target_index,
+                           m->flowlet_id, m->source_terminal, m->destination_terminal,
+                           m->creation_interval, p->capacity_mbit_per_interval,
+                           queued_before, 0.0, flowlet_remaining_after, 0.0);
+    }
+    if (dropped > EPS) {
+        append_switch_log(m->interval_id, "drop_buffer_overflow", ns->switch_id, port_id,
+                          p->is_terminal, p->target_index, p->capacity_mbit_per_interval,
+                          queued_before, 0.0, queued_after, dropped, active_after);
+        append_flowlet_log(m->interval_id, "drop_buffer_overflow", ns->switch_id, port_id,
+                           p->is_terminal, p->target_index, m->flowlet_id, m->source_terminal,
+                           m->destination_terminal, m->creation_interval,
+                           p->capacity_mbit_per_interval, queued_before, 0.0, queued_after,
+                           dropped);
+    }
 }
 
 static void send_flowlet_fragment(switch_state* ns, int port_id, const queued_flowlet* q,
@@ -922,51 +1111,157 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
 
     port_desc* p = &ns->ports[port_id];
     std::vector<queued_flowlet>& qv = *ns->queues[port_id];
+
     double capacity = p->capacity_mbit_per_interval;
     double remaining_capacity = capacity;
     double sent_total = 0.0;
+    double queued_before = queued_mbit_on_port(ns, port_id);
+    int active_before = active_flowlet_count_on_port(ns, port_id);
 
-    std::vector<int> active;
-    for (int i = 0; i < (int)qv.size(); ++i) {
-        if (qv[i].valid && qv[i].remaining_mbit > EPS) {
-            active.push_back(i);
+    std::vector<std::string> allocations;
+    std::vector<double> send_plan(qv.size(), 0.0);
+
+    auto add_to_plan = [&](int idx, double requested_send) -> double {
+        if (idx < 0 || idx >= (int)send_plan.size() || requested_send <= EPS) {
+            return 0.0;
+        }
+
+        double still_available_for_flowlet = qv[idx].remaining_mbit - send_plan[idx];
+        if (still_available_for_flowlet <= EPS) {
+            return 0.0;
+        }
+
+        double actual_send = std::min(requested_send, still_available_for_flowlet);
+        send_plan[idx] += actual_send;
+        return actual_send;
+    };
+
+    auto record_allocation = [&](const queued_flowlet& before, double send,
+                                 double remaining_after) {
+        append_flowlet_log(m->interval_id, "allocate_send", ns->switch_id, port_id,
+                           p->is_terminal, p->target_index, before.flowlet_id,
+                           before.source_terminal, before.destination_terminal,
+                           before.creation_interval, capacity, queued_before, send,
+                           remaining_after, 0.0);
+
+        std::ostringstream ss;
+        ss << before.flowlet_id << ':' << before.source_terminal << ':'
+           << before.destination_terminal << ':' << before.creation_interval << ':'
+           << before.remaining_mbit << ':' << send << ':' << remaining_after;
+        allocations.push_back(ss.str());
+    };
+
+    if (strcmp(cfg.switch_scheduler, "fifo") == 0) {
+        /*
+         * FIFO is also computed as a plan first, then applied once below.
+         * That keeps the rollback shape identical across schedulers.
+         */
+        for (int i = 0; i < (int)qv.size() && remaining_capacity > EPS; ++i) {
+            if (!qv[i].valid || qv[i].remaining_mbit <= EPS) {
+                continue;
+            }
+
+            double requested_send = std::min(qv[i].remaining_mbit, remaining_capacity);
+            double planned_send = add_to_plan(i, requested_send);
+            remaining_capacity -= planned_send;
+        }
+    } else {
+        std::vector<double> virtual_remaining(qv.size(), 0.0);
+        std::vector<int> active;
+
+        for (int i = 0; i < (int)qv.size(); ++i) {
+            if (qv[i].valid && qv[i].remaining_mbit > EPS) {
+                virtual_remaining[i] = qv[i].remaining_mbit;
+                active.push_back(i);
+            }
+        }
+
+        /*
+         * Max-min fair allocation with redistribution.
+         *
+         * This is intentionally two-phase.  The redistribution loop computes
+         * the final per-flowlet allocation in send_plan without mutating queue
+         * state or scheduling next-hop arrivals.  The application loop below
+         * then applies each affected flowlet exactly once.
+         *
+         * This preserves the fair-sharing result while making future optimistic
+         * reverse computation much simpler:
+         *
+         *   - one queue byte delta per flowlet
+         *   - at most one scheduled fragment per flowlet per switch-port interval
+         *   - one training/log target per flowlet
+         */
+        while (!active.empty() && remaining_capacity > EPS) {
+            double share = remaining_capacity / (double)active.size();
+            std::vector<int> still_active;
+            bool made_progress = false;
+
+            for (size_t ai = 0; ai < active.size(); ++ai) {
+                int idx = active[ai];
+
+                double planned_send = std::min(virtual_remaining[idx], share);
+                if (planned_send > EPS) {
+                    send_plan[idx] += planned_send;
+                    virtual_remaining[idx] -= planned_send;
+                    remaining_capacity -= planned_send;
+                    made_progress = true;
+                }
+
+                if (virtual_remaining[idx] > EPS) {
+                    still_active.push_back(idx);
+                }
+            }
+
+            active.swap(still_active);
+
+            if (!made_progress) {
+                break;
+            }
         }
     }
 
-    /* Max-min fair allocation with redistribution.  For 25 Mb and 10 Mb
-     * flowlets on a 25 Mb link, this sends 15 Mb from the larger flowlet and
-     * 10 Mb from the smaller one, leaving 10 Mb queued from the larger flowlet.
-     */
-    while (!active.empty() && remaining_capacity > EPS) {
-        double share = remaining_capacity / (double)active.size();
-        std::vector<int> still_active;
-        bool made_progress = false;
-        for (size_t ai = 0; ai < active.size(); ++ai) {
-            int idx = active[ai];
-            queued_flowlet before = qv[idx];
-            double send = std::min(before.remaining_mbit, share);
-            if (send > EPS) {
-                send_flowlet_fragment(ns, port_id, &before, send, m->interval_id, lp);
-                qv[idx].remaining_mbit -= send;
-                remaining_capacity -= send;
-                sent_total += send;
-                made_progress = true;
-            }
-            if (qv[idx].remaining_mbit > EPS) {
-                still_active.push_back(idx);
-            }
+    for (int i = 0; i < (int)qv.size(); ++i) {
+        double send = send_plan[i];
+
+        if (!qv[i].valid || send <= EPS) {
+            continue;
         }
-        active.swap(still_active);
-        if (!made_progress) {
-            break;
+
+        if (send > qv[i].remaining_mbit + EPS) {
+            tw_error(TW_LOC,
+                     "computed send %.12f exceeds remaining %.12f for flowlet %llu "
+                     "on switch %d port %d",
+                     send, qv[i].remaining_mbit,
+                     (unsigned long long)qv[i].flowlet_id, ns->switch_id, port_id);
         }
+
+        queued_flowlet before = qv[i];
+
+        /*
+         * Clamp only to protect against floating-point roundoff near EPS.  A
+         * larger violation is caught by the tw_error above.
+         */
+        send = std::min(send, qv[i].remaining_mbit);
+
+        send_flowlet_fragment(ns, port_id, &before, send, m->interval_id, lp);
+        qv[i].remaining_mbit -= send;
+        sent_total += send;
+
+        record_allocation(before, send, qv[i].remaining_mbit);
     }
 
     compact_port_queue(ns, port_id);
+
     double queued_after = queued_mbit_on_port(ns, port_id);
+    int active_after = active_flowlet_count_on_port(ns, port_id);
+
     append_switch_log(m->interval_id, "egress", ns->switch_id, port_id, p->is_terminal,
-                      p->target_index, capacity, sent_total, queued_after, 0.0,
-                      (int)qv.size());
+                      p->target_index, capacity, queued_before, sent_total, queued_after, 0.0,
+                      active_after);
+
+    append_switch_training_log(m->interval_id, ns->switch_id, port_id, p->is_terminal,
+                               p->target_index, capacity, queued_before, sent_total, queued_after,
+                               0.0, active_before, active_after, allocations);
 
     schedule_switch_egress(m->interval_id + 1, port_id, lp);
 }
@@ -998,11 +1293,11 @@ static void switch_finalize(switch_state* ns, tw_lp* lp) {
     for (int p = 0; p < ns->num_ports; ++p) {
         queued += queued_mbit_on_port(ns, p);
     }
-    printf("fluid-switch gid=%llu switch=%d name=%s ports=%d received_flowlets=%d "
+    printf("fluid-switch gid=%llu switch=%d name=%s ports=%d received_fragments=%d "
            "sent_fragments=%d enqueued_mbit=%.6f sent_mbit=%.6f local_delivery_mbit=%.6f "
            "dropped_mbit=%.6f queued_mbit=%.6f\n",
            (unsigned long long)lp->gid, ns->switch_id, switches[ns->switch_id].name.c_str(),
-           ns->num_ports, ns->received_flowlets, ns->sent_fragments, ns->enqueued_mbit,
+           ns->num_ports, ns->received_fragments, ns->sent_fragments, ns->enqueued_mbit,
            ns->sent_mbit, ns->delivered_local_mbit, ns->dropped_mbit, queued);
 }
 
@@ -1036,7 +1331,21 @@ static void write_log_headers(int rank) {
         std::remove(cfg.switch_log_path);
         std::ofstream out(cfg.switch_log_path, std::ios::app);
         out << "interval,event,switch,switch_name,port,target_type,target_index,capacity_mbit,"
-               "sent_mbit,queued_after_mbit,dropped_mbit,active_flowlets\n";
+               "queued_before_mbit,sent_mbit,queued_after_mbit,dropped_mbit,active_queue_entries\n";
+    }
+    if (cfg.flowlet_log_path[0] != '\0') {
+        std::remove(cfg.flowlet_log_path);
+        std::ofstream out(cfg.flowlet_log_path, std::ios::app);
+        out << "interval,event,switch,switch_name,port,target_type,target_index,flowlet_id,"
+               "source_terminal,destination_terminal,creation_interval,age_intervals,capacity_mbit,"
+               "queued_before_mbit,send_mbit,remaining_after_mbit,dropped_mbit\n";
+    }
+    if (cfg.switch_training_log_path[0] != '\0') {
+        std::remove(cfg.switch_training_log_path);
+        std::ofstream out(cfg.switch_training_log_path, std::ios::app);
+        out << "interval,switch,switch_name,port,target_type,target_index,scheduler,capacity_mbit,"
+               "queued_before_mbit,sent_mbit,queued_after_mbit,dropped_mbit,active_before,"
+               "active_after,allocations\n";
     }
 }
 
@@ -1078,9 +1387,9 @@ int main(int argc, char** argv) {
 
     if (rank == 0) {
         printf("fluid-switch config: switches=%zu terminals=%zu interval_seconds=%.6f "
-               "num_send_intervals=%d num_drain_intervals=%d\n",
+               "num_send_intervals=%d num_drain_intervals=%d switch_scheduler=%s\n",
                switches.size(), terminals.size(), cfg.interval_seconds, cfg.num_send_intervals,
-               cfg.num_drain_intervals);
+               cfg.num_drain_intervals, cfg.switch_scheduler);
     }
 
     tw_run();
