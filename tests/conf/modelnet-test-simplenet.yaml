@@ -1,10 +1,10 @@
 schema_version: 1
 
-# YAML twin of modelnet-test.conf: sixteen peer compute nodes running a workload
-# over a simplenet NIC. A flat topology is just a component (the workload plus
-# its NIC model) and a node count -- simplenet is a uniform all-to-all model, so
-# there is no matrix file and no explicit node graph, and the net params sit
-# directly on the component.
+# YAML twin of modelnet-test-simplenet.conf: sixteen peer compute nodes running
+# a workload over a simplenet NIC. A flat topology is just a component (the
+# workload plus its NIC model) and a node count -- simplenet is a uniform
+# all-to-all model, so there is no matrix file and no explicit node graph, and
+# the net params sit directly on the component.
 
 components:
   compute_node:

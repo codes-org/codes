@@ -490,7 +490,7 @@ codes_add_run_test(NAME codes-workload-test BINARY codes-workload-test
     ARGS --sync=1 "${CMAKE_CURRENT_SOURCE_DIR}/workload/codes-workload-test.conf")
 
 # modelnet-test binary exercised against one config per topology.
-codes_add_run_test(NAME modelnet-test           BINARY modelnet-test ARGS --sync=1 -- "${_tconf}/modelnet-test.conf")
+codes_add_run_test(NAME modelnet-test           BINARY modelnet-test ARGS --sync=1 -- "${_tconf}/modelnet-test-simplenet.conf")
 codes_add_run_test(NAME modelnet-test-dragonfly BINARY modelnet-test ARGS --sync=1 -- "${_tconf}/modelnet-test-dragonfly.conf")
 codes_add_run_test(NAME modelnet-test-torus     BINARY modelnet-test ARGS --sync=1 -- "${_tconf}/modelnet-test-torus.conf")
 codes_add_run_test(NAME modelnet-test-em        BINARY modelnet-test ARGS --sync=1 -- "${_tconf}/modelnet-test-em.conf")
@@ -530,7 +530,7 @@ codes_add_lpio_equivalence_test(
     NAME     simplenet-config-equivalence
     BINARY   modelnet-test
     ARGS     --sync=1
-    CONFIG_A "${_tconf}/modelnet-test.conf"
+    CONFIG_A "${_tconf}/modelnet-test-simplenet.conf"
     CONFIG_B "${_tconf}/modelnet-test-simplenet.yaml")
 codes_add_lpio_equivalence_test(
     NAME     loggp-config-equivalence
