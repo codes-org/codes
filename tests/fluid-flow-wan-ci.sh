@@ -48,8 +48,9 @@ fi
 
 rm -rf "$case_name"
 mkdir -p "$case_name/logs"
+cp "$topology" "$case_name/fluid-flow-wan-topology.yaml"
 
-python3 - "$base_conf" "$case_name/fluid-flow-wan.conf" "$scheduler" "$topology" <<'PY'
+python3 - "$base_conf" "$case_name/fluid-flow-wan.conf" "$scheduler" <<'PY'
 from pathlib import Path
 import re
 import sys
@@ -57,7 +58,6 @@ import sys
 base_conf = Path(sys.argv[1])
 out_conf = Path(sys.argv[2])
 scheduler = sys.argv[3]
-topology = Path(sys.argv[4]).resolve()
 
 text = base_conf.read_text()
 
@@ -72,7 +72,7 @@ replace_one(r'switch_scheduler="[^"]*";',
             "switch_scheduler")
 
 replace_one(r'topology_yaml_file="[^"]*";',
-            f'topology_yaml_file="{topology}";',
+            'topology_yaml_file="fluid-flow-wan-topology.yaml";',
             "topology_yaml_file")
 
 replace_one(r'terminal_log_path="[^"]*";',
