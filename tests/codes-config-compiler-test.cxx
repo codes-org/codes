@@ -529,10 +529,59 @@ topology:
       num_routers: 4
       num_groups: 0
       num_cns_per_router: 2
+      num_global_channels: 2
   hosts:
     component: compute_host
 )"),
                  config_error);
+}
+
+// dally/custom require num_global_channels even though it plays no part in the
+// LP counts: the model would otherwise default it to 10 with only a warning,
+// silently contradicting the binary wiring files. Each test first compiles the
+// same config WITH the key, so the throw can only be about the dropped key.
+
+TEST(ConfigCompiler, DallyShapeRequiresNumGlobalChannels) {
+    const std::string head = R"(
+schema_version: 1
+components:
+  compute_host: { model: nw-lp }
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly-dally
+    shape:
+      num_routers: 4
+      num_groups: 9
+      num_cns_per_router: 2
+)";
+    const std::string tail = R"(  hosts:
+    component: compute_host
+)";
+    EXPECT_NO_THROW(compile(head + "      num_global_channels: 2\n" + tail));
+    EXPECT_THROW(compile(head + tail), config_error);
+}
+
+TEST(ConfigCompiler, CustomShapeRequiresNumGlobalChannels) {
+    const std::string head = R"(
+schema_version: 1
+components:
+  compute_host: { model: nw-lp }
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly-custom
+    shape:
+      num_router_rows: 6
+      num_router_cols: 16
+      num_groups: 8
+      num_cns_per_router: 4
+)";
+    const std::string tail = R"(  hosts:
+    component: compute_host
+)";
+    EXPECT_NO_THROW(compile(head + "      num_global_channels: 4\n" + tail));
+    EXPECT_THROW(compile(head + tail), config_error);
 }
 
 TEST(ConfigCompiler, ParametricRejectsEmptyComponentModel) {

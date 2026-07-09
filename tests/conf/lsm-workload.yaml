@@ -1,9 +1,8 @@
-schema_version: 1
-
 # A reusable fragment: just the local-storage-model (lsm) section. A run file
 # pulls this in with `include:` and supplies its own topology -- so the same
 # storage-model config can be shared across different layouts. See
-# lsm-test-include.yaml.
+# lsm-test-include.yaml. A fragment needs no schema_version of its own -- it
+# compiles under the including file's declared version.
 
 sections:
   lsm:

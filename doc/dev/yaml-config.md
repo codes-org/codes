@@ -40,7 +40,8 @@ include:             # other config files to reuse (base; this file overrides)
 - **`components`** is a map of name → component. A **component** pairs a model
   (`model:`) with its parameters; a flat-network component also names the NIC
   model it runs over (`network:`). Components are referenced by name from the
-  topology.
+  topology. The key `type:` is reserved for a future schema version and is
+  rejected rather than passed through as a model param.
 - **`topology`** selects the layout, via one of three `format`s: `flat` is an
   all-to-all point-to-point network described by a component and a node count;
   `parametric` is an HPC fabric described by shape parameters; `groups` lays the
@@ -382,9 +383,11 @@ topology:
 ### fattree
 
 A multi-level fat-tree. One repetition per edge switch, each hosting
-`switch_radix / 2` terminals, with one switch LP per level. The fattree switch is
-not a separate model-net method, so it does not appear in `modelnet_order`.
-Bandwidth is set with flat keys (`link_bandwidth`, `cn_bandwidth`).
+`switch_radix / 2` terminals, with one switch LP per level. `switch_radix` must
+be even — an odd radix is a config error rather than a silent truncation of the
+terminal split. The fattree switch is not a separate model-net method, so it
+does not appear in `modelnet_order`. Bandwidth is set with flat keys
+(`link_bandwidth`, `cn_bandwidth`).
 
 Shape: `num_levels`, `switch_count`, `switch_radix`
 (repetitions = `switch_count`, terminals per switch = `switch_radix / 2`).
@@ -429,7 +432,11 @@ These fabrics read their wiring from binary connection files produced by the
 existing generator scripts. Add a `connections` block naming the `intra`/`inter`
 files by path; the model reads them unchanged. For a file-enumerated fabric the
 `shape` counts are **inputs that must stay consistent with the connection
-files** — they are not free to choose independently of the wiring.
+files** — they are not free to choose independently of the wiring. Every shape
+key listed below is required unless marked optional — including
+`num_global_channels`, which plays no part in the LP counts but must match the
+wiring: left out, the model would fall back to a default (10) with only a
+warning, so the compiler demands it up front instead.
 
 ```yaml
     connections:
@@ -718,8 +725,14 @@ section across layouts. Merge rules:
 
 - `components:` and `sections:` merge **by name** — an included set plus your own
   additions, with a local entry of the same name winning.
-- `topology:` and `schema_version:` are singular — a local one replaces the
-  included one.
+- `topology:` is singular — a local topology replaces the included one, and with
+  no local one the included topology stands.
+- `schema_version:` belongs to the top-level file — the one passed on the
+  command line — and is required only there. A fragment can simply omit it and
+  compiles under the top-level file's version; keep reusable fragments
+  version-free so a version bump never touches them. If a fragment does state
+  one, it is cross-checked — a version this build doesn't understand is an
+  error wherever it appears.
 - Multiple includes apply in list order; the local file is applied last.
 
 Includes are resolved when the config is loaded, *before* compilation. The

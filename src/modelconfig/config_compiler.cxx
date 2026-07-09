@@ -286,6 +286,11 @@ layout derive_dragonfly_dally(const kv_list& shape) {
     long num_groups = shape_int(shape, "num_groups");
     long num_cns = shape_int(shape, "num_cns_per_router");
     long num_planes = shape_int_default(shape, "num_planes", 1);
+    /* Not part of the LP-count arithmetic, but required up front: the value must
+     * match the wiring in the connection files, and a missing key would
+     * otherwise fall back to the model's default (10) with only a warning --
+     * silently contradicting the wiring. */
+    shape_int(shape, "num_global_channels");
     return {num_groups * num_planes * num_routers, num_cns, 1};
 }
 
@@ -356,6 +361,11 @@ layout derive_dragonfly_custom(const kv_list& shape) {
     long rows = shape_int(shape, "num_router_rows");
     long cols = shape_int(shape, "num_router_cols");
     long num_cns = shape_int(shape, "num_cns_per_router");
+    /* Not part of the LP-count arithmetic, but required up front: the value must
+     * match the wiring in the connection files, and a missing key would
+     * otherwise fall back to the model's default (10) with only a warning --
+     * silently contradicting the wiring. */
+    shape_int(shape, "num_global_channels");
     return {num_groups * rows * cols, num_cns, 1};
 }
 
