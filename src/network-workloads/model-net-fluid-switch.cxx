@@ -2,13 +2,11 @@
 /*
  * Standalone interval-fluid switch/terminal workload model.
  *
- * This is a pure PDES model.  It does not use model-net and does not call the
- * ZeroMQ Director.  Terminal LPs generate stochastic bounded workload flowlets.
- * Switch LPs route flowlets, queue them per output link, enforce a shared
- * switch-wide buffer, and send per-flowlet fragments subject to interval link
- * capacity.
+ * Terminal LPs generate stochastic bounded workload flowlets. Switch LPs route
+ * flowlets, queue them per output link, enforce a shared switch-wide buffer,
+ * and send per-flowlet fragments subject to interval link capacity.
  *
- * Supports sequential validation and optimistic execution.  Optimistic mode uses
+ * Supports sequential validation and optimistic execution. Optimistic mode uses
  * event-local reverse metadata to undo terminal generation, switch arrivals,
  * queue mutations, egress byte deltas, and RNG draws.
  */
@@ -40,9 +38,15 @@ static const char* GROUP_NAME = "FLUID_GRP";
 static const char* TERMINAL_LP_NAME = "fluid-terminal-lp";
 static const char* SWITCH_LP_NAME = "fluid-switch-lp";
 
-static constexpr int MAX_SWITCHES = 64;
-static constexpr int MAX_TERMINALS = 4096;
 static constexpr int MAX_PORTS_PER_SWITCH = 128;
+/*
+ * This upper bound is intentionally part of the event-message footprint: every
+ * fluid_msg carries rc_allocs[MAX_RC_ALLOCATIONS] so optimistic execution can
+ * reverse a switch-egress allocation without external state. Keep
+ * PARAMS.message_size >= sizeof(fluid_msg), and reduce this bound only after
+ * measuring the maximum allocations per switch-egress event for the target
+ * topology/workload.
+ */
 static constexpr int MAX_RC_ALLOCATIONS = 256;
 static constexpr double EPS = 1e-9;
 
@@ -112,7 +116,6 @@ struct port_desc {
     int is_terminal;
     int target_index;
     double capacity_mbit_per_interval;
-    double buffer_mbit;
 };
 
 struct terminal_state {
@@ -188,7 +191,6 @@ struct fluid_msg {
     double rc_dropped_mbit;
     int rc_alloc_count;
 
-    int rc_scheduled_egress;
     int rc_prev_scheduled_egress_interval;
 
     int rc_log_target_is_terminal;
@@ -267,10 +269,12 @@ static void validate_ross_message_size_or_abort(int rank) {
             fprintf(stderr,
                     "fluid-switch error: PARAMS.message_size=%d is too small for "
                     "sizeof(fluid_msg)=%zu. Increase PARAMS.message_size in the "
-                    "CODES config before calling codes_mapping_setup().\n",
-                    configured_message_size, required_message_size);
+                    "CODES config before calling codes_mapping_setup(). "
+                    "fluid_msg is large because MAX_RC_ALLOCATIONS=%d reverse "
+                    "allocation records are carried in each event.\n",
+                    configured_message_size, required_message_size, MAX_RC_ALLOCATIONS);
         }
-        MPI_Abort(MPI_COMM_WORLD, 1);
+        MPI_Abort(MPI_COMM_CODES, 1);
     }
 }
 
@@ -918,34 +922,49 @@ static void compact_port_queue(switch_state* ns, int port_id) {
 }
 
 static bool fluid_commit_logging_active = false;
+static std::ostringstream terminal_log_buffer;
+static std::ostringstream switch_log_buffer;
+static std::ostringstream flowlet_log_buffer;
+static std::ostringstream switch_training_log_buffer;
+
+static bool fluid_optimistic_mode(void) {
+    return g_tw_synchronization_protocol == OPTIMISTIC ||
+           g_tw_synchronization_protocol == OPTIMISTIC_DEBUG ||
+           g_tw_synchronization_protocol == OPTIMISTIC_REALTIME;
+}
 
 static bool fluid_csv_forward_logs_enabled(void) {
-    return g_tw_synchronization_protocol == SEQUENTIAL;
+    return !fluid_optimistic_mode();
 }
 
 static bool fluid_csv_commit_logs_enabled(void) {
-    return g_tw_synchronization_protocol != SEQUENTIAL;
+    return fluid_optimistic_mode();
 }
 
 static bool fluid_csv_logs_enabled(void) {
-    /*
-     * Sequential mode logs directly from forward handlers. Optimistic mode logs
-     * only from commit handlers, after ROSS guarantees the event will not roll
-     * back. The process-local flag lets the same append_* helpers be reused by
-     * both paths without permitting speculative forward-time appends.
-     */
     return fluid_csv_forward_logs_enabled() || fluid_commit_logging_active;
+}
+
+static void fluid_commit_logging_begin(void) { fluid_commit_logging_active = true; }
+
+static void fluid_commit_logging_end(void) { fluid_commit_logging_active = false; }
+
+static void append_log_row(const char* path, std::ostringstream* log_buffer,
+                           const std::string& row) {
+    if (path[0] == '\0' || !fluid_csv_logs_enabled()) {
+        return;
+    }
+
+    (*log_buffer) << row;
 }
 
 static void append_terminal_log(int interval_id, const char* event_name, int terminal_id,
                                 int peer_id, double mbit) {
-    if (cfg.terminal_log_path[0] == '\0' || !fluid_csv_logs_enabled()) {
-        return;
-    }
-    std::ofstream out(cfg.terminal_log_path, std::ios::app);
-    out << interval_id << ',' << event_name << ',' << terminal_id << ','
+    std::ostringstream row;
+    row << interval_id << ',' << event_name << ',' << terminal_id << ','
         << terminals[terminal_id].name << ',' << terminals[terminal_id].switch_id << ','
         << peer_id << ',' << mbit << '\n';
+    append_log_row(cfg.terminal_log_path, &terminal_log_buffer, row.str());
 }
 
 static void append_switch_log(int interval_id, const char* event_name, int switch_id, int port_id,
@@ -957,19 +976,16 @@ static void append_switch_log(int interval_id, const char* event_name, int switc
                               double shared_buffer_mbit,
                               double dropped_mbit,
                               int active_queue_entries) {
-    if (cfg.switch_log_path[0] == '\0' || !fluid_csv_logs_enabled()) {
-        return;
-    }
-    std::ofstream out(cfg.switch_log_path, std::ios::app);
-    out << interval_id << ',' << event_name << ',' << switch_id << ','
+    std::ostringstream row;
+    row << interval_id << ',' << event_name << ',' << switch_id << ','
         << switches[switch_id].name << ',' << port_id << ','
         << (target_is_terminal ? "terminal" : "switch") << ',' << target_index << ','
         << capacity_mbit << ',' << queued_before_mbit << ',' << sent_mbit << ','
         << queued_after_mbit << ',' << shared_queued_before_mbit << ','
         << shared_queued_after_mbit << ',' << shared_buffer_mbit << ','
         << dropped_mbit << ',' << active_queue_entries << '\n';
+    append_log_row(cfg.switch_log_path, &switch_log_buffer, row.str());
 }
-
 
 static void append_flowlet_log(int interval_id, const char* event_name, int switch_id, int port_id,
                                int target_is_terminal, int target_index,
@@ -978,17 +994,15 @@ static void append_flowlet_log(int interval_id, const char* event_name, int swit
                                double capacity_mbit, double queued_before_mbit,
                                double send_mbit, double remaining_after_mbit,
                                double dropped_mbit) {
-    if (cfg.flowlet_log_path[0] == '\0' || !fluid_csv_logs_enabled()) {
-        return;
-    }
-    std::ofstream out(cfg.flowlet_log_path, std::ios::app);
-    out << interval_id << ',' << event_name << ',' << switch_id << ','
+    std::ostringstream row;
+    row << interval_id << ',' << event_name << ',' << switch_id << ','
         << switches[switch_id].name << ',' << port_id << ','
         << (target_is_terminal ? "terminal" : "switch") << ',' << target_index << ','
         << flowlet_id << ',' << source_terminal << ',' << destination_terminal << ','
         << creation_interval << ',' << (interval_id - creation_interval) << ','
         << capacity_mbit << ',' << queued_before_mbit << ',' << send_mbit << ','
         << remaining_after_mbit << ',' << dropped_mbit << '\n';
+    append_log_row(cfg.flowlet_log_path, &flowlet_log_buffer, row.str());
 }
 
 static void append_switch_training_log(int interval_id, int switch_id, int port_id,
@@ -998,22 +1012,20 @@ static void append_switch_training_log(int interval_id, int switch_id, int port_
                                        double dropped_mbit, int active_before,
                                        int active_after,
                                        const std::vector<std::string>& allocations) {
-    if (cfg.switch_training_log_path[0] == '\0' || !fluid_csv_logs_enabled()) {
-        return;
-    }
-    std::ofstream out(cfg.switch_training_log_path, std::ios::app);
-    out << interval_id << ',' << switch_id << ',' << switches[switch_id].name << ','
+    std::ostringstream row;
+    row << interval_id << ',' << switch_id << ',' << switches[switch_id].name << ','
         << port_id << ',' << (target_is_terminal ? "terminal" : "switch") << ','
         << target_index << ',' << cfg.switch_scheduler << ',' << capacity_mbit << ','
         << queued_before_mbit << ',' << sent_mbit << ',' << queued_after_mbit << ','
         << dropped_mbit << ',' << active_before << ',' << active_after << ',';
     for (size_t i = 0; i < allocations.size(); ++i) {
         if (i > 0) {
-            out << ';';
+            row << ';';
         }
-        out << allocations[i];
+        row << allocations[i];
     }
-    out << '\n';
+    row << '\n';
+    append_log_row(cfg.switch_training_log_path, &switch_training_log_buffer, row.str());
 }
 
 static int next_terminal_generate_interval_after(int interval_id) {
@@ -1095,7 +1107,6 @@ static void request_switch_egress(switch_state* ns, int interval_id, int port_id
     int prev = ns->scheduled_egress_interval[port_id];
 
     if (cause_msg != NULL) {
-        cause_msg->rc_scheduled_egress = 0;
         cause_msg->rc_prev_scheduled_egress_interval = prev;
     }
 
@@ -1126,7 +1137,6 @@ static void request_switch_egress(switch_state* ns, int interval_id, int port_id
     ns->scheduled_egress_interval[port_id] = interval_id;
 
     if (cause_msg != NULL) {
-        cause_msg->rc_scheduled_egress = 1;
     }
 }
 
@@ -1177,6 +1187,156 @@ static double random_workload_mbit(int terminal_id, tw_lp* lp) {
     return min_mbit + u * (max_mbit - min_mbit);
 }
 
+static void build_allocation_strings_from_rc(const fluid_msg* m,
+                                             std::vector<std::string>& allocations) {
+    allocations.clear();
+
+    for (int i = 0; i < m->rc_alloc_count; ++i) {
+        const rc_alloc_record* rc = &m->rc_allocs[i];
+
+        if (!rc->valid || rc->send_mbit <= EPS) {
+            continue;
+        }
+
+        double remaining_after = rc->before.remaining_mbit - rc->send_mbit;
+        if (remaining_after < 0.0 && remaining_after > -EPS) {
+            remaining_after = 0.0;
+        }
+
+        std::ostringstream ss;
+        ss << rc->before.flowlet_id << ':' << rc->before.source_terminal << ':'
+           << rc->before.destination_terminal << ':' << rc->before.creation_interval << ':'
+           << rc->before.remaining_mbit << ':' << rc->send_mbit << ':' << remaining_after;
+        allocations.push_back(ss.str());
+    }
+}
+
+static void log_terminal_generate_event(const terminal_state* ns, const fluid_msg* m) {
+    if (m->rc_generated) {
+        append_terminal_log(m->interval_id, "generate_send", ns->terminal_id,
+                            m->destination_terminal, m->mbit);
+    }
+}
+
+static void log_terminal_receive_event(const terminal_state* ns, const fluid_msg* m) {
+    append_terminal_log(m->interval_id, "receive", ns->terminal_id,
+                        m->source_terminal, m->mbit);
+}
+
+static void log_switch_arrival_event(const switch_state* ns, const fluid_msg* m) {
+    if (m->rc_no_route) {
+        append_switch_log(m->interval_id, "drop_no_route", ns->switch_id, -1, 0, -1,
+                          0.0, 0.0, 0.0, 0.0,
+                          m->rc_log_shared_queued_before_mbit,
+                          m->rc_log_shared_queued_after_mbit,
+                          ns->shared_buffer_mbit, m->rc_dropped_mbit, 0);
+        append_flowlet_log(m->interval_id, "drop_no_route", ns->switch_id, -1, 0, -1,
+                           m->flowlet_id, m->source_terminal, m->destination_terminal,
+                           m->creation_interval, 0.0, 0.0, 0.0, 0.0,
+                           m->rc_dropped_mbit);
+        return;
+    }
+
+    if (m->rc_accepted_mbit > EPS) {
+        append_flowlet_log(m->interval_id,
+                           m->rc_coalesced ? "enqueue_coalesce" : "enqueue",
+                           ns->switch_id, m->rc_port_id,
+                           m->rc_log_target_is_terminal,
+                           m->rc_log_target_index,
+                           m->flowlet_id, m->source_terminal,
+                           m->destination_terminal, m->creation_interval,
+                           m->rc_log_capacity_mbit,
+                           m->rc_log_port_queued_before_mbit,
+                           0.0,
+                           m->rc_log_flowlet_remaining_after_mbit,
+                           0.0);
+    }
+
+    if (m->rc_dropped_mbit > EPS) {
+        append_switch_log(m->interval_id, "drop_shared_buffer_overflow",
+                          ns->switch_id, m->rc_port_id,
+                          m->rc_log_target_is_terminal,
+                          m->rc_log_target_index,
+                          m->rc_log_capacity_mbit,
+                          m->rc_log_port_queued_before_mbit,
+                          0.0,
+                          m->rc_log_port_queued_after_mbit,
+                          m->rc_log_shared_queued_before_mbit,
+                          m->rc_log_shared_queued_after_mbit,
+                          ns->shared_buffer_mbit,
+                          m->rc_dropped_mbit,
+                          m->rc_log_active_after_entries);
+
+        append_flowlet_log(m->interval_id, "drop_shared_buffer_overflow",
+                           ns->switch_id, m->rc_port_id,
+                           m->rc_log_target_is_terminal,
+                           m->rc_log_target_index,
+                           m->flowlet_id, m->source_terminal,
+                           m->destination_terminal, m->creation_interval,
+                           m->rc_log_capacity_mbit,
+                           m->rc_log_port_queued_before_mbit,
+                           0.0,
+                           m->rc_log_flowlet_remaining_after_mbit,
+                           m->rc_dropped_mbit);
+    }
+}
+
+static void log_switch_egress_event(const switch_state* ns, const fluid_msg* m) {
+    for (int i = 0; i < m->rc_alloc_count; ++i) {
+        const rc_alloc_record* rc = &m->rc_allocs[i];
+
+        if (!rc->valid || rc->send_mbit <= EPS) {
+            continue;
+        }
+
+        double remaining_after = rc->before.remaining_mbit - rc->send_mbit;
+        if (remaining_after < 0.0 && remaining_after > -EPS) {
+            remaining_after = 0.0;
+        }
+
+        append_flowlet_log(m->interval_id, "allocate_send",
+                           ns->switch_id, m->port_id,
+                           m->rc_log_target_is_terminal,
+                           m->rc_log_target_index,
+                           rc->before.flowlet_id,
+                           rc->before.source_terminal,
+                           rc->before.destination_terminal,
+                           rc->before.creation_interval,
+                           m->rc_log_capacity_mbit,
+                           m->rc_log_port_queued_before_mbit,
+                           rc->send_mbit,
+                           remaining_after,
+                           0.0);
+    }
+
+    append_switch_log(m->interval_id, "egress", ns->switch_id, m->port_id,
+                      m->rc_log_target_is_terminal,
+                      m->rc_log_target_index,
+                      m->rc_log_capacity_mbit,
+                      m->rc_log_port_queued_before_mbit,
+                      m->rc_log_sent_total_mbit,
+                      m->rc_log_port_queued_after_mbit,
+                      m->rc_log_shared_queued_before_mbit,
+                      m->rc_log_shared_queued_after_mbit,
+                      ns->shared_buffer_mbit,
+                      0.0,
+                      m->rc_log_active_after_entries);
+
+    std::vector<std::string> allocations;
+    build_allocation_strings_from_rc(m, allocations);
+    append_switch_training_log(m->interval_id, ns->switch_id, m->port_id,
+                               m->rc_log_target_is_terminal,
+                               m->rc_log_target_index,
+                               m->rc_log_capacity_mbit,
+                               m->rc_log_port_queued_before_mbit,
+                               m->rc_log_sent_total_mbit,
+                               m->rc_log_port_queued_after_mbit,
+                               0.0,
+                               m->rc_log_active_before_entries,
+                               m->rc_log_active_after_entries,
+                               allocations);
+}
+
 static void handle_workload_generate(terminal_state* ns, fluid_msg* m, tw_lp* lp) {
     int interval = m->interval_id;
 
@@ -1222,7 +1382,7 @@ static void handle_workload_generate(terminal_state* ns, fluid_msg* m, tw_lp* lp
             m->flowlet_id = out_msg.flowlet_id;
             m->mbit = mbit;
 
-            append_terminal_log(interval, "generate_send", ns->terminal_id, dst, mbit);
+            log_terminal_generate_event(ns, m);
 
             if (cfg.debug_prints) {
                 printf("[fluid terminal] interval=%d terminal=%d dst=%d mbit=%.6f\n",
@@ -1238,7 +1398,7 @@ static void handle_workload_generate(terminal_state* ns, fluid_msg* m, tw_lp* lp
 static void handle_terminal_arrival(terminal_state* ns, fluid_msg* m) {
     ns->received_mbit += m->mbit;
     ns->received_fragments++;
-    append_terminal_log(m->interval_id, "receive", ns->terminal_id, m->source_terminal, m->mbit);
+    log_terminal_receive_event(ns, m);
 }
 
 static void terminal_event(terminal_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp) {
@@ -1289,10 +1449,6 @@ static void terminal_rev_event(terminal_state* ns, tw_bf* b, fluid_msg* m, tw_lp
     }
 }
 
-static void fluid_commit_logging_begin(void) { fluid_commit_logging_active = true; }
-
-static void fluid_commit_logging_end(void) { fluid_commit_logging_active = false; }
-
 static void terminal_commit_event(terminal_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp) {
     (void)b;
     (void)lp;
@@ -1305,15 +1461,11 @@ static void terminal_commit_event(terminal_state* ns, tw_bf* b, fluid_msg* m, tw
 
     switch (m->event_type) {
     case WORKLOAD_GENERATE:
-        if (m->rc_generated) {
-            append_terminal_log(m->interval_id, "generate_send", ns->terminal_id,
-                                m->destination_terminal, m->mbit);
-        }
+        log_terminal_generate_event(ns, m);
         break;
 
     case FLOWLET_ARRIVAL:
-        append_terminal_log(m->interval_id, "receive", ns->terminal_id,
-                            m->source_terminal, m->mbit);
+        log_terminal_receive_event(ns, m);
         break;
 
     default:
@@ -1322,31 +1474,6 @@ static void terminal_commit_event(terminal_state* ns, tw_bf* b, fluid_msg* m, tw
 
     fluid_commit_logging_end();
 }
-
-static void build_allocation_strings_from_rc(const fluid_msg* m,
-                                             std::vector<std::string>& allocations) {
-    allocations.clear();
-
-    for (int i = 0; i < m->rc_alloc_count; ++i) {
-        const rc_alloc_record* rc = &m->rc_allocs[i];
-
-        if (!rc->valid || rc->send_mbit <= EPS) {
-            continue;
-        }
-
-        double remaining_after = rc->before.remaining_mbit - rc->send_mbit;
-        if (remaining_after < 0.0 && remaining_after > -EPS) {
-            remaining_after = 0.0;
-        }
-
-        std::ostringstream ss;
-        ss << rc->before.flowlet_id << ':' << rc->before.source_terminal << ':'
-           << rc->before.destination_terminal << ':' << rc->before.creation_interval << ':'
-           << rc->before.remaining_mbit << ':' << rc->send_mbit << ':' << remaining_after;
-        allocations.push_back(ss.str());
-    }
-}
-
 
 static void terminal_finalize(terminal_state* ns, tw_lp* lp) {
     printf("fluid-terminal gid=%llu terminal=%d switch=%d generated_mbit=%.6f sent_mbit=%.6f "
@@ -1388,7 +1515,6 @@ static void switch_init(switch_state* ns, tw_lp* lp) {
         p->is_terminal = 0;
         p->target_index = sw.links[i].dst_switch;
         p->capacity_mbit_per_interval = sw.links[i].bandwidth_mbps * cfg.interval_seconds;
-        p->buffer_mbit = 0.0; /* buffer capacity is switch-wide, not per port */
         ns->queues[ns->num_ports - 1] = new std::vector<queued_flowlet>();
     }
     for (int t = 0; t < sw.terminal_count; ++t) {
@@ -1400,7 +1526,6 @@ static void switch_init(switch_state* ns, tw_lp* lp) {
         p->is_terminal = 1;
         p->target_index = sw.terminal_start + t;
         p->capacity_mbit_per_interval = sw.terminal_bandwidth_mbps * cfg.interval_seconds;
-        p->buffer_mbit = 0.0; /* buffer capacity is switch-wide, not per port */
         ns->queues[ns->num_ports - 1] = new std::vector<queued_flowlet>();
     }
 
@@ -1432,7 +1557,6 @@ static void handle_switch_arrival(switch_state* ns, fluid_msg* m, tw_lp* lp) {
         m->rc_port_id = -1;
         m->rc_accepted_mbit = 0.0;
         m->rc_dropped_mbit = m->mbit;
-        m->rc_scheduled_egress = 0;
         m->rc_prev_scheduled_egress_interval = -1;
         m->rc_log_target_is_terminal = 0;
         m->rc_log_target_index = -1;
@@ -1446,12 +1570,7 @@ static void handle_switch_arrival(switch_state* ns, fluid_msg* m, tw_lp* lp) {
         m->rc_log_active_before_entries = 0;
         m->rc_log_active_after_entries = 0;
         ns->dropped_mbit += m->mbit;
-        append_switch_log(m->interval_id, "drop_no_route", ns->switch_id, -1, 0, -1,
-                          0.0, 0.0, 0.0, 0.0, shared_before, shared_before,
-                          ns->shared_buffer_mbit, m->mbit, 0);
-        append_flowlet_log(m->interval_id, "drop_no_route", ns->switch_id, -1, 0, -1,
-                           m->flowlet_id, m->source_terminal, m->destination_terminal,
-                           m->creation_interval, 0.0, 0.0, 0.0, 0.0, m->mbit);
+        log_switch_arrival_event(ns, m);
         return;
     }
 
@@ -1470,7 +1589,6 @@ static void handle_switch_arrival(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     m->rc_coalesced = 0;
     m->rc_accepted_mbit = 0.0;
     m->rc_dropped_mbit = 0.0;
-    m->rc_scheduled_egress = 0;
     m->rc_prev_scheduled_egress_interval = ns->scheduled_egress_interval[port_id];
     m->rc_log_target_is_terminal = p->is_terminal;
     m->rc_log_target_index = p->target_index;
@@ -1504,25 +1622,7 @@ static void handle_switch_arrival(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     m->rc_log_flowlet_remaining_after_mbit = flowlet_remaining_after;
     m->rc_log_active_after_entries = active_after;
 
-    if (accepted > EPS) {
-        append_flowlet_log(m->interval_id, coalesced ? "enqueue_coalesce" : "enqueue",
-                           ns->switch_id, port_id, p->is_terminal, p->target_index,
-                           m->flowlet_id, m->source_terminal, m->destination_terminal,
-                           m->creation_interval, p->capacity_mbit_per_interval,
-                           port_queued_before, 0.0, flowlet_remaining_after, 0.0);
-    }
-    if (dropped > EPS) {
-        append_switch_log(m->interval_id, "drop_shared_buffer_overflow", ns->switch_id,
-                          port_id, p->is_terminal, p->target_index,
-                          p->capacity_mbit_per_interval, port_queued_before, 0.0,
-                          port_queued_after, shared_queued_before, shared_queued_after,
-                          ns->shared_buffer_mbit, dropped, active_after);
-        append_flowlet_log(m->interval_id, "drop_shared_buffer_overflow", ns->switch_id,
-                           port_id, p->is_terminal, p->target_index, m->flowlet_id,
-                           m->source_terminal, m->destination_terminal, m->creation_interval,
-                           p->capacity_mbit_per_interval, port_queued_before, 0.0,
-                           flowlet_remaining_after, dropped);
-    }
+    log_switch_arrival_event(ns, m);
 
     if (port_queued_after > EPS) {
         request_switch_egress(ns, m->interval_id, port_id, lp, m);
@@ -1568,7 +1668,6 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     }
     if (ns->queues[port_id] == NULL) {
         m->rc_prev_scheduled_egress_interval = -1;
-        m->rc_scheduled_egress = 0;
         return;
     }
 
@@ -1576,7 +1675,6 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     std::vector<queued_flowlet>& qv = *ns->queues[port_id];
 
     m->rc_prev_scheduled_egress_interval = ns->scheduled_egress_interval[port_id];
-    m->rc_scheduled_egress = 0;
     if (ns->scheduled_egress_interval[port_id] == m->interval_id) {
         ns->scheduled_egress_interval[port_id] = -1;
     }
@@ -1588,7 +1686,6 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     double shared_queued_before = queued_mbit_on_switch(ns);
     int active_before = active_flowlet_count_on_port(ns, port_id);
 
-    std::vector<std::string> allocations;
     std::vector<double> send_plan(qv.size(), 0.0);
     m->rc_alloc_count = 0;
     m->rc_log_target_is_terminal = p->is_terminal;
@@ -1616,21 +1713,6 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
         double actual_send = std::min(requested_send, still_available_for_flowlet);
         send_plan[idx] += actual_send;
         return actual_send;
-    };
-
-    auto record_allocation = [&](const queued_flowlet& before, double send,
-                                 double remaining_after) {
-        append_flowlet_log(m->interval_id, "allocate_send", ns->switch_id, port_id,
-                           p->is_terminal, p->target_index, before.flowlet_id,
-                           before.source_terminal, before.destination_terminal,
-                           before.creation_interval, capacity, queued_before, send,
-                           remaining_after, 0.0);
-
-        std::ostringstream ss;
-        ss << before.flowlet_id << ':' << before.source_terminal << ':'
-           << before.destination_terminal << ':' << before.creation_interval << ':'
-           << before.remaining_mbit << ':' << send << ':' << remaining_after;
-        allocations.push_back(ss.str());
     };
 
     if (strcmp(cfg.switch_scheduler, "fifo") == 0) {
@@ -1720,7 +1802,6 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
         qv[i].remaining_mbit -= send;
         sent_total += send;
 
-        record_allocation(before, send, qv[i].remaining_mbit);
     }
 
     compact_port_queue(ns, port_id);
@@ -1734,14 +1815,7 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     m->rc_log_sent_total_mbit = sent_total;
     m->rc_log_active_after_entries = active_after;
 
-    append_switch_log(m->interval_id, "egress", ns->switch_id, port_id, p->is_terminal,
-                      p->target_index, capacity, queued_before, sent_total, queued_after,
-                      shared_queued_before, shared_queued_after, ns->shared_buffer_mbit,
-                      0.0, active_after);
-
-    append_switch_training_log(m->interval_id, ns->switch_id, port_id, p->is_terminal,
-                               p->target_index, capacity, queued_before, sent_total, queued_after,
-                               0.0, active_before, active_after, allocations);
+    log_switch_egress_event(ns, m);
 
     if (queued_after > EPS) {
         /*
@@ -1903,119 +1977,12 @@ static void switch_commit_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp*
 
     switch (m->event_type) {
     case FLOWLET_ARRIVAL:
-        if (m->rc_no_route) {
-            append_switch_log(m->interval_id, "drop_no_route", ns->switch_id, -1, 0, -1,
-                              0.0, 0.0, 0.0, 0.0,
-                              m->rc_log_shared_queued_before_mbit,
-                              m->rc_log_shared_queued_after_mbit,
-                              ns->shared_buffer_mbit, m->rc_dropped_mbit, 0);
-            append_flowlet_log(m->interval_id, "drop_no_route", ns->switch_id, -1, 0, -1,
-                               m->flowlet_id, m->source_terminal, m->destination_terminal,
-                               m->creation_interval, 0.0, 0.0, 0.0, 0.0,
-                               m->rc_dropped_mbit);
-        } else {
-            if (m->rc_accepted_mbit > EPS) {
-                append_flowlet_log(m->interval_id,
-                                   m->rc_coalesced ? "enqueue_coalesce" : "enqueue",
-                                   ns->switch_id, m->rc_port_id,
-                                   m->rc_log_target_is_terminal,
-                                   m->rc_log_target_index,
-                                   m->flowlet_id, m->source_terminal,
-                                   m->destination_terminal, m->creation_interval,
-                                   m->rc_log_capacity_mbit,
-                                   m->rc_log_port_queued_before_mbit,
-                                   0.0,
-                                   m->rc_log_flowlet_remaining_after_mbit,
-                                   0.0);
-            }
-
-            if (m->rc_dropped_mbit > EPS) {
-                append_switch_log(m->interval_id, "drop_shared_buffer_overflow",
-                                  ns->switch_id, m->rc_port_id,
-                                  m->rc_log_target_is_terminal,
-                                  m->rc_log_target_index,
-                                  m->rc_log_capacity_mbit,
-                                  m->rc_log_port_queued_before_mbit,
-                                  0.0,
-                                  m->rc_log_port_queued_after_mbit,
-                                  m->rc_log_shared_queued_before_mbit,
-                                  m->rc_log_shared_queued_after_mbit,
-                                  ns->shared_buffer_mbit,
-                                  m->rc_dropped_mbit,
-                                  m->rc_log_active_after_entries);
-
-                append_flowlet_log(m->interval_id, "drop_shared_buffer_overflow",
-                                   ns->switch_id, m->rc_port_id,
-                                   m->rc_log_target_is_terminal,
-                                   m->rc_log_target_index,
-                                   m->flowlet_id, m->source_terminal,
-                                   m->destination_terminal, m->creation_interval,
-                                   m->rc_log_capacity_mbit,
-                                   m->rc_log_port_queued_before_mbit,
-                                   0.0,
-                                   m->rc_log_flowlet_remaining_after_mbit,
-                                   m->rc_dropped_mbit);
-            }
-        }
+        log_switch_arrival_event(ns, m);
         break;
 
-    case SWITCH_EGRESS: {
-        std::vector<std::string> allocations;
-
-        for (int i = 0; i < m->rc_alloc_count; ++i) {
-            const rc_alloc_record* rc = &m->rc_allocs[i];
-
-            if (!rc->valid || rc->send_mbit <= EPS) {
-                continue;
-            }
-
-            double remaining_after = rc->before.remaining_mbit - rc->send_mbit;
-            if (remaining_after < 0.0 && remaining_after > -EPS) {
-                remaining_after = 0.0;
-            }
-
-            append_flowlet_log(m->interval_id, "allocate_send",
-                               ns->switch_id, m->port_id,
-                               m->rc_log_target_is_terminal,
-                               m->rc_log_target_index,
-                               rc->before.flowlet_id,
-                               rc->before.source_terminal,
-                               rc->before.destination_terminal,
-                               rc->before.creation_interval,
-                               m->rc_log_capacity_mbit,
-                               m->rc_log_port_queued_before_mbit,
-                               rc->send_mbit,
-                               remaining_after,
-                               0.0);
-        }
-
-        append_switch_log(m->interval_id, "egress", ns->switch_id, m->port_id,
-                          m->rc_log_target_is_terminal,
-                          m->rc_log_target_index,
-                          m->rc_log_capacity_mbit,
-                          m->rc_log_port_queued_before_mbit,
-                          m->rc_log_sent_total_mbit,
-                          m->rc_log_port_queued_after_mbit,
-                          m->rc_log_shared_queued_before_mbit,
-                          m->rc_log_shared_queued_after_mbit,
-                          ns->shared_buffer_mbit,
-                          0.0,
-                          m->rc_log_active_after_entries);
-
-        build_allocation_strings_from_rc(m, allocations);
-        append_switch_training_log(m->interval_id, ns->switch_id, m->port_id,
-                                   m->rc_log_target_is_terminal,
-                                   m->rc_log_target_index,
-                                   m->rc_log_capacity_mbit,
-                                   m->rc_log_port_queued_before_mbit,
-                                   m->rc_log_sent_total_mbit,
-                                   m->rc_log_port_queued_after_mbit,
-                                   0.0,
-                                   m->rc_log_active_before_entries,
-                                   m->rc_log_active_after_entries,
-                                   allocations);
+    case SWITCH_EGRESS:
+        log_switch_egress_event(ns, m);
         break;
-    }
 
     default:
         break;
@@ -2023,7 +1990,6 @@ static void switch_commit_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp*
 
     fluid_commit_logging_end();
 }
-
 
 static void switch_finalize(switch_state* ns, tw_lp* lp) {
     double queued = 0.0;
@@ -2037,9 +2003,14 @@ static void switch_finalize(switch_state* ns, tw_lp* lp) {
            ns->num_ports, ns->shared_buffer_mbit, ns->received_fragments, ns->sent_fragments,
            ns->enqueued_mbit, ns->sent_mbit, ns->delivered_local_mbit, ns->dropped_mbit,
            queued);
+
+    for (int p = 0; p < ns->num_ports; ++p) {
+        delete ns->queues[p];
+        ns->queues[p] = NULL;
+    }
 }
 
-const tw_optdef app_opt[] = {TWOPT_GROUP("model-net interval-fluid switch/terminal workload"),
+const tw_optdef app_opt[] = {TWOPT_GROUP("interval-fluid switch/terminal workload"),
                              TWOPT_END()};
 
 static const char* find_config_arg(int argc, char** argv) {
@@ -2056,36 +2027,110 @@ static const char* find_config_arg(int argc, char** argv) {
     return NULL;
 }
 
+static void write_log_header_file(const char* path, const char* header) {
+    if (path[0] == '\0') {
+        return;
+    }
+
+    std::remove(path);
+
+    std::ofstream out(path, std::ios::out | std::ios::trunc);
+    if (!out) {
+        tw_error(TW_LOC, "could not open CSV log file '%s' for header", path);
+    }
+    out << header;
+}
+
+static void append_merged_rows_to_file(const char* path, const char* data, int len) {
+    if (path[0] == '\0' || len <= 0) {
+        return;
+    }
+
+    std::ofstream out(path, std::ios::app);
+    if (!out) {
+        tw_error(TW_LOC, "could not open CSV log file '%s' for merged append", path);
+    }
+    out.write(data, len);
+}
+
+static void merge_log_buffer(const char* path, const std::ostringstream& buffer, MPI_Comm comm) {
+    if (path[0] == '\0') {
+        return;
+    }
+
+    int rank = 0;
+    int size = 1;
+    MPI_Comm_rank(comm, &rank);
+    MPI_Comm_size(comm, &size);
+
+    std::string local_rows = buffer.str();
+    int local_len = (int)local_rows.size();
+
+    std::vector<int> recv_counts;
+    std::vector<int> displs;
+    if (rank == 0) {
+        recv_counts.resize(size, 0);
+        displs.resize(size, 0);
+    }
+
+    MPI_Gather(&local_len, 1, MPI_INT,
+               rank == 0 ? recv_counts.data() : NULL, 1, MPI_INT, 0, comm);
+
+    int total_len = 0;
+    if (rank == 0) {
+        for (int i = 0; i < size; ++i) {
+            displs[i] = total_len;
+            total_len += recv_counts[i];
+        }
+    }
+
+    std::vector<char> merged;
+    if (rank == 0 && total_len > 0) {
+        merged.resize(total_len);
+    }
+
+    MPI_Gatherv(local_len > 0 ? local_rows.data() : NULL, local_len, MPI_CHAR,
+                rank == 0 && total_len > 0 ? merged.data() : NULL,
+                rank == 0 ? recv_counts.data() : NULL,
+                rank == 0 ? displs.data() : NULL,
+                MPI_CHAR, 0, comm);
+
+    if (rank == 0 && total_len > 0) {
+        append_merged_rows_to_file(path, merged.data(), total_len);
+    }
+}
+
+static void merge_all_log_buffers(MPI_Comm comm) {
+    merge_log_buffer(cfg.terminal_log_path, terminal_log_buffer, comm);
+    merge_log_buffer(cfg.switch_log_path, switch_log_buffer, comm);
+    merge_log_buffer(cfg.flowlet_log_path, flowlet_log_buffer, comm);
+    merge_log_buffer(cfg.switch_training_log_path, switch_training_log_buffer, comm);
+}
+
 static void write_log_headers(int rank) {
     if (rank != 0) {
         return;
     }
-    if (cfg.terminal_log_path[0] != '\0') {
-        std::remove(cfg.terminal_log_path);
-        std::ofstream out(cfg.terminal_log_path, std::ios::app);
-        out << "interval,event,terminal,terminal_name,attached_switch,peer_terminal,mbit\n";
-    }
-    if (cfg.switch_log_path[0] != '\0') {
-        std::remove(cfg.switch_log_path);
-        std::ofstream out(cfg.switch_log_path, std::ios::app);
-        out << "interval,event,switch,switch_name,port,target_type,target_index,capacity_mbit,"
-               "queued_before_mbit,sent_mbit,queued_after_mbit,shared_queued_before_mbit,"
-               "shared_queued_after_mbit,shared_buffer_mbit,dropped_mbit,active_queue_entries\n";
-    }
-    if (cfg.flowlet_log_path[0] != '\0') {
-        std::remove(cfg.flowlet_log_path);
-        std::ofstream out(cfg.flowlet_log_path, std::ios::app);
-        out << "interval,event,switch,switch_name,port,target_type,target_index,flowlet_id,"
-               "source_terminal,destination_terminal,creation_interval,age_intervals,capacity_mbit,"
-               "queued_before_mbit,send_mbit,remaining_after_mbit,dropped_mbit\n";
-    }
-    if (cfg.switch_training_log_path[0] != '\0') {
-        std::remove(cfg.switch_training_log_path);
-        std::ofstream out(cfg.switch_training_log_path, std::ios::app);
-        out << "interval,switch,switch_name,port,target_type,target_index,scheduler,capacity_mbit,"
-               "queued_before_mbit,sent_mbit,queued_after_mbit,dropped_mbit,active_before,"
-               "active_after,allocations\n";
-    }
+
+    write_log_header_file(cfg.terminal_log_path,
+                          "interval,event,terminal,terminal_name,attached_switch,peer_terminal,mbit\n");
+
+    write_log_header_file(cfg.switch_log_path,
+                          "interval,event,switch,switch_name,port,target_type,target_index,"
+                          "capacity_mbit,queued_before_mbit,sent_mbit,queued_after_mbit,"
+                          "shared_queued_before_mbit,shared_queued_after_mbit,"
+                          "shared_buffer_mbit,dropped_mbit,active_queue_entries\n");
+
+    write_log_header_file(cfg.flowlet_log_path,
+                          "interval,event,switch,switch_name,port,target_type,target_index,"
+                          "flowlet_id,source_terminal,destination_terminal,creation_interval,"
+                          "age_intervals,capacity_mbit,queued_before_mbit,send_mbit,"
+                          "remaining_after_mbit,dropped_mbit\n");
+
+    write_log_header_file(cfg.switch_training_log_path,
+                          "interval,switch,switch_name,port,target_type,target_index,scheduler,"
+                          "capacity_mbit,queued_before_mbit,sent_mbit,queued_after_mbit,"
+                          "dropped_mbit,active_before,active_after,allocations\n");
 }
 
 int main(int argc, char** argv) {
@@ -2103,8 +2148,8 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    configuration_load(config_file, MPI_COMM_WORLD, &config);
+    MPI_Comm_rank(MPI_COMM_CODES, &rank);
+    configuration_load(config_file, MPI_COMM_CODES, &config);
     load_config();
     validate_ross_message_size_or_abort(rank);
 
@@ -2123,7 +2168,7 @@ int main(int argc, char** argv) {
     }
 
     write_log_headers(rank);
-    MPI_Barrier(MPI_COMM_WORLD);
+    MPI_Barrier(MPI_COMM_CODES);
 
     if (rank == 0) {
         printf("fluid-switch config: switches=%zu terminals=%zu interval_seconds=%.6f "
@@ -2131,11 +2176,12 @@ int main(int argc, char** argv) {
                "buffer_mode=shared csv_logs=%s ross_message_size=%d fluid_msg_size=%zu\n",
                switches.size(), terminals.size(), cfg.interval_seconds, cfg.num_send_intervals,
                cfg.num_drain_intervals, cfg.switch_scheduler,
-               fluid_csv_forward_logs_enabled() ? "forward" : "commit",
+               fluid_csv_forward_logs_enabled() ? "buffered-forward" : "buffered-commit",
                get_configured_message_size_bytes(), sizeof(fluid_msg));
     }
 
     tw_run();
+    merge_all_log_buffers(MPI_COMM_CODES);
     tw_end();
     return 0;
 }
