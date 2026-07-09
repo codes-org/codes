@@ -92,6 +92,7 @@ jobs:
       # ROSS install prefix; find_package(ROSS) honors ROSS_ROOT, so the CODES
       # presets need no hardcoded path. Matches the install prefix below.
       ROSS_ROOT: ${{ github.workspace }}/ross-install
+      UCX_TLS: "self,tcp"
     steps:
       - name: Checkout CODES
         uses: actions/checkout@v4
@@ -124,6 +125,17 @@ jobs:
           if [ "${{ matrix.cc }}" = "clang" ]; then
             sudo apt-get install -y clang
           fi
+
+          echo "MPI diagnostics:"
+          which mpiexec || true
+          which mpiexec.mpich || true
+          which mpirun || true
+          which mpirun.mpich || true
+          which mpicc || true
+          mpiexec --version || true
+          mpiexec.mpich --version || true
+          mpicc -show || true
+          dpkg -l | grep -E 'mpich|ucx|openmpi' || true
 
       - name: Install system dependencies (macOS)
         if: runner.os == 'macOS'
