@@ -5,6 +5,8 @@ scheduler="${1:?scheduler required: fifo or round_robin}"
 synch="${2:?synch mode required: 1 or 3}"
 np="${3:?MPI rank count required}"
 case_name="${4:-fluid-flow-wan-${scheduler}-synch${synch}}"
+mpi_exec="${5:-mpirun}"
+mpi_np_flag="${6:--np}"
 
 if [[ "$scheduler" != "fifo" && "$scheduler" != "round_robin" ]]; then
     echo "unsupported scheduler: $scheduler"
@@ -92,11 +94,18 @@ replace_one(r'switch_training_log_path="[^"]*";',
 out_conf.write_text(text)
 PY
 
-(
+if ! (
     cd "$case_name"
-    mpirun -np "$np" "$binary" --synch="$synch" -- fluid-flow-wan.conf \
+    "$mpi_exec" "$mpi_np_flag" "$np" "$binary" --synch="$synch" -- fluid-flow-wan.conf \
         > model-output.txt 2> model-output-error.txt
-)
+); then
+    echo "fluid-flow-wan model run failed"
+    echo "--- stdout ---"
+    cat "$case_name/model-output.txt" || true
+    echo "--- stderr ---"
+    cat "$case_name/model-output-error.txt" || true
+    exit 1
+fi
 
 out="$case_name/model-output.txt"
 

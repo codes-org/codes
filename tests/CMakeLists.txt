@@ -336,6 +336,8 @@ foreach(_ffw_sched fifo round_robin)
                     "${_ffw_synch}"
                     "${_ffw_np}"
                     "${_ffw_test}"
+                    "${MPIEXEC_EXECUTABLE}"
+                    "${MPIEXEC_NUMPROC_FLAG}"
             WORKING_DIRECTORY "${CODES_BINARY_DIR}")
 
         set_tests_properties(${_ffw_test} PROPERTIES TIMEOUT 120)
