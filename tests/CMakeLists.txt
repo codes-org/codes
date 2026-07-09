@@ -56,7 +56,7 @@ add_test(NAME mpi-multirank-sanity
 # REPEAT for "same command N times", VARIANTS when only a small fragment differs
 # (e.g. VARIANTS "--sync=1" "--sync=3" for a seq-vs-optimistic check).
 function(codes_add_equivalence_test)
-    cmake_parse_arguments(T "" "NAME;BINARY;NP;CONFIG;MARKER;REPEAT;SETUP;REQUIRE" "ARGS;VARIANTS" ${ARGN})
+    cmake_parse_arguments(T "" "NAME;BINARY;NP;CONFIG;MARKER;REPEAT;SETUP" "ARGS;VARIANTS;REQUIRE" ${ARGN})
 
     if(NOT T_NAME OR NOT T_BINARY OR NOT T_CONFIG)
         message(FATAL_ERROR "codes_add_equivalence_test: NAME, BINARY and CONFIG are required")
@@ -101,9 +101,11 @@ function(codes_add_equivalence_test)
         set(_setup --setup "${CMAKE_CURRENT_SOURCE_DIR}/${T_SETUP}")
     endif()
     set(_require "")
-    if(T_REQUIRE)
-        set(_require --require "${T_REQUIRE}")
-    endif()
+    foreach(_req IN LISTS T_REQUIRE)
+        if(NOT _req STREQUAL "")
+            list(APPEND _require --require "${_req}")
+        endif()
+    endforeach()
 
     add_test(NAME ${T_NAME}
         COMMAND "${CMAKE_CURRENT_BINARY_DIR}/run-test.sh"
@@ -135,7 +137,7 @@ endfunction()
 #       [MARKER <line that must appear in the output>]
 #   )
 function(codes_add_run_test)
-    cmake_parse_arguments(T "" "NAME;BINARY;NP;SETUP;MARKER" "ARGS" ${ARGN})
+    cmake_parse_arguments(T "" "NAME;BINARY;NP;SETUP;MARKER" "ARGS;REQUIRE" ${ARGN})
     if(NOT T_NAME OR NOT T_BINARY)
         message(FATAL_ERROR "codes_add_run_test: NAME and BINARY are required")
     endif()
@@ -145,12 +147,17 @@ function(codes_add_run_test)
     set(_run ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${T_NP} ${MPIEXEC_PREFLAGS}
              "$<TARGET_FILE:${T_BINARY}>" ${T_ARGS} ${MPIEXEC_POSTFLAGS})
 
-    if(T_SETUP OR T_MARKER)
-        # SETUP must be sourced and MARKER checked -> go through the staged runner.
+    if(T_SETUP OR T_MARKER OR T_REQUIRE)
+        # SETUP must be sourced and MARKER/REQUIRE checked -> go through the staged runner.
         set(_opts "")
         if(T_MARKER)
             list(APPEND _opts --marker "${T_MARKER}")
         endif()
+        foreach(_req IN LISTS T_REQUIRE)
+            if(NOT _req STREQUAL "")
+                list(APPEND _opts --require "${_req}")
+            endif()
+        endforeach()
         if(T_SETUP)
             list(APPEND _opts --setup "${CMAKE_CURRENT_SOURCE_DIR}/${T_SETUP}")
         endif()
@@ -350,9 +357,10 @@ endforeach()
 codes_add_equivalence_test(
     NAME   example-ping-pong-determinism
     BINARY tutorial-synthetic-ping-pong
-    NP     3
-    ARGS   --sync=3 --num_messages=10 --payload_sz=8192
-    CONFIG doc/example/tutorial-ping-pong.conf)
+    NP      3
+    ARGS    --sync=3 --num_messages=10 --payload_sz=8192
+    CONFIG  doc/example/tutorial-ping-pong.conf
+    REQUIRE "START PARALLEL OPTIMISTIC SIMULATION")
 
 # Surrogate-mode determinism: same surrogate config run twice (np 3, sync=3),
 # committed-event counts must match. The two variants differ only in network
@@ -364,7 +372,7 @@ codes_add_equivalence_test(
     ARGS    --sync=3 --num_messages=100 --payload_sz=8192
     CONFIG  tutorial-ping-pong-surrogate.conf
     SETUP   surrogate-determinism-no-freeze-setup.sh
-    REQUIRE "Network switch completed")
+    REQUIRE "Network switch completed" "START PARALLEL OPTIMISTIC SIMULATION")
 codes_add_equivalence_test(
     NAME    example-ping-pong-surrogate-determinism-freeze
     BINARY  tutorial-synthetic-ping-pong
@@ -372,7 +380,7 @@ codes_add_equivalence_test(
     ARGS    --sync=3 --num_messages=100 --payload_sz=8192
     CONFIG  tutorial-ping-pong-surrogate.conf
     SETUP   surrogate-determinism-freeze-setup.sh
-    REQUIRE "Network switch completed")
+    REQUIRE "Network switch completed" "START PARALLEL OPTIMISTIC SIMULATION")
 
 # Smoke test: the sim runs cleanly with an empty packet-latency trace path.
 # Single run (SETUP generates the config; MARKER asserts it produced output).
@@ -397,7 +405,8 @@ codes_add_run_test(NAME rc-stack-test BINARY rc-stack-test)
 codes_add_run_test(NAME modelnet-prio-sched-test-seq BINARY modelnet-prio-sched-test
     NP 1 ARGS --sync=1 -- "${_tconf}/modelnet-prio-sched-test.conf")
 codes_add_run_test(NAME modelnet-prio-sched-test-opt BINARY modelnet-prio-sched-test
-    NP 2 ARGS --sync=3 -- "${_tconf}/modelnet-prio-sched-test.conf")
+    NP 2 ARGS --sync=3 -- "${_tconf}/modelnet-prio-sched-test.conf"
+    REQUIRE "START PARALLEL OPTIMISTIC SIMULATION")
 codes_add_run_test(NAME jobmap-test   BINARY jobmap-test   ARGS "${_tconf}/jobmap-test-list.conf")
 codes_add_run_test(NAME map-ctx-test  BINARY map-ctx-test  ARGS "${_tconf}/map-ctx-test.conf")
 codes_add_run_test(NAME resource-test BINARY resource-test ARGS --sync=1 "--codes-config=${_tconf}/buffer_test.conf")
