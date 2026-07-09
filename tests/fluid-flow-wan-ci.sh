@@ -96,7 +96,7 @@ PY
 
 if ! (
     cd "$case_name"
-    "$mpi_exec" "$mpi_np_flag" "$np" "$binary" --synch="$synch" -- fluid-flow-wan.conf \
+    "$mpi_exec" "$mpi_np_flag" "$np" "$binary" --sync="$synch" -- fluid-flow-wan.conf \
         > model-output.txt 2> model-output-error.txt
 ); then
     echo "fluid-flow-wan model run failed"
@@ -114,9 +114,9 @@ grep "switch_scheduler=$scheduler" "$out"
 grep "Net Events Processed" "$out"
 
 if [[ "$synch" == "1" ]]; then
-    grep "START SEQUENTIAL SIMULATION" "$out"
+    grep "csv_logs=buffered-forward" "$out"
 else
-    grep "START PARALLEL OPTIMISTIC SIMULATION" "$out"
+    grep "csv_logs=buffered-commit" "$out"
 fi
 
 for csv in \
