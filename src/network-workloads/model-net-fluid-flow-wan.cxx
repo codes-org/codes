@@ -34,9 +34,9 @@
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
 
-static const char* GROUP_NAME = "FLUID_GRP";
-static const char* TERMINAL_LP_NAME = "fluid-terminal-lp";
-static const char* SWITCH_LP_NAME = "fluid-switch-lp";
+static const char* GROUP_NAME = "FLUID_FLOW_WAN_GRP";
+static const char* TERMINAL_LP_NAME = "fluid-flow-wan-terminal-lp";
+static const char* SWITCH_LP_NAME = "fluid-flow-wan-switch-lp";
 
 static constexpr int MAX_PORTS_PER_SWITCH = 128;
 /*
@@ -271,7 +271,7 @@ static void validate_ross_message_size_or_abort(int rank) {
         (size_t)configured_message_size < required_message_size) {
         if (rank == 0) {
             fprintf(stderr,
-                    "fluid-switch error: PARAMS.message_size=%d is too small for "
+                    "fluid-flow-wan error: PARAMS.message_size=%d is too small for "
                     "sizeof(fluid_msg)=%zu. Increase PARAMS.message_size in the "
                     "CODES config before calling codes_mapping_setup(). "
                     "fluid_msg is large because MAX_RC_ALLOCATIONS=%d reverse "
@@ -609,61 +609,61 @@ static void read_relpath_param(const char* section, const char* key, char* value
 }
 
 static void load_config(void) {
-    read_relpath_param("FLUID_SWITCH", "topology_yaml_file", cfg.topology_yaml_file,
+    read_relpath_param("FLUID_FLOW_WAN", "topology_yaml_file", cfg.topology_yaml_file,
                        sizeof(cfg.topology_yaml_file));
-    read_relpath_param("FLUID_SWITCH", "terminal_log_path", cfg.terminal_log_path,
+    read_relpath_param("FLUID_FLOW_WAN", "terminal_log_path", cfg.terminal_log_path,
                        sizeof(cfg.terminal_log_path));
-    read_relpath_param("FLUID_SWITCH", "switch_log_path", cfg.switch_log_path,
+    read_relpath_param("FLUID_FLOW_WAN", "switch_log_path", cfg.switch_log_path,
                        sizeof(cfg.switch_log_path));
-    read_relpath_param("FLUID_SWITCH", "flowlet_log_path", cfg.flowlet_log_path,
+    read_relpath_param("FLUID_FLOW_WAN", "flowlet_log_path", cfg.flowlet_log_path,
                        sizeof(cfg.flowlet_log_path));
-    read_relpath_param("FLUID_SWITCH", "switch_training_log_path", cfg.switch_training_log_path,
+    read_relpath_param("FLUID_FLOW_WAN", "switch_training_log_path", cfg.switch_training_log_path,
                        sizeof(cfg.switch_training_log_path));
-    read_string_param("FLUID_SWITCH", "switch_scheduler", cfg.switch_scheduler,
+    read_string_param("FLUID_FLOW_WAN", "switch_scheduler", cfg.switch_scheduler,
                       sizeof(cfg.switch_scheduler));
-    read_int_param("FLUID_SWITCH", "round_robin_max_entries_per_egress",
+    read_int_param("FLUID_FLOW_WAN", "round_robin_max_entries_per_egress",
                    &cfg.round_robin_max_entries_per_egress);
-    read_double_param("FLUID_SWITCH", "round_robin_quantum_mbit",
+    read_double_param("FLUID_FLOW_WAN", "round_robin_quantum_mbit",
                       &cfg.round_robin_quantum_mbit);
-    read_double_param("FLUID_SWITCH", "interval_seconds", &cfg.interval_seconds);
-    read_int_param("FLUID_SWITCH", "num_send_intervals", &cfg.num_send_intervals);
-    read_int_param("FLUID_SWITCH", "num_drain_intervals", &cfg.num_drain_intervals);
-    read_int_param("FLUID_SWITCH", "rng_seed", &cfg.rng_seed);
-    read_int_param("FLUID_SWITCH", "terminal_send_every_n_intervals", &cfg.terminal_send_every_n_intervals);
-    read_double_param("FLUID_SWITCH", "terminal_send_probability", &cfg.terminal_send_probability);
-    read_double_param("FLUID_SWITCH", "terminal_min_send_mbit", &cfg.terminal_min_send_mbit);
-    read_double_param("FLUID_SWITCH", "terminal_max_send_fraction_of_link_capacity",
+    read_double_param("FLUID_FLOW_WAN", "interval_seconds", &cfg.interval_seconds);
+    read_int_param("FLUID_FLOW_WAN", "num_send_intervals", &cfg.num_send_intervals);
+    read_int_param("FLUID_FLOW_WAN", "num_drain_intervals", &cfg.num_drain_intervals);
+    read_int_param("FLUID_FLOW_WAN", "rng_seed", &cfg.rng_seed);
+    read_int_param("FLUID_FLOW_WAN", "terminal_send_every_n_intervals", &cfg.terminal_send_every_n_intervals);
+    read_double_param("FLUID_FLOW_WAN", "terminal_send_probability", &cfg.terminal_send_probability);
+    read_double_param("FLUID_FLOW_WAN", "terminal_min_send_mbit", &cfg.terminal_min_send_mbit);
+    read_double_param("FLUID_FLOW_WAN", "terminal_max_send_fraction_of_link_capacity",
                       &cfg.terminal_max_send_fraction_of_link_capacity);
-    read_int_param("FLUID_SWITCH", "debug_prints", &cfg.debug_prints);
+    read_int_param("FLUID_FLOW_WAN", "debug_prints", &cfg.debug_prints);
 
     if (strcmp(cfg.switch_scheduler, "fifo") != 0 &&
         strcmp(cfg.switch_scheduler, "round_robin") != 0) {
         tw_error(TW_LOC,
-                 "FLUID_SWITCH.switch_scheduler must be one of: fifo, round_robin; got '%s'",
+                 "FLUID_FLOW_WAN.switch_scheduler must be one of: fifo, round_robin; got '%s'",
                  cfg.switch_scheduler);
     }
 
     if (cfg.round_robin_max_entries_per_egress <= 0) {
         tw_error(TW_LOC,
-                 "FLUID_SWITCH.round_robin_max_entries_per_egress must be positive; got %d",
+                 "FLUID_FLOW_WAN.round_robin_max_entries_per_egress must be positive; got %d",
                  cfg.round_robin_max_entries_per_egress);
     }
 
     if (cfg.round_robin_max_entries_per_egress > MAX_RC_ALLOCATIONS) {
         tw_error(TW_LOC,
-                 "FLUID_SWITCH.round_robin_max_entries_per_egress=%d exceeds "
+                 "FLUID_FLOW_WAN.round_robin_max_entries_per_egress=%d exceeds "
                  "MAX_RC_ALLOCATIONS=%d",
                  cfg.round_robin_max_entries_per_egress, MAX_RC_ALLOCATIONS);
     }
 
     if (cfg.round_robin_quantum_mbit < 0.0) {
         tw_error(TW_LOC,
-                 "FLUID_SWITCH.round_robin_quantum_mbit must be nonnegative; got %.12f",
+                 "FLUID_FLOW_WAN.round_robin_quantum_mbit must be nonnegative; got %.12f",
                  cfg.round_robin_quantum_mbit);
     }
 
     if (cfg.topology_yaml_file[0] == '\0') {
-        tw_error(TW_LOC, "FLUID_SWITCH.topology_yaml_file is required");
+        tw_error(TW_LOC, "FLUID_FLOW_WAN.topology_yaml_file is required");
     }
     load_topology_yaml(cfg.topology_yaml_file);
     compute_routes();
@@ -677,7 +677,7 @@ static tw_lpid get_switch_gid(int switch_id) {
     tw_lpid gid = 0;
 
     /*
-     * LPGROUPS has one FLUID_GRP repetition containing all switch LPs.
+     * LPGROUPS has one FLUID_FLOW_WAN_GRP repetition containing all switch LPs.
      * The switch index is therefore the LP-type offset, not the group repetition.
      */
     codes_mapping_get_lp_id(GROUP_NAME, SWITCH_LP_NAME, NULL, 1, 0, switch_id, &gid);
@@ -693,7 +693,7 @@ static tw_lpid get_terminal_gid(int terminal_id) {
     tw_lpid gid = 0;
 
     /*
-     * LPGROUPS has one FLUID_GRP repetition containing all terminal LPs.
+     * LPGROUPS has one FLUID_FLOW_WAN_GRP repetition containing all terminal LPs.
      * The terminal index is therefore the LP-type offset, not the group repetition.
      */
     codes_mapping_get_lp_id(GROUP_NAME, TERMINAL_LP_NAME, NULL, 1, 0, terminal_id, &gid);
@@ -1503,7 +1503,7 @@ static void terminal_commit_event(terminal_state* ns, tw_bf* b, fluid_msg* m, tw
 }
 
 static void terminal_finalize(terminal_state* ns, tw_lp* lp) {
-    printf("fluid-terminal gid=%llu terminal=%d switch=%d generated_mbit=%.6f sent_mbit=%.6f "
+    printf("fluid-flow-wan-terminal gid=%llu terminal=%d switch=%d generated_mbit=%.6f sent_mbit=%.6f "
            "received_mbit=%.6f generated_flowlets=%d received_fragments=%d\n",
            (unsigned long long)lp->gid, ns->terminal_id, ns->attached_switch,
            ns->generated_mbit, ns->sent_to_switch_mbit, ns->received_mbit,
@@ -2054,7 +2054,7 @@ static void switch_finalize(switch_state* ns, tw_lp* lp) {
     for (int p = 0; p < ns->num_ports; ++p) {
         queued += queued_mbit_on_port(ns, p);
     }
-    printf("fluid-switch gid=%llu switch=%d name=%s ports=%d shared_buffer_mbit=%.6f "
+    printf("fluid-flow-wan gid=%llu switch=%d name=%s ports=%d shared_buffer_mbit=%.6f "
            "received_fragments=%d sent_fragments=%d enqueued_mbit=%.6f sent_mbit=%.6f "
            "local_delivery_mbit=%.6f dropped_mbit=%.6f queued_mbit=%.6f\n",
            (unsigned long long)lp->gid, ns->switch_id, switches[ns->switch_id].name.c_str(),
@@ -2229,7 +2229,7 @@ int main(int argc, char** argv) {
     MPI_Barrier(MPI_COMM_CODES);
 
     if (rank == 0) {
-        printf("fluid-switch config: switches=%zu terminals=%zu interval_seconds=%.6f "
+        printf("fluid-flow-wan config: switches=%zu terminals=%zu interval_seconds=%.6f "
                "num_send_intervals=%d num_drain_intervals=%d switch_scheduler=%s "
                "buffer_mode=shared csv_logs=%s ross_message_size=%d fluid_msg_size=%zu\n",
                switches.size(), terminals.size(), cfg.interval_seconds, cfg.num_send_intervals,

@@ -1,14 +1,14 @@
 # Interval-fluid switch/terminal pure-PDES example.
 # Run from the build directory, for example:
-#   mpirun -np 1 ./src/model-net-fluid-switch --synch=1 -- doc/example/fluid-switch.conf
+#   mpirun -np 1 ./src/model-net-fluid-flow-wan --synch=1 -- doc/example/fluid-flow-wan.conf
 
 LPGROUPS
 {
-    FLUID_GRP
+    FLUID_FLOW_WAN_GRP
     {
         repetitions="1";
-        fluid-switch-lp="3";
-        fluid-terminal-lp="6";
+        fluid-flow-wan-switch-lp="3";
+        fluid-flow-wan-terminal-lp="6";
     }
 }
 
@@ -18,9 +18,9 @@ PARAMS
     pe_mem_factor="1024";
 }
 
-FLUID_SWITCH
+FLUID_FLOW_WAN
 {
-    topology_yaml_file="fluid-switch-topology.yaml";
+    topology_yaml_file="fluid-flow-wan-topology.yaml";
 
     interval_seconds="1";
     num_send_intervals="20";
@@ -38,8 +38,8 @@ FLUID_SWITCH
     round_robin_max_entries_per_egress="8";
     round_robin_quantum_mbit="0";
 
-    terminal_log_path="../../zmqml_artifacts/fluid-switch/terminal-events.csv";
-    switch_log_path="../../zmqml_artifacts/fluid-switch/switch-events.csv";
-    flowlet_log_path="../../zmqml_artifacts/fluid-switch/flowlet-events.csv";
-    switch_training_log_path="../../zmqml_artifacts/fluid-switch/switch-training.csv";
+    terminal_log_path="../../zmqml_artifacts/fluid-flow-wan/terminal-events.csv";
+    switch_log_path="../../zmqml_artifacts/fluid-flow-wan/switch-events.csv";
+    flowlet_log_path="../../zmqml_artifacts/fluid-flow-wan/flowlet-events.csv";
+    switch_training_log_path="../../zmqml_artifacts/fluid-flow-wan/switch-training.csv";
 }

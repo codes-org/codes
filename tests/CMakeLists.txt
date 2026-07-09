@@ -311,6 +311,37 @@ if(USE_UNION)
     set_tests_properties(${union-shell-files} PROPERTIES LABELS "nightly" TIMEOUT 1200)
 endif()
 
+
+# Fluid-flow WAN smoke tests.
+#
+# These tests start from the CMake-generated doc/example/fluid-flow-wan.conf,
+# rewrite only the scheduler and output paths in an isolated test directory,
+# and verify that the model runs cleanly and writes CSV logs.
+foreach(_ffw_sched fifo round_robin)
+    foreach(_ffw_mode sequential optimistic)
+        if(_ffw_mode STREQUAL "sequential")
+            set(_ffw_synch 1)
+            set(_ffw_np 1)
+        else()
+            set(_ffw_synch 3)
+            set(_ffw_np 2)
+        endif()
+
+        set(_ffw_test "fluid-flow-wan-${_ffw_sched}-${_ffw_mode}")
+
+        add_test(NAME ${_ffw_test}
+            COMMAND "${CMAKE_CURRENT_BINARY_DIR}/run-test.sh"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/fluid-flow-wan-ci.sh"
+                    "${_ffw_sched}"
+                    "${_ffw_synch}"
+                    "${_ffw_np}"
+                    "${_ffw_test}"
+            WORKING_DIRECTORY "${CODES_BINARY_DIR}")
+
+        set_tests_properties(${_ffw_test} PROPERTIES TIMEOUT 120)
+    endforeach()
+endforeach()
+
 # Equivalence / determinism tests (replacing per-scenario shell scripts).
 # example-ping-pong-determinism.sh: run the optimistic sim twice, compare
 # committed-event counts (reproducibility).
