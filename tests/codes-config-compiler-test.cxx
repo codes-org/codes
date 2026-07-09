@@ -112,6 +112,150 @@ TEST(ConfigCompiler, RejectsUnknownTopLevelKey) {
     EXPECT_THROW(compile(std::string(kFlatBase) + "bogus: 1\n"), config_error);
 }
 
+// --- schema_version ----------------------------------------------------------
+
+TEST(ConfigCompiler, RejectsMissingSchemaVersion) {
+    EXPECT_THROW(compile(R"(
+components:
+  cn: { model: nw-lp, network: simplenet }
+topology: { format: flat, component: cn, nodes: 4 }
+)"),
+                 config_error);
+}
+
+TEST(ConfigCompiler, RejectsUnsupportedSchemaVersion) {
+    // any version this build doesn't know is a hard error, not a best-effort
+    // guess -- a newer config can't be interpreted safely.
+    EXPECT_THROW(compile(R"(
+schema_version: 2
+components:
+  cn: { model: nw-lp, network: simplenet }
+topology: { format: flat, component: cn, nodes: 4 }
+)"),
+                 config_error);
+}
+
+TEST(ConfigCompiler, RejectsNonIntegerSchemaVersion) {
+    EXPECT_THROW(compile(R"(
+schema_version: abc
+components:
+  cn: { model: nw-lp, network: simplenet }
+topology: { format: flat, component: cn, nodes: 4 }
+)"),
+                 config_error);
+}
+
+// --- malformed / non-map input -----------------------------------------------
+
+TEST(ConfigCompiler, MalformedYamlThrowsConfigError) {
+    // the core must throw on a syntax error, never print-and-abort (ryml's
+    // default); the extern "C" shim owns the translation to tw_error.
+    EXPECT_THROW(compile("topology: [unterminated\n"), config_error);
+}
+
+TEST(ConfigCompiler, NonMapTopLevelRejected) {
+    EXPECT_THROW(compile("- a\n- b\n"), config_error);      // sequence root
+    EXPECT_THROW(compile("just a scalar\n"), config_error); // scalar root
+}
+
+// --- flat topology validation -------------------------------------------------
+
+TEST(ConfigCompiler, FlatRejectsUnexpectedTopologyKey) {
+    // flat models are uniform all-to-all: an edges/graph block is not part of a
+    // flat topology, and an unexpected key is an error, not a silent drop.
+    EXPECT_THROW(compile(R"(
+schema_version: 1
+components:
+  cn: { model: nw-lp, network: simplenet }
+topology:
+  format: flat
+  component: cn
+  nodes: 4
+  edges: { cn: [cn] }
+)"),
+                 config_error);
+}
+
+TEST(ConfigCompiler, FlatRejectsMalformedNodeCount) {
+    // A helper that swaps in a given nodes value and compiles a flat config.
+    auto with_nodes = [](const char* nodes) {
+        return std::string(R"(
+schema_version: 1
+components:
+  cn: { model: nw-lp, network: simplenet }
+topology:
+  format: flat
+  component: cn
+  nodes: )") + nodes +
+               "\n";
+    };
+    EXPECT_THROW(compile(with_nodes("abc")), config_error); // non-integer
+    EXPECT_THROW(compile(with_nodes("0")), config_error);   // not positive
+    EXPECT_THROW(compile(with_nodes("-3")), config_error);  // negative
+}
+
+TEST(ConfigCompiler, FlatRejectsMissingNodes) {
+    EXPECT_THROW(compile(R"(
+schema_version: 1
+components:
+  cn: { model: nw-lp, network: simplenet }
+topology: { format: flat, component: cn }
+)"),
+                 config_error);
+}
+
+TEST(ConfigCompiler, FlatRejectsMissingComponent) {
+    EXPECT_THROW(compile(R"(
+schema_version: 1
+components:
+  cn: { model: nw-lp, network: simplenet }
+topology: { format: flat, nodes: 4 }
+)"),
+                 config_error);
+}
+
+TEST(ConfigCompiler, FlatRejectsUndefinedComponent) {
+    // the topology references a component never defined under components:.
+    EXPECT_THROW(compile(R"(
+schema_version: 1
+components:
+  cn: { model: nw-lp, network: simplenet }
+topology: { format: flat, component: bogus, nodes: 4 }
+)"),
+                 config_error);
+}
+
+TEST(ConfigCompiler, FlatRejectsEmptyComponentModel) {
+    EXPECT_THROW(compile(R"(
+schema_version: 1
+components:
+  cn: { model: "", network: simplenet }
+topology: { format: flat, component: cn, nodes: 4 }
+)"),
+                 config_error);
+}
+
+TEST(ConfigCompiler, FlatRejectsMissingNetwork) {
+    // a flat component must name the NIC model its workload runs over.
+    EXPECT_THROW(compile(R"(
+schema_version: 1
+components:
+  cn: { model: nw-lp }
+topology: { format: flat, component: cn, nodes: 4 }
+)"),
+                 config_error);
+}
+
+TEST(ConfigCompiler, FlatRejectsUnknownNetworkModel) {
+    EXPECT_THROW(compile(R"(
+schema_version: 1
+components:
+  cn: { model: nw-lp, network: infiniband }
+topology: { format: flat, component: cn, nodes: 4 }
+)"),
+                 config_error);
+}
+
 // --- pass-through `sections:` -----------------------------------------------
 
 TEST(ConfigCompiler, PassthroughSectionScalarsListsAndNesting) {
@@ -598,6 +742,21 @@ sections:
     compiled_config c = compile(main, {base});
     EXPECT_NE(find_section(c, "LPGROUPS"), nullptr); // topology from base
     EXPECT_NE(find_section(c, "director"), nullptr); // section from main
+}
+
+TEST(ConfigCompiler, IncludedDocRejectsDisagreeingSchemaVersion) {
+    // an included file need not restate schema_version, but if it does it must
+    // agree with this build.
+    std::string base = R"(
+schema_version: 2
+components:
+  cn: { model: nw-lp, network: simplenet }
+)";
+    std::string main = R"(
+schema_version: 1
+topology: { format: flat, component: cn, nodes: 2 }
+)";
+    EXPECT_THROW(compile(main, {base}), config_error);
 }
 
 TEST(ConfigCompiler, NestedIncludeRejected) {
