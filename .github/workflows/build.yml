@@ -300,6 +300,7 @@ jobs:
     env:
       # ROSS install prefix; find_package(ROSS) honors ROSS_ROOT (CODES presets).
       ROSS_ROOT: ${{ github.workspace }}/ross-install
+      UCX_TLS: "self,tcp"
       # detect_leaks=0: corruption detection first; leaks are the noisiest part
       # (MPICH internals + CODES's known unfreed globals) and come later with a
       # suppression file. abort_on_error=1: guarantee a nonzero exit so ctest
@@ -396,6 +397,7 @@ jobs:
     env:
       # ROSS install prefix; find_package(ROSS) honors ROSS_ROOT (CODES presets).
       ROSS_ROOT: ${{ github.workspace }}/ross-install
+      UCX_TLS: "self,tcp"
     steps:
       - name: Checkout CODES
         uses: actions/checkout@v4

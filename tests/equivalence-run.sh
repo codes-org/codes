@@ -89,6 +89,10 @@ run_one() {
         [[ -z "$req" ]] && continue
         if ! grep -q "$req" "$out"; then
             echo "equivalence-run.sh: run ${run_idx} missing required line '$req'" >&2
+            echo "--- stdout ---" >&2
+            cat "$out" >&2 || true
+            echo "--- stderr ---" >&2
+            cat "$errf" >&2 || true
             exit 1
         fi
     done
