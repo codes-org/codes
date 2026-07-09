@@ -90,7 +90,9 @@ struct sim_config {
     char switch_log_path[1024] = "";
     char flowlet_log_path[1024] = "";
     char switch_training_log_path[1024] = "";
-    char switch_scheduler[64] = "max_min_fair";
+    char switch_scheduler[64] = "round_robin";
+    int round_robin_max_entries_per_egress = 32;
+    double round_robin_quantum_mbit = 0.0;
 };
 
 static sim_config cfg;
@@ -143,6 +145,7 @@ struct switch_state {
      * outstanding for that port.
      */
     int scheduled_egress_interval[MAX_PORTS_PER_SWITCH];
+    int rr_next_queue_index[MAX_PORTS_PER_SWITCH];
 
     double enqueued_mbit;
     double sent_mbit;
@@ -192,6 +195,7 @@ struct fluid_msg {
     int rc_alloc_count;
 
     int rc_prev_scheduled_egress_interval;
+    int rc_prev_rr_next_queue_index;
 
     int rc_log_target_is_terminal;
     int rc_log_target_index;
@@ -617,6 +621,10 @@ static void load_config(void) {
                        sizeof(cfg.switch_training_log_path));
     read_string_param("FLUID_SWITCH", "switch_scheduler", cfg.switch_scheduler,
                       sizeof(cfg.switch_scheduler));
+    read_int_param("FLUID_SWITCH", "round_robin_max_entries_per_egress",
+                   &cfg.round_robin_max_entries_per_egress);
+    read_double_param("FLUID_SWITCH", "round_robin_quantum_mbit",
+                      &cfg.round_robin_quantum_mbit);
     read_double_param("FLUID_SWITCH", "interval_seconds", &cfg.interval_seconds);
     read_int_param("FLUID_SWITCH", "num_send_intervals", &cfg.num_send_intervals);
     read_int_param("FLUID_SWITCH", "num_drain_intervals", &cfg.num_drain_intervals);
@@ -628,11 +636,30 @@ static void load_config(void) {
                       &cfg.terminal_max_send_fraction_of_link_capacity);
     read_int_param("FLUID_SWITCH", "debug_prints", &cfg.debug_prints);
 
-    if (strcmp(cfg.switch_scheduler, "max_min_fair") != 0 &&
-        strcmp(cfg.switch_scheduler, "fifo") != 0) {
+    if (strcmp(cfg.switch_scheduler, "fifo") != 0 &&
+        strcmp(cfg.switch_scheduler, "round_robin") != 0) {
         tw_error(TW_LOC,
-                 "FLUID_SWITCH.switch_scheduler must be one of: max_min_fair, fifo; got '%s'",
+                 "FLUID_SWITCH.switch_scheduler must be one of: fifo, round_robin; got '%s'",
                  cfg.switch_scheduler);
+    }
+
+    if (cfg.round_robin_max_entries_per_egress <= 0) {
+        tw_error(TW_LOC,
+                 "FLUID_SWITCH.round_robin_max_entries_per_egress must be positive; got %d",
+                 cfg.round_robin_max_entries_per_egress);
+    }
+
+    if (cfg.round_robin_max_entries_per_egress > MAX_RC_ALLOCATIONS) {
+        tw_error(TW_LOC,
+                 "FLUID_SWITCH.round_robin_max_entries_per_egress=%d exceeds "
+                 "MAX_RC_ALLOCATIONS=%d",
+                 cfg.round_robin_max_entries_per_egress, MAX_RC_ALLOCATIONS);
+    }
+
+    if (cfg.round_robin_quantum_mbit < 0.0) {
+        tw_error(TW_LOC,
+                 "FLUID_SWITCH.round_robin_quantum_mbit must be nonnegative; got %.12f",
+                 cfg.round_robin_quantum_mbit);
     }
 
     if (cfg.topology_yaml_file[0] == '\0') {
@@ -1492,6 +1519,7 @@ static void switch_init(switch_state* ns, tw_lp* lp) {
 
     for (int p = 0; p < MAX_PORTS_PER_SWITCH; ++p) {
         ns->scheduled_egress_interval[p] = -1;
+        ns->rr_next_queue_index[p] = 0;
     }
 
     const switch_info& sw = switches[ns->switch_id];
@@ -1668,6 +1696,7 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     }
     if (ns->queues[port_id] == NULL) {
         m->rc_prev_scheduled_egress_interval = -1;
+        m->rc_prev_rr_next_queue_index = 0;
         return;
     }
 
@@ -1675,6 +1704,7 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     std::vector<queued_flowlet>& qv = *ns->queues[port_id];
 
     m->rc_prev_scheduled_egress_interval = ns->scheduled_egress_interval[port_id];
+    m->rc_prev_rr_next_queue_index = ns->rr_next_queue_index[port_id];
     if (ns->scheduled_egress_interval[port_id] == m->interval_id) {
         ns->scheduled_egress_interval[port_id] = -1;
     }
@@ -1725,44 +1755,59 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
             double planned_send = add_to_plan(i, requested_send);
             remaining_capacity -= planned_send;
         }
-    } else {
-        std::vector<double> virtual_remaining(qv.size(), 0.0);
-        std::vector<int> active;
+    } else if (strcmp(cfg.switch_scheduler, "round_robin") == 0) {
+        /*
+         * Bounded round-robin:
+         *   - keep a persistent per-port cursor,
+         *   - visit queued flowlets circularly,
+         *   - serve at most round_robin_max_entries_per_egress flowlets,
+         *   - use a fixed quantum if configured, otherwise use one full
+         *     output-port interval as the quantum.
+         *
+         * This avoids touching hundreds of active flowlets in one egress event,
+         * which keeps reverse metadata, logs, and optimistic rollback bounded.
+         */
+        int qsize = (int)qv.size();
+        int entries_to_serve = std::min(active_before,
+                                        cfg.round_robin_max_entries_per_egress);
 
-        for (int i = 0; i < (int)qv.size(); ++i) {
-            if (qv[i].valid && qv[i].remaining_mbit > EPS) {
-                virtual_remaining[i] = qv[i].remaining_mbit;
-                active.push_back(i);
+        if (qsize > 0 && entries_to_serve > 0 && remaining_capacity > EPS) {
+            int idx = ns->rr_next_queue_index[port_id];
+            if (idx < 0 || idx >= qsize) {
+                idx = 0;
             }
-        }
 
-        while (!active.empty() && remaining_capacity > EPS) {
-            double share = remaining_capacity / (double)active.size();
-            std::vector<int> still_active;
-            bool made_progress = false;
+            double quantum = cfg.round_robin_quantum_mbit;
+            if (quantum <= EPS) {
+                /*
+                 * Default round-robin quantum is one full output-port interval.
+                 * This keeps the scheduler fair over time without splitting one
+                 * interval into many tiny fragments.
+                 */
+                quantum = capacity;
+            }
 
-            for (size_t ai = 0; ai < active.size(); ++ai) {
-                int idx = active[ai];
-
-                double planned_send = std::min(virtual_remaining[idx], share);
-                if (planned_send > EPS) {
-                    send_plan[idx] += planned_send;
-                    virtual_remaining[idx] -= planned_send;
+            int visited = 0;
+            int served = 0;
+            while (remaining_capacity > EPS && visited < qsize && served < entries_to_serve) {
+                if (qv[idx].valid && qv[idx].remaining_mbit > EPS) {
+                    double requested_send = std::min(qv[idx].remaining_mbit, quantum);
+                    requested_send = std::min(requested_send, remaining_capacity);
+                    double planned_send = add_to_plan(idx, requested_send);
                     remaining_capacity -= planned_send;
-                    made_progress = true;
+                    if (planned_send > EPS) {
+                        served++;
+                    }
                 }
 
-                if (virtual_remaining[idx] > EPS) {
-                    still_active.push_back(idx);
-                }
+                idx = (idx + 1) % qsize;
+                visited++;
             }
 
-            active.swap(still_active);
-
-            if (!made_progress) {
-                break;
-            }
+            ns->rr_next_queue_index[port_id] = idx;
         }
+    } else {
+        tw_error(TW_LOC, "unknown switch scheduler '%s'", cfg.switch_scheduler);
     }
 
     for (int i = 0; i < (int)qv.size(); ++i) {
@@ -1805,6 +1850,18 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     }
 
     compact_port_queue(ns, port_id);
+
+    /*
+     * This keeps the round-robin cursor valid after completed flowlets are removed.
+     * The cursor is restored exactly by rollback through rc_prev_rr_next_queue_index.
+     */
+    if (strcmp(cfg.switch_scheduler, "round_robin") == 0) {
+        if (qv.empty()) {
+            ns->rr_next_queue_index[port_id] = 0;
+        } else {
+            ns->rr_next_queue_index[port_id] %= (int)qv.size();
+        }
+    }
 
     double queued_after = queued_mbit_on_port(ns, port_id);
     double shared_queued_after = queued_mbit_on_switch(ns);
@@ -1905,6 +1962,7 @@ static void rollback_switch_egress(switch_state* ns, fluid_msg* m) {
     }
 
     ns->scheduled_egress_interval[port_id] = m->rc_prev_scheduled_egress_interval;
+    ns->rr_next_queue_index[port_id] = m->rc_prev_rr_next_queue_index;
 
     std::vector<queued_flowlet>& qv = *ns->queues[port_id];
     const port_desc* p = &ns->ports[port_id];

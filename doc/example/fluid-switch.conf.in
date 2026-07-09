@@ -33,7 +33,10 @@ FLUID_SWITCH
     terminal_max_send_fraction_of_link_capacity="1.0";
 
     debug_prints="0";
-    switch_scheduler="max_min_fair";
+    # This can be either round_robin or fifo.
+    switch_scheduler="round_robin";
+    round_robin_max_entries_per_egress="8";
+    round_robin_quantum_mbit="0";
 
     terminal_log_path="../../zmqml_artifacts/fluid-switch/terminal-events.csv";
     switch_log_path="../../zmqml_artifacts/fluid-switch/switch-events.csv";
