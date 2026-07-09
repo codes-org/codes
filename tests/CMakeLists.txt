@@ -16,6 +16,19 @@ add_executable(codes-unit-smoke codes-unit-smoke.cxx)
 target_link_libraries(codes-unit-smoke PRIVATE GTest::gtest_main)
 add_test(NAME codes-unit-smoke COMMAND codes-unit-smoke)
 # ---------------------------------------------------------------------------
+# MPI launch preflight. Fails loudly if mpiexec can't form a real multi-rank
+# MPI_COMM_WORLD, guarding against a broken launcher (e.g. Ubuntu 24.04's mpich
+# 4.2.0-5build3, whose Hydra starts every rank as a singleton) silently
+# degrading the optimistic (--sync=3) model tests below into N independent
+# *sequential* runs that still exit 0 and pass. Launched exactly like the other
+# MPI tests (same MPIEXEC_* vars) at np=2; the binary returns nonzero unless
+# MPI_Comm_size == 2, so a singleton launcher makes ctest fail here.
+add_executable(mpi-multirank-check mpi-multirank-check.c)
+target_link_libraries(mpi-multirank-check PRIVATE MPI::MPI_C)
+add_test(NAME mpi-multirank-sanity
+    COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 2 ${MPIEXEC_PREFLAGS}
+            $<TARGET_FILE:mpi-multirank-check> 2 ${MPIEXEC_POSTFLAGS})
+# ---------------------------------------------------------------------------
 
 # codes_add_equivalence_test — register an equivalence/determinism test.
 #
