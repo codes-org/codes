@@ -124,18 +124,6 @@ jobs:
           if [ "${{ matrix.cc }}" = "clang" ]; then
             sudo apt-get install -y clang
           fi
-          if [ "${{ matrix.mpi }}" = "mpich" ]; then
-            mpi_bin="$RUNNER_TEMP/mpi-bin"
-            mkdir -p "$mpi_bin"
-            mpiexec_path="$(command -v mpiexec.mpich || command -v mpiexec)"
-            mpirun_path="$(command -v mpirun.mpich || command -v mpirun)"
-            ln -sf "$mpiexec_path" "$mpi_bin/mpiexec"
-            ln -sf "$mpirun_path" "$mpi_bin/mpirun"
-            echo "$mpi_bin" >> "$GITHUB_PATH"
-            echo "CODES_MPIEXEC_EXECUTABLE=$mpi_bin/mpiexec" >> "$GITHUB_ENV"
-          else
-            echo "CODES_MPIEXEC_EXECUTABLE=$(command -v mpiexec)" >> "$GITHUB_ENV"
-          fi
 
       - name: Install system dependencies (macOS)
         if: runner.os == 'macOS'
@@ -153,7 +141,6 @@ jobs:
           # ahead of /usr/bin on PATH for subsequent steps.
           echo "$(brew --prefix bison)/bin" >> "$GITHUB_PATH"
           echo "$(brew --prefix flex)/bin" >> "$GITHUB_PATH"
-          echo "CODES_MPIEXEC_EXECUTABLE=$(command -v mpiexec)" >> "$GITHUB_ENV"
 
       - name: Select compiler
         # Drive the base compiler for both ROSS and CODES via CC/CXX.
@@ -176,9 +163,6 @@ jobs:
           -DCMAKE_BUILD_TYPE=Debug
           -DROSS_BUILD_MODELS=ON
           -DCMAKE_INSTALL_PREFIX=$PWD/ross-install
-          -DMPIEXEC_EXECUTABLE="$CODES_MPIEXEC_EXECUTABLE"
-          -DMPIEXEC_EXECUTABLE="$CODES_MPIEXEC_EXECUTABLE"
-          -DMPIEXEC_EXECUTABLE="$CODES_MPIEXEC_EXECUTABLE"
 
       - name: Build and install ROSS
         run: cmake --build ross/build --target install -j
@@ -189,12 +173,7 @@ jobs:
         # in CMakePresets.json; ROSS is found via the ROSS_ROOT env var. The two
         # heavy deps a stock runner might auto-detect are forced off so this leg
         # stays a deterministic stock build (the `full` job exercises them).
-        run: >
-          cmake --preset debug
-          -DCODES_USE_TORCH=OFF
-          -DCODES_USE_ZEROMQ=OFF
-          -DMPIEXEC_EXECUTABLE="$CODES_MPIEXEC_EXECUTABLE"
-          -DMPIEXEC_EXECUTABLE="$CODES_MPIEXEC_EXECUTABLE"
+        run: cmake --preset debug -DCODES_USE_TORCH=OFF -DCODES_USE_ZEROMQ=OFF
 
       - name: Build CODES
         working-directory: codes
@@ -247,18 +226,6 @@ jobs:
             mpich libmpich-dev \
             cmake ninja-build pkg-config \
             flex bison
-          mpi_bin="$RUNNER_TEMP/mpi-bin"
-          mkdir -p "$mpi_bin"
-          ln -sf "$(command -v mpiexec.mpich || command -v mpiexec)" "$mpi_bin/mpiexec"
-          ln -sf "$(command -v mpirun.mpich || command -v mpirun)" "$mpi_bin/mpirun"
-          echo "$mpi_bin" >> "$GITHUB_PATH"
-          echo "CODES_MPIEXEC_EXECUTABLE=$mpi_bin/mpiexec" >> "$GITHUB_ENV"
-          mpi_bin="$RUNNER_TEMP/mpi-bin"
-          mkdir -p "$mpi_bin"
-          ln -sf "$(command -v mpiexec.mpich || command -v mpiexec)" "$mpi_bin/mpiexec"
-          ln -sf "$(command -v mpirun.mpich || command -v mpirun)" "$mpi_bin/mpirun"
-          echo "$mpi_bin" >> "$GITHUB_PATH"
-          echo "CODES_MPIEXEC_EXECUTABLE=$mpi_bin/mpiexec" >> "$GITHUB_ENV"
 
       - name: Configure old ROSS
         run: >
@@ -267,7 +234,6 @@ jobs:
           -DROSS_BUILD_MODELS=ON
           -DCMAKE_INSTALL_PREFIX=$PWD/ross-install
           -DCMAKE_C_COMPILER=mpicc
-          -DMPIEXEC_EXECUTABLE="$CODES_MPIEXEC_EXECUTABLE"
 
       - name: Build and install old ROSS
         run: cmake --build ross/build --target install -j
@@ -381,11 +347,7 @@ jobs:
         working-directory: codes
         # The asan/ubsan preset sets CODES_SANITIZER; heavy deps forced off to
         # match the stock matrix legs.
-        run: >
-          cmake --preset ${{ matrix.sanitizer }}
-          -DCODES_USE_TORCH=OFF
-          -DCODES_USE_ZEROMQ=OFF
-          -DMPIEXEC_EXECUTABLE="$CODES_MPIEXEC_EXECUTABLE"
+        run: cmake --preset ${{ matrix.sanitizer }} -DCODES_USE_TORCH=OFF -DCODES_USE_ZEROMQ=OFF
 
       - name: Build CODES
         working-directory: codes
@@ -461,11 +423,7 @@ jobs:
         # CODES is checked out at the workspace root here (no `path:`), so the
         # preset is found in the CWD. The `coverage` preset adds
         # -DCODES_ENABLE_COVERAGE=ON; heavy deps forced off to match the matrix.
-        run: >
-          cmake --preset coverage
-          -DCODES_USE_TORCH=OFF
-          -DCODES_USE_ZEROMQ=OFF
-          -DMPIEXEC_EXECUTABLE="$CODES_MPIEXEC_EXECUTABLE"
+        run: cmake --preset coverage -DCODES_USE_TORCH=OFF -DCODES_USE_ZEROMQ=OFF
 
       - name: Build CODES
         run: cmake --build --preset coverage
