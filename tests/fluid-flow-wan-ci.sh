@@ -50,49 +50,29 @@ rm -rf "$case_name"
 mkdir -p "$case_name/logs"
 cp "$topology" "$case_name/fluid-flow-wan-topology.yaml"
 
-python3 - "$base_conf" "$case_name/fluid-flow-wan.conf" "$scheduler" <<'PY'
-from pathlib import Path
-import re
-import sys
+sed \
+    -e "s|switch_scheduler=\"[^\"]*\";|switch_scheduler=\"$scheduler\";|" \
+    -e 's|topology_yaml_file="[^"]*";|topology_yaml_file="fluid-flow-wan-topology.yaml";|' \
+    -e 's|terminal_log_path="[^"]*";|terminal_log_path="logs/terminal-events.csv";|' \
+    -e 's|switch_log_path="[^"]*";|switch_log_path="logs/switch-events.csv";|' \
+    -e 's|flowlet_log_path="[^"]*";|flowlet_log_path="logs/flowlet-events.csv";|' \
+    -e 's|switch_training_log_path="[^"]*";|switch_training_log_path="logs/switch-training.csv";|' \
+    "$base_conf" > "$case_name/fluid-flow-wan.conf"
 
-base_conf = Path(sys.argv[1])
-out_conf = Path(sys.argv[2])
-scheduler = sys.argv[3]
-
-text = base_conf.read_text()
-
-def replace_one(pattern, replacement, label):
-    global text
-    text, n = re.subn(pattern, replacement, text, count=1)
-    if n != 1:
-        raise SystemExit(f"could not replace {label}")
-
-replace_one(r'switch_scheduler="[^"]*";',
-            f'switch_scheduler="{scheduler}";',
-            "switch_scheduler")
-
-replace_one(r'topology_yaml_file="[^"]*";',
-            'topology_yaml_file="fluid-flow-wan-topology.yaml";',
-            "topology_yaml_file")
-
-replace_one(r'terminal_log_path="[^"]*";',
-            'terminal_log_path="logs/terminal-events.csv";',
-            "terminal_log_path")
-
-replace_one(r'switch_log_path="[^"]*";',
-            'switch_log_path="logs/switch-events.csv";',
-            "switch_log_path")
-
-replace_one(r'flowlet_log_path="[^"]*";',
-            'flowlet_log_path="logs/flowlet-events.csv";',
-            "flowlet_log_path")
-
-replace_one(r'switch_training_log_path="[^"]*";',
-            'switch_training_log_path="logs/switch-training.csv";',
-            "switch_training_log_path")
-
-out_conf.write_text(text)
-PY
+for expected in \
+    "switch_scheduler=\"$scheduler\";" \
+    'topology_yaml_file="fluid-flow-wan-topology.yaml";' \
+    'terminal_log_path="logs/terminal-events.csv";' \
+    'switch_log_path="logs/switch-events.csv";' \
+    'flowlet_log_path="logs/flowlet-events.csv";' \
+    'switch_training_log_path="logs/switch-training.csv";'
+do
+    if ! grep -q "$expected" "$case_name/fluid-flow-wan.conf"; then
+        echo "could not rewrite generated config; missing: $expected"
+        cat "$case_name/fluid-flow-wan.conf" || true
+        exit 1
+    fi
+done
 
 if ! (
     cd "$case_name"
