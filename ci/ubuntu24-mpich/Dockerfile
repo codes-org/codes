@@ -29,13 +29,16 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Toolchain + CODES build deps (cmake/ninja/pkg-config/flex/bison), BOTH compilers
 # the matrix drives (gcc via build-essential + clang), lcov for the coverage job,
-# and the tools to fetch/build MPICH. Deliberately NO apt mpich -- we build our
-# own below and put it ahead of everything on PATH.
+# gettext-base for the surrogate tests' envsubst config templating (present on
+# stock runners but not in the bare base image), and the tools to fetch/build
+# MPICH. Deliberately NO apt mpich -- we build our own below and put it ahead of
+# everything on PATH.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         build-essential clang \
         cmake ninja-build pkg-config \
         flex bison \
         lcov \
+        gettext-base \
         git ca-certificates wget \
     && rm -rf /var/lib/apt/lists/*
 
