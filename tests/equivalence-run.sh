@@ -88,18 +88,6 @@ run_one() {
     for req in "${requires[@]:-}"; do
         [[ -z "$req" ]] && continue
         if ! grep -q "$req" "$out"; then
-            if [[ "$req" == "START PARALLEL OPTIMISTIC SIMULATION" ]] && \
-               { grep -q "Defaulting to Sequential Simulation, not enough PEs defined" "$errf" || \
-                 grep -q "tw_net_start: Found world size to be 1" "$out" || \
-                 grep -q "START SEQUENTIAL SIMULATION" "$out"; }; then
-                echo "equivalence-run.sh: skipping run ${run_idx}; ROSS/MPICH downgraded optimistic mode to sequential" >&2
-                echo "--- stdout ---" >&2
-                cat "$out" >&2 || true
-                echo "--- stderr ---" >&2
-                cat "$errf" >&2 || true
-                exit 77
-            fi
-
             echo "equivalence-run.sh: run ${run_idx} missing required line '$req'" >&2
             echo "--- stdout ---" >&2
             cat "$out" >&2 || true
