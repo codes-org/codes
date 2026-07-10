@@ -128,7 +128,20 @@ require_output "Net Events Processed"
 if [[ "$synch" == "1" ]]; then
     require_output "csv_logs=buffered-forward"
 else
-    require_output "csv_logs=buffered-commit"
+    if ! grep "csv_logs=buffered-commit" "$out"; then
+        if grep -q "Defaulting to Sequential Simulation, not enough PEs defined" "$case_name/model-output-error.txt" || \
+           grep -q "tw_net_start: Found world size to be 1" "$out" || \
+           grep -q "START SEQUENTIAL SIMULATION" "$out"; then
+            echo "skipping optimistic fluid-flow WAN test: ROSS/MPICH downgraded optimistic mode to sequential"
+            echo "--- stdout ---"
+            cat "$out" || true
+            echo "--- stderr ---"
+            cat "$case_name/model-output-error.txt" || true
+            exit 77
+        fi
+
+        require_output "csv_logs=buffered-commit"
+    fi
 fi
 
 for csv in \
