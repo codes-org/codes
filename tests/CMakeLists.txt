@@ -2,36 +2,6 @@ enable_testing()
 
 configure_file(run-test.sh.in run-test.sh)
 
-# Use an MPI launcher that matches the MPI implementation found by CMake.
-# Ubuntu 24.04 runners can expose /usr/bin/mpiexec through alternatives in a
-# way that does not match the MPICH headers/libs selected by FindMPI. Prefer
-# the implementation-specific MPICH launcher when FindMPI selected MPICH.
-set(CODES_TEST_MPIEXEC_EXECUTABLE "${MPIEXEC_EXECUTABLE}")
-
-set(_codes_mpi_hint
-    "${MPI_C_COMPILER};${MPI_CXX_COMPILER};${MPI_C_INCLUDE_DIRS};${MPI_CXX_INCLUDE_DIRS};${MPI_C_LIBRARIES};${MPI_CXX_LIBRARIES}")
-
-if(_codes_mpi_hint MATCHES "mpich")
-    find_program(CODES_TEST_MPIEXEC_MPICH NAMES mpiexec.mpich mpirun.mpich)
-    if(CODES_TEST_MPIEXEC_MPICH)
-        set(CODES_TEST_MPIEXEC_EXECUTABLE "${CODES_TEST_MPIEXEC_MPICH}")
-    endif()
-endif()
-
-if(NOT CODES_TEST_MPIEXEC_EXECUTABLE)
-    find_program(CODES_TEST_MPIEXEC_FALLBACK NAMES mpiexec mpirun)
-    if(CODES_TEST_MPIEXEC_FALLBACK)
-        set(CODES_TEST_MPIEXEC_EXECUTABLE "${CODES_TEST_MPIEXEC_FALLBACK}")
-    endif()
-endif()
-
-if(NOT CODES_TEST_MPIEXEC_EXECUTABLE)
-    message(FATAL_ERROR "Could not find an MPI launcher for tests")
-endif()
-
-message(STATUS "CODES test MPI launcher: ${CODES_TEST_MPIEXEC_EXECUTABLE}")
-
-
 option(CODES_ENABLE_ZMQML_HYBRID_TESTS
        "Register ZMQML hybrid workflow tests that require a running zmqmlserver.py"
        OFF)
@@ -110,7 +80,7 @@ function(codes_add_equivalence_test)
     else()
         set(_config "${CODES_BINARY_DIR}/${T_CONFIG}")
     endif()
-    set(_launch ${CODES_TEST_MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${T_NP} ${MPIEXEC_PREFLAGS})
+    set(_launch ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${T_NP} ${MPIEXEC_PREFLAGS})
 
     set(_cmd "")
     if(T_VARIANTS)
@@ -174,7 +144,7 @@ function(codes_add_run_test)
     if(NOT T_NP)
         set(T_NP 1)
     endif()
-    set(_run ${CODES_TEST_MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${T_NP} ${MPIEXEC_PREFLAGS}
+    set(_run ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${T_NP} ${MPIEXEC_PREFLAGS}
              "$<TARGET_FILE:${T_BINARY}>" ${T_ARGS} ${MPIEXEC_POSTFLAGS})
 
     if(T_SETUP OR T_MARKER OR T_REQUIRE)
@@ -230,7 +200,7 @@ function(codes_add_lpio_equivalence_test)
         set(T_NP 1)
     endif()
     set(_bin    "$<TARGET_FILE:${T_BINARY}>")
-    set(_launch ${CODES_TEST_MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${T_NP} ${MPIEXEC_PREFLAGS})
+    set(_launch ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} ${T_NP} ${MPIEXEC_PREFLAGS})
     # Each run writes lp-io into a fresh "lp-io" dir inside its own run-N subdir
     # (lp_io_prepare mkdir's it and aborts if it already exists, so it must be
     # relative + per-run-isolated, which the runner's subdirs provide).
@@ -373,7 +343,7 @@ foreach(_ffw_sched fifo round_robin)
                     "${_ffw_synch}"
                     "${_ffw_np}"
                     "${_ffw_test}"
-                    "${CODES_TEST_MPIEXEC_EXECUTABLE}"
+                    "${MPIEXEC_EXECUTABLE}"
                     "${MPIEXEC_NUMPROC_FLAG}"
             WORKING_DIRECTORY "${CODES_BINARY_DIR}")
 

@@ -96,7 +96,7 @@ PY
 
 if ! (
     cd "$case_name"
-    "$mpi_exec" "$mpi_np_flag" "$np" "$binary" --synch="$synch" -- fluid-flow-wan.conf \
+    "$mpi_exec" "$mpi_np_flag" "$np" "$binary" --sync="$synch" -- fluid-flow-wan.conf \
         > model-output.txt 2> model-output-error.txt
 ); then
     echo "fluid-flow-wan model run failed"
@@ -109,26 +109,14 @@ fi
 
 out="$case_name/model-output.txt"
 
-require_output() {
-    local pattern="$1"
-    if ! grep "$pattern" "$out"; then
-        echo "missing expected output pattern: $pattern"
-        echo "--- stdout ---"
-        cat "$out" || true
-        echo "--- stderr ---"
-        cat "$case_name/model-output-error.txt" || true
-        exit 1
-    fi
-}
-
-require_output "fluid-flow-wan config:"
-require_output "switch_scheduler=$scheduler"
-require_output "Net Events Processed"
+grep "fluid-flow-wan config:" "$out"
+grep "switch_scheduler=$scheduler" "$out"
+grep "Net Events Processed" "$out"
 
 if [[ "$synch" == "1" ]]; then
-    require_output "csv_logs=buffered-forward"
+    grep "csv_logs=buffered-forward" "$out"
 else
-    require_output "csv_logs=buffered-commit"
+    grep "csv_logs=buffered-commit" "$out"
 fi
 
 for csv in \
