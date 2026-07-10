@@ -54,6 +54,14 @@ jobs:
   build:
     name: build (${{ matrix.os }}, ${{ matrix.mpi }}, ${{ matrix.cc }})
     runs-on: ${{ matrix.os }}
+    # ubuntu-24.04's apt mpich is broken on the GitHub runners (ch4:ucx ->
+    # MPI_Init aborts on the runner's verbs device, and even past that mpiexec
+    # launches size-1 singletons). Run ONLY those legs inside codes-ci-ubuntu24-mpich,
+    # which ships a source-built mpich (ch4:ofi) that forms a real multi-rank
+    # world; the empty string on every other leg means "no container -- run
+    # directly on the runner" as before. (codes-ci-ubuntu24-mpich is published by
+    # .github/workflows/ubuntu24-mpich-image.yml; make the GHCR package public.)
+    container: ${{ (matrix.os == 'ubuntu-24.04' && matrix.mpi == 'mpich') && 'ghcr.io/codes-org/codes-ci-ubuntu24-mpich:latest' || '' }}
     strategy:
       # Don't let one leg's failure cancel the others — we want to see every
       # OS x MPI x compiler result on every run.
@@ -100,7 +108,11 @@ jobs:
           path: ross
 
       - name: Install system dependencies (Linux)
-        if: runner.os == 'Linux'
+        # Skipped on the ubuntu-24.04 mpich legs: those run inside
+        # codes-ci-ubuntu24-mpich, which already ships the toolchain, cmake/ninja,
+        # flex/bison, clang, and our source-built mpich (and the image has no
+        # sudo/apt set up for this step anyway).
+        if: runner.os == 'Linux' && !(matrix.os == 'ubuntu-24.04' && matrix.mpi == 'mpich')
         run: |
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build pkg-config flex bison
@@ -274,6 +286,12 @@ jobs:
   sanitizers:
     name: sanitizers (${{ matrix.sanitizer }})
     runs-on: ubuntu-24.04
+    # Run inside codes-ci-ubuntu24-mpich (source-built mpich, ch4:ofi) so ranks form a
+    # real multi-rank world -- ubuntu-24.04's apt mpich is broken on the runners
+    # (see the build job's note and ci/ubuntu24-mpich/Dockerfile). This also keeps the
+    # sanitizer lanes on mpich, which is much quieter under ASan/UBSan than
+    # OpenMPI, while actually exercising the optimistic (parallel) paths.
+    container: ghcr.io/codes-org/codes-ci-ubuntu24-mpich:latest
     strategy:
       # See every sanitizer's result on every run.
       fail-fast: false
@@ -310,13 +328,8 @@ jobs:
           ref: ${{ github.event_name == 'schedule' && 'master' || env.ROSS_REF }}
           path: ross
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            mpich libmpich-dev \
-            cmake ninja-build pkg-config \
-            flex bison
+      # No dependency-install step: the codes-ci-ubuntu24-mpich container already ships
+      # the toolchain, cmake/ninja, flex/bison, and our source-built mpich.
 
       - name: Configure ROSS
         # ROSS is built without sanitizers (default gcc); CODES links it and is
@@ -376,6 +389,10 @@ jobs:
   coverage:
     name: coverage (ubuntu-24.04, gcc)
     runs-on: ubuntu-24.04
+    # Run inside codes-ci-ubuntu24-mpich (source-built mpich, ch4:ofi) so the optimistic
+    # (parallel) paths actually run and get counted -- ubuntu-24.04's apt mpich is
+    # broken on the runners (see the build job's note and ci/ubuntu24-mpich/Dockerfile).
+    container: ghcr.io/codes-org/codes-ci-ubuntu24-mpich:latest
     env:
       # ROSS install prefix; find_package(ROSS) honors ROSS_ROOT (CODES presets).
       ROSS_ROOT: ${{ github.workspace }}/ross-install
@@ -392,13 +409,8 @@ jobs:
           ref: ${{ github.event_name == 'schedule' && 'master' || env.ROSS_REF }}
           path: ross
 
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            mpich libmpich-dev \
-            cmake ninja-build pkg-config \
-            flex bison lcov
+      # No dependency-install step: the codes-ci-ubuntu24-mpich container already ships
+      # the toolchain, cmake/ninja, flex/bison, lcov, and our source-built mpich.
 
       - name: Configure ROSS
         run: >
