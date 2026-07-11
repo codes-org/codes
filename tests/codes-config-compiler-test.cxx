@@ -1253,3 +1253,109 @@ TEST(ConfigCompilerUnits, RejectsUnitSuffixOnUnclassifiableParam) {
     EXPECT_THROW(compile(dragonfly_with("num_vcs", "100Gbps")), config_error);
     EXPECT_THROW(compile(dragonfly_with("num_vcs", "4KiB")), config_error);
 }
+
+// ---------------------------------------------------------------------------
+// simulation: block -- run-level settings (end_time, pe_mem_factor) resolved to
+// the PARAMS keys codes_mapping reads.
+// ---------------------------------------------------------------------------
+
+namespace {
+// kFlatBase plus a trailing top-level simulation: block (body already indented).
+std::string flat_with_simulation(const std::string& body) {
+    return std::string(kFlatBase) + "simulation:\n" + body;
+}
+} // namespace
+
+TEST(ConfigCompilerSimulation, EmitsEndTimeAndMemFactorToParams) {
+    // both settings land in PARAMS -- the exact section/keys codes_mapping reads.
+    compiled_config c = compile(flat_with_simulation("  end_time: 5000\n  pe_mem_factor: 512\n"));
+    EXPECT_EQ(params_value(c, "end_time"), "5000");
+    EXPECT_EQ(params_value(c, "pe_mem_factor"), "512");
+}
+
+TEST(ConfigCompilerSimulation, EndTimeAcceptsTimeUnits) {
+    // a bare number is nanoseconds; a unit-bearing value converts to ns.
+    EXPECT_EQ(params_value(compile(flat_with_simulation("  end_time: 100us\n")), "end_time"),
+              "100000");
+    EXPECT_EQ(params_value(compile(flat_with_simulation("  end_time: 2ms\n")), "end_time"),
+              "2000000");
+    EXPECT_EQ(params_value(compile(flat_with_simulation("  end_time: 250\n")), "end_time"), "250");
+}
+
+TEST(ConfigCompilerSimulation, RejectsUnknownKeyInBlock) {
+    EXPECT_THROW(compile(flat_with_simulation("  bogus: 1\n")), config_error);
+}
+
+TEST(ConfigCompilerSimulation, RejectsNonPositiveMemFactor) {
+    EXPECT_THROW(compile(flat_with_simulation("  pe_mem_factor: 0\n")), config_error);
+    EXPECT_THROW(compile(flat_with_simulation("  pe_mem_factor: -4\n")), config_error);
+}
+
+TEST(ConfigCompilerSimulation, RejectsNonIntegerMemFactor) {
+    EXPECT_THROW(compile(flat_with_simulation("  pe_mem_factor: 3.5\n")), config_error);
+    EXPECT_THROW(compile(flat_with_simulation("  pe_mem_factor: abc\n")), config_error);
+}
+
+TEST(ConfigCompilerSimulation, RejectsMalformedEndTime) {
+    // not a number, not positive, negative, and an unrecognized suffix.
+    EXPECT_THROW(compile(flat_with_simulation("  end_time: abc\n")), config_error);
+    EXPECT_THROW(compile(flat_with_simulation("  end_time: 0\n")), config_error);
+    EXPECT_THROW(compile(flat_with_simulation("  end_time: -5us\n")), config_error);
+    EXPECT_THROW(compile(flat_with_simulation("  end_time: 100xyz\n")), config_error);
+}
+
+TEST(ConfigCompilerSimulation, RejectsWrongQuantityUnitOnEndTime) {
+    // a size or bandwidth unit on a time value is a mistake, not a silent misread.
+    EXPECT_THROW(compile(flat_with_simulation("  end_time: 2KiB\n")), config_error);
+    EXPECT_THROW(compile(flat_with_simulation("  end_time: 5Gbps\n")), config_error);
+}
+
+TEST(ConfigCompilerSimulation, ConflictsWithPassthroughParam) {
+    // A key set both as a fabric pass-through and in simulation: would be silently
+    // dropped by the config store's first-match lookup, so it is rejected.
+    EXPECT_THROW(compile(dragonfly_with("pe_mem_factor", "256") +
+                         "simulation:\n  pe_mem_factor: 512\n"),
+                 config_error);
+    EXPECT_THROW(compile(dragonfly_with("end_time", "5000") + "simulation:\n  end_time: 9000\n"),
+                 config_error);
+}
+
+TEST(ConfigCompilerSimulation, PassthroughParamAloneStillWorks) {
+    // Without a simulation: block, pe_mem_factor on the fabric passes through to
+    // PARAMS exactly as before -- no regression for existing configs.
+    compiled_config c = compile(dragonfly_with("pe_mem_factor", "256"));
+    EXPECT_EQ(params_value(c, "pe_mem_factor"), "256");
+}
+
+TEST(ConfigCompilerSimulation, WorksWithParametricTopology) {
+    compiled_config c =
+        compile(std::string(kParametricDragonfly) + "simulation:\n  end_time: 50us\n");
+    EXPECT_EQ(params_value(c, "end_time"), "50000");
+}
+
+TEST(ConfigCompilerSimulation, WorksWithExplicitGroups) {
+    // the explicit-groups form builds PARAMS itself; the simulation keys still
+    // land in it.
+    compiled_config c = compile(std::string(kGroupsBase) + "simulation:\n  pe_mem_factor: 64\n");
+    EXPECT_EQ(params_value(c, "pe_mem_factor"), "64");
+}
+
+TEST(ConfigCompilerSimulation, ConflictsWithExplicitGroupsParam) {
+    // a pe_mem_factor written directly in the explicit-groups params: collides
+    // with simulation.pe_mem_factor exactly like the pass-through fabric case.
+    const char* yaml = R"(
+schema_version: 1
+topology:
+  format: groups
+  params:
+    pe_mem_factor: 256
+  groups:
+    GRP:
+      repetitions: 1
+      lps:
+        a: 1
+simulation:
+  pe_mem_factor: 512
+)";
+    EXPECT_THROW(compile(yaml), config_error);
+}

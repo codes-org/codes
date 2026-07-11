@@ -149,6 +149,23 @@ struct friendly_config {
     compiled_section explicit_lpgroups{"LPGROUPS", {}, {}};
     compiled_section explicit_params{"PARAMS", {}, {}};
 
+    /* run-level `simulation:` settings, already resolved to the PARAMS keys
+     * codes_mapping reads (end_time in nanoseconds, pe_mem_factor). Empty unless
+     * a simulation: block appeared; a later document overrides an earlier one key
+     * by key. Appended to PARAMS once the topology is compiled. */
+    kv_list simulation;
+
+    /* Record a resolved simulation setting, overriding any earlier value for the
+     * same key (last document wins, like components and sections). */
+    void set_simulation(const std::string& name, std::string value) {
+        for (auto& kv : simulation)
+            if (kv.first == name) {
+                kv.second = std::move(value);
+                return;
+            }
+        simulation.emplace_back(name, std::move(value));
+    }
+
     const component* find_component(const std::string& k) const {
         for (const component& c : components)
             if (c.key == k)
@@ -871,6 +888,82 @@ void parse_sections(ryml::ConstNodeRef root, friendly_config& cfg) {
     }
 }
 
+/* -------------------------------------------------------------------------
+ * Run-level settings (`simulation:`)
+ *
+ * The top-level `simulation:` block carries settings that belong to the run
+ * itself rather than to the topology or a model: the simulation end time and the
+ * ROSS per-PE event-pool factor. Each is resolved to the PARAMS key codes_mapping
+ * already reads (end_time in nanoseconds, pe_mem_factor), so no model or
+ * downstream reader changes. A legacy `.conf` user writes those PARAMS keys
+ * directly, exactly as before.
+ * ---------------------------------------------------------------------- */
+
+/* forward-declared: defined with the other emit-phase helpers below. */
+const char* quantity_name(quantity q);
+
+/* Resolve a time-valued setting to nanoseconds (the unit every model uses). 
+ * A bare number is already nanoseconds; a unit-bearing value must be a time and
+ * converts to ns. The value must be strictly positive. `what` names the setting
+ * in diagnostics. */
+std::string resolve_time_ns(const char* what, const std::string& raw) {
+    classified_value cv = classify_value(raw);
+    switch (cv.form) {
+    case value_form::bare_number:
+        if (cv.number <= 0.0)
+            throw config_error(std::string("config error: ") + what + " must be positive, got \"" +
+                               raw + "\"");
+        return raw; /* already nanoseconds */
+    case value_form::with_unit:
+        if (cv.kind != quantity::time)
+            throw config_error(std::string("config error: ") + what +
+                               " takes a time value, but \"" + raw + "\" is a " +
+                               quantity_name(cv.kind) + " value");
+        if (cv.canonical <= 0.0)
+            throw config_error(std::string("config error: ") + what + " must be positive, got \"" +
+                               raw + "\"");
+        return format_number(cv.canonical); /* canonical time base is ns */
+    case value_form::plain:
+    case value_form::unknown_suffix:
+        break;
+    }
+    throw config_error(std::string("config error: ") + what +
+                       " must be a time value: a bare number of nanoseconds or a value with a "
+                       "time unit (ns/us/ms/s), got \"" +
+                       raw + "\"");
+}
+
+/* Parse the top-level `simulation:` block, validating and resolving each setting
+ * into cfg.simulation (emitted into PARAMS after the topology compiles). Unknown
+ * keys are rejected, like everywhere else in the front-end. */
+void parse_simulation(ryml::ConstNodeRef root, friendly_config& cfg) {
+    if (!has(root, "simulation"))
+        return;
+    ryml::ConstNodeRef sim = root["simulation"];
+    if (!sim.is_map())
+        throw config_error("config error: \"simulation\" must be a map of run-level settings "
+                           "(end_time, pe_mem_factor)");
+    for (ryml::ConstNodeRef c : sim.children()) {
+        std::string k = key_of(c);
+        if (!c.is_keyval())
+            throw config_error("config error: simulation: \"" + k + "\" must be a scalar value");
+        if (k == "end_time") {
+            cfg.set_simulation("end_time", resolve_time_ns("simulation.end_time", scalar(c)));
+        } else if (k == "pe_mem_factor") {
+            std::string raw = scalar(c);
+            long v = parse_int_strict(raw, "simulation.pe_mem_factor");
+            if (v <= 0)
+                throw config_error("config error: simulation.pe_mem_factor must be a positive "
+                                   "integer, got \"" +
+                                   raw + "\"");
+            cfg.set_simulation("pe_mem_factor", std::to_string(v));
+        } else {
+            throw config_error("config error: simulation: unexpected key \"" + k +
+                               "\" (supported: end_time, pe_mem_factor)");
+        }
+    }
+}
+
 /* Parse one document with our throwing error handler installed (so ryml's own
  * parse errors route through config_error, exactly like our validation errors),
  * check it is a top-level map, and hand its root to `fn`. The parser and tree
@@ -897,7 +990,7 @@ void validate_toplevel_keys(ryml::ConstNodeRef root, bool is_base) {
     for (ryml::ConstNodeRef c : root.children()) {
         std::string k = key_of(c);
         if (k != "schema_version" && k != "components" && k != "topology" && k != "sections" &&
-            k != "include")
+            k != "simulation" && k != "include")
             throw config_error("config error: unexpected top-level key \"" + k + "\"");
         if (k == "include" && is_base)
             throw config_error("config error: an included file cannot itself use \"include\" "
@@ -948,6 +1041,7 @@ void merge_document(ryml::ConstNodeRef root, friendly_config& cfg) {
         parse_topology(root, cfg);
     }
     parse_sections(root, cfg);
+    parse_simulation(root, cfg);
 }
 
 /* -------------------------------------------------------------------------
@@ -1216,6 +1310,36 @@ void compile_flat(const friendly_config& cfg, compiled_config& out) {
         add_user_param(params, units, kv.first, kv.second);
 }
 
+/* Append the resolved `simulation:` settings to PARAMS -- the section
+ * codes_mapping reads (PARAMS/end_time, PARAMS/pe_mem_factor). A model parameter
+ * of the same name (set on a component or fabric, or in an explicit-groups
+ * params: block) lands earlier in PARAMS and would win the config store's
+ * first-match lookup, silently shadowing the simulation setting; the front-end
+ * never drops a key silently, so the collision is rejected instead. Setting the
+ * key in only one place resolves it (a pass-through param alone, or the
+ * simulation: block alone, are both fine). */
+void apply_simulation(const friendly_config& cfg, compiled_config& out) {
+    if (cfg.simulation.empty())
+        return;
+    compiled_section* params = nullptr;
+    for (compiled_section& s : out.sections)
+        if (s.name == "PARAMS") {
+            params = &s;
+            break;
+        }
+    /* every topology form emits a PARAMS section, so this is defensive. */
+    if (!params)
+        params = &out.add_section("PARAMS");
+    for (const auto& kv : cfg.simulation) {
+        for (const compiled_key& existing : params->keys)
+            if (existing.name == kv.first)
+                throw config_error("config error: \"" + kv.first +
+                                   "\" is set both in the simulation: block and as a model "
+                                   "parameter; set it in only one place");
+        params->add_key(kv.first, kv.second);
+    }
+}
+
 } // namespace
 
 std::vector<std::string> parse_includes(std::string_view doc) {
@@ -1269,6 +1393,9 @@ compiled_config compile(std::string_view main_doc, const std::vector<std::string
         compile_fabric(cfg, out);
     else if (cfg.flat)
         compile_flat(cfg, out);
+
+    /* run-level `simulation:` settings are appended to the PARAMS just emitted. */
+    apply_simulation(cfg, out);
 
     /* verbatim `sections:` blocks follow the compiler-derived topology sections. */
     for (compiled_section& s : cfg.passthrough)

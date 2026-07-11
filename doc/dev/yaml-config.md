@@ -24,13 +24,14 @@ enable and no configure-time option to set.
 
 ## Shape of a config
 
-A config has up to five top-level blocks:
+A config has up to six top-level blocks:
 
 ```yaml
 schema_version: 1   # required; this build understands version 1
 components:          # named component configs referenced by the topology
 topology:            # flat network, parametric fabric, or explicit LP groups
 sections:            # config a model reads directly, carried through verbatim
+simulation:          # run-level settings (end time, event-pool factor)
 include:             # other config files to reuse (base; this file overrides)
 ```
 
@@ -49,6 +50,9 @@ include:             # other config files to reuse (base; this file overrides)
   network). Each is documented in its own section below.
 - **`sections`** carries config a model reads directly by name (DIRECTOR,
   NETWORK_SURROGATE, resource, …) through verbatim — see `sections:` below.
+- **`simulation`** carries run-level settings — the simulation end time and the
+  ROSS per-PE event-pool factor — that belong to the run rather than to the
+  topology or a model. See `simulation:` below.
 - **`include`** reuses other config files — see `include:` below.
 
 Validation is strict: unknown top-level keys, unknown topology keys, a block a
@@ -818,6 +822,72 @@ cross-section consistency); otherwise Tier 1 is the answer.
 The compiler core is ROSS-free and unit-tested in isolation
 (`tests/codes-config-compiler-test.cxx`); add cases there for whatever a new
 section or tier introduces.
+
+---
+
+# Run-level settings: `simulation:`
+
+A few settings belong to the **run** rather than to the topology or any one
+model — how long to simulate, and how big to size ROSS's per-PE event pool. They
+go in a top-level `simulation:` block:
+
+```yaml
+simulation:
+  end_time: "100us"     # optional: simulation end time (see CLI precedence below)
+  pe_mem_factor: 512    # optional: advanced ROSS event-pool factor (most leave unset)
+```
+
+Both keys are optional, and any other key in the block is rejected — the same
+strict validation as everywhere else. The compiler resolves each to the `PARAMS`
+key the simulator already reads (`PARAMS/end_time`, `PARAMS/pe_mem_factor`), so
+they show up in the resolved-config dump like any other parameter, and a legacy
+`.conf` may carry the same `PARAMS` keys directly with identical effect (there is
+no compiler for a `.conf`, so a `.conf` user just writes them under `PARAMS`).
+Setting one of these keys **both** in `simulation:` and as a pass-through model
+parameter (on a component/fabric, or in an explicit-groups `params:`) is a config
+error rather than a silent drop — put it in one place.
+
+## `end_time`
+
+The simulation end time — how far in virtual time the run advances before it
+stops. It is **time-valued**: write a bare number (nanoseconds, the unit ROSS and
+every model use internally) or a value with a time unit (`"100us"`, `"2ms"`); a
+size or bandwidth unit, a non-positive value, or garbage is rejected. It must be
+positive.
+
+**Command line wins.** ROSS's own `--end=<ns>` option always takes precedence: if
+you pass `--end` on the command line, that value is used and the config's
+`end_time` is ignored. Only when `--end` is *not* given does the config value
+apply. If neither is set, behavior is exactly as before (ROSS's built-in
+default).
+
+**The one edge case.** ROSS records only the *value* of `--end`, not whether it
+was set, so the config front-end distinguishes "no `--end`" from "`--end` given"
+by comparing against ROSS's compiled-in default (`100000.0` ns). The consequence:
+passing `--end=100000` explicitly on the command line is **indistinguishable**
+from omitting it, so a config `end_time` would still override that particular
+value. Any other `--end` value is honored as the override it is. This only bites
+the exact default; pick any other number and precedence is unambiguous.
+
+**A model that sets its own end time still wins.** `end_time` is applied inside
+`codes_mapping_setup()`, the setup call every model makes between loading the
+config and running. A handful of models hardcode `g_tw_ts_end` *after* that call
+(several synthetic-traffic drivers run a fixed span regardless of config); for
+those the hardcoded value stands and the config `end_time` has no effect. Models
+that never set their own end time — most of them — honor the config value. This
+is deliberate: the config front-end does not rewrite model `main()`s, so a model
+that insists on its own end time keeps it.
+
+## `pe_mem_factor`
+
+An **advanced** knob that most users should leave unset. ROSS pre-allocates a
+pool of event structures per PE; `pe_mem_factor` scales that pool — the per-PE
+event count is `pe_mem_factor × (LPs mapped to that PE)`, with a default factor of
+`256`. Raise it if a run aborts having run out of events ("Out of events in
+GVT"), which happens when many events are in flight at once. It is a positive
+integer. (ROSS's `--extramem` is the *additive* term of the same pool — a flat
+number of extra events per PE — so the two compose: total ≈ `pe_mem_factor ×
+LPs + extramem`.)
 
 ---
 
