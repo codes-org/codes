@@ -767,3 +767,21 @@ add_test(NAME resolved-config-dump
 set_tests_properties(resolved-config-dump PROPERTIES
     ENVIRONMENT "CODES_RESOLVED_CONFIG_DUMP=-"
     PASS_REGULAR_EXPRESSION "modelnet_order")
+
+# Simulation end time from a YAML config: the top-level simulation: block sets an
+# end_time that codes_mapping applies to ROSS's g_tw_ts_end at setup time.
+# model-net-synthetic-fattree never assigns g_tw_ts_end itself, so the config
+# value survives to the run and shows up in ROSS's "Simulation End Time" banner.
+# The config sets 60000 ns; the marker asserts the run really ended there.
+codes_add_run_test(
+    NAME   modelnet-fattree-config-end-time
+    BINARY model-net-synthetic-fattree
+    ARGS   --sync=1 -- "${_tconf}/sim-end-time-fattree.yaml"
+    MARKER "Simulation End Time.*60000.00")
+# CLI precedence: the same config, but --end=40000 on the command line wins over
+# the config's 60000 -- the banner must show the command-line value.
+codes_add_run_test(
+    NAME   modelnet-fattree-cli-end-time-overrides-config
+    BINARY model-net-synthetic-fattree
+    ARGS   --sync=1 --end=40000 -- "${_tconf}/sim-end-time-fattree.yaml"
+    MARKER "Simulation End Time.*40000.00")
