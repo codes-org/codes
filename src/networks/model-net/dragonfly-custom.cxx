@@ -993,7 +993,10 @@ void dragonfly_custom_configure() {
     anno_map = codes_mapping_get_lp_anno_map(LP_CONFIG_NM_TERM);
     assert(anno_map);
     num_params = anno_map->num_annos + (anno_map->has_unanno_lp > 0);
-    all_params = (dragonfly_param*)malloc(num_params * sizeof(*all_params));
+    // calloc (not malloc): dragonfly_read_config leaves optional params
+    // (e.g. counting_bool) untouched when absent from the config, so the
+    // struct must start zeroed. dragonfly-dally and dragonfly-plus do the same.
+    all_params = (dragonfly_param*)calloc(num_params, sizeof(*all_params));
 
     for (int i = 0; i < anno_map->num_annos; i++) {
         const char* anno = anno_map->annotations[i].ptr;
