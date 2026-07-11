@@ -716,6 +716,32 @@ section or tier introduces.
 
 ---
 
+# Dumping the resolved config
+
+Any run can print the **fully-resolved** config tree — every compiler-derived and
+defaulted value included — so a result is traceable to one complete
+configuration. Set the environment variable `CODES_RESOLVED_CONFIG_DUMP`:
+
+```bash
+# write the resolved tree to a file
+CODES_RESOLVED_CONFIG_DUMP=resolved.conf ./model-net-synthetic --sync=1 -- my-network.yaml
+
+# or to stdout
+CODES_RESOLVED_CONFIG_DUMP=- ./model-net-synthetic --sync=1 -- my-network.yaml
+```
+
+The value is a file path, or `-` (equivalently `stdout`) for standard output. The
+dump is written by **rank 0 only**, in the legacy `.conf` text format, at config
+load time. It is **opt-in and off by default**, so it never perturbs a normal run.
+
+This is about traceability of runs, not a YAML feature: it works for a legacy
+`.conf` run exactly the same way (the dump is taken from the in-memory config tree,
+which both formats produce). For a compiled YAML config it is the way to see what
+the friendly form expanded to — the derived `LPGROUPS`/`PARAMS`, including
+`modelnet_order` and the shape-derived LP counts.
+
+---
+
 # Reusing config across files: `include:`
 
 A config can pull in other files with a top-level `include:` — a filename, or a

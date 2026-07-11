@@ -754,3 +754,15 @@ add_test(NAME config-tree-divergence
 set_tests_properties(config-tree-divergence PROPERTIES
     PASS_REGULAR_EXPRESSION "values differ|only in .* tree")
 
+# Resolved-config dump: loading a config with CODES_RESOLVED_CONFIG_DUMP set makes
+# rank 0 print the fully-resolved config tree. Load a YAML config in load-only mode
+# with the dump aimed at stdout ("-") and assert the dump carries a compiler-
+# derived key (modelnet_order) -- i.e. the tree really is the resolved one, not the
+# friendly YAML source. No model is run, so nothing is written to the build dir.
+add_test(NAME resolved-config-dump
+    COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS}
+            $<TARGET_FILE:config-tree-equivalence-test> "${_tconf}/modelnet-test-simplenet.yaml"
+            ${MPIEXEC_POSTFLAGS})
+set_tests_properties(resolved-config-dump PROPERTIES
+    ENVIRONMENT "CODES_RESOLVED_CONFIG_DUMP=-"
+    PASS_REGULAR_EXPRESSION "modelnet_order")
