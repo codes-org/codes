@@ -8,6 +8,7 @@
 #define SRC_COMMON_MODELCONFIG_CONFIGFILE_H
 
 #include <stddef.h> /* size_t */
+#include <stdio.h>  /* FILE (cf_equal_report) */
 #include <stdlib.h>
 
 #ifdef __cplusplus
@@ -94,8 +95,33 @@ struct ConfigVTable {
  * */
 int cf_dump(struct ConfigVTable* cf, SectionHandle h, char** err);
 
-/* Compare two config trees: return true if equal, false if not */
+/**
+ * Compare two config trees for equality.
+ *
+ * Equality is structural and **order-insensitive**: the two trees are equal when
+ * they hold the same named sections and keys with the same values, regardless of
+ * the order entries were written -- because the config store keys every lookup by
+ * name (sections case-insensitively, keys case-sensitively) and never by
+ * position. The value *list* of a key is compared as an ordered tuple, so a
+ * list-valued key such as `modelnet_order` must match value-for-value in order.
+ *
+ * @return 1 if the trees are equal, 0 otherwise.
+ */
 int cf_equal(struct ConfigVTable* h1, struct ConfigVTable* h2);
+
+/**
+ * Like cf_equal(), but on inequality writes a human-readable description of every
+ * divergence -- each under its `section/key` path, saying whether an entry is
+ * missing from one side, is a key on one side and a section on the other, or has
+ * differing values -- to @p report. Pass a NULL @p report for the same result
+ * with no output (identical to cf_equal). Intended for tests and diagnostics, so
+ * a failed comparison points at the exact section/key that diverged rather than
+ * only reporting that the trees differ.
+ *
+ * @param report  stream to write the divergence report to, or NULL for none.
+ * @return 1 if the trees are equal, 0 otherwise.
+ */
+int cf_equal_report(struct ConfigVTable* h1, struct ConfigVTable* h2, FILE* report);
 
 static inline int cf_free(struct ConfigVTable* cf) {
     if (!cf)
