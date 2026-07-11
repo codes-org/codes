@@ -100,13 +100,36 @@ long parse_int_strict(const std::string& s, const char* what) {
 
 using kv_list = std::vector<std::pair<std::string, std::string>>;
 
+/* A parsed, unit-resolved workload description: what a node runs, as opposed to
+ * what a node is. Attached to a component (the inline `workload:` shortcut) or to
+ * a job (`jobs:`). Only the `synthetic` type is wired end-to-end here; other
+ * types are recognized (the block shape is understood) but rejected with a clear
+ * diagnostic, so a user keeps the legacy path for them. Size/time params are
+ * resolved to canonical units at parse time (payload_size -> bytes, arrival_time
+ * -> nanoseconds), since those conversions are model-independent; `traffic`
+ * stays a verbatim pattern name the model main maps to its own enum. */
+struct workload_block {
+    bool present = false;
+    std::string type; /* discriminator: "synthetic" is the only wired type */
+    bool has_traffic = false;
+    std::string traffic; /* verbatim pattern name (uniform, nearest_neighbor, ...) */
+    bool has_num_messages = false;
+    std::string num_messages; /* positive integer, verbatim */
+    bool has_payload_size = false;
+    std::string payload_size; /* resolved to bytes */
+    bool has_arrival_time = false;
+    std::string arrival_time; /* resolved to nanoseconds */
+};
+
 /* A custom component: a model paired with configured parameters. */
 struct component {
-    std::string key;     /* the components: key referenced by a topology */
-    std::string model;   /* ComponentModel name (nw-lp, ...) */
-    std::string network; /* enumerated flat models: the NIC model a compute node
+    std::string key;         /* the components: key referenced by a topology */
+    std::string model;       /* ComponentModel name (nw-lp, ...) */
+    std::string network;     /* enumerated flat models: the NIC model a compute node
                             runs its workload over (added with the flat path) */
-    kv_list params;      /* scalar model params, raw text, in source order */
+    kv_list params;          /* scalar model params, raw text, in source order */
+    workload_block workload; /* inline `workload:` shortcut (present only on the
+                                topology's compute component) */
 };
 
 /* A per-link-class parameter block (e.g. dragonfly local/global/cn). */
@@ -128,6 +151,19 @@ struct fabric {
     std::string hosts_component; /* hosts.component: the per-terminal workload */
 };
 
+/* One entry of the top-level `jobs:` block: a workload placed on a set of the
+ * topology's node slots. `ranks` is the job's size; placement is either the
+ * `contiguous` policy (a packed range assigned when the config is compiled) or
+ * an explicit node list (the escape hatch). Node indices are resolved and
+ * validated against the topology's total slot count at compile time. */
+struct job {
+    std::string id;
+    workload_block wl;
+    long ranks = 0;
+    bool contiguous = false; /* placement: { policy: contiguous } */
+    std::vector<long> nodes; /* placement: { nodes: [...] }; empty for contiguous */
+};
+
 struct friendly_config {
     std::vector<component> components;
     bool parametric = false;
@@ -136,6 +172,12 @@ struct friendly_config {
     bool flat = false;          /* flat enumerated topology */
     std::string flat_component; /* the component every node runs */
     long node_count = 0;        /* number of nodes = repetitions */
+
+    /* top-level `jobs:` block (multi-job workload placement). Mutually exclusive
+     * with an inline component `workload:` (a config uses one form or the other).
+     * Replaced wholesale by a later document that restates jobs:. */
+    std::vector<job> jobs;
+    bool has_jobs = false;
 
     /* verbatim `sections:` blocks -- config a model reads directly (DIRECTOR,
      * surrogate, storage, ...), passed straight through to the compiled output.
@@ -565,6 +607,11 @@ const network_model* find_network_model(const std::string& name) {
  * unconsumed keys are errors, not silent drops).
  * ---------------------------------------------------------------------- */
 
+/* Parse + validate a `workload:` map (inline on a component, or a job's), unit-
+ * resolving size/time params. `where` names the owner in diagnostics. Defined
+ * with the other unit-resolving helpers below. */
+workload_block parse_workload(ryml::ConstNodeRef node, const std::string& where);
+
 void parse_components(ryml::ConstNodeRef root, friendly_config& cfg) {
     if (!has(root, "components"))
         return;
@@ -588,14 +635,16 @@ void parse_components(ryml::ConstNodeRef root, friendly_config& cfg) {
                                    "\": key \"type\" is reserved for a future schema version and "
                                    "is not accepted yet; remove it (the model is inferred from "
                                    "\"model:\")");
+            else if (k == "workload")
+                c.workload = parse_workload(f, "component \"" + c.key + "\"");
             else if (f.is_keyval())
                 c.params.emplace_back(k, scalar(f));
             else
                 throw config_error("config error: component \"" + c.key +
                                    "\": unexpected block \"" + k +
-                                   "\"; a component takes a model, an optional network, and scalar "
-                                   "params (per-node data, edges and inline workloads are not "
-                                   "supported)");
+                                   "\"; a component takes a model, an optional network, scalar "
+                                   "params, and an optional inline workload (per-node data and "
+                                   "edges are not supported)");
         }
         /* include-merge: a later document's component overrides an earlier one of
          * the same name (within one document, keys are already unique). */
@@ -933,6 +982,196 @@ std::string resolve_time_ns(const char* what, const std::string& raw) {
                        raw + "\"");
 }
 
+/* Resolve a size-valued setting to bytes (the unit every model's byte counter
+ * reads). A bare number is already bytes; a unit-bearing value must be a size --
+ * a time or bandwidth unit is rejected -- and converts to bytes. The value must
+ * be strictly positive. `what` names the setting in diagnostics. */
+std::string resolve_size_bytes(const char* what, const std::string& raw) {
+    classified_value cv = classify_value(raw);
+    switch (cv.form) {
+    case value_form::bare_number:
+        if (cv.number <= 0.0)
+            throw config_error(std::string("config error: ") + what + " must be positive, got \"" +
+                               raw + "\"");
+        return raw; /* already bytes */
+    case value_form::with_unit:
+        if (cv.kind != quantity::size)
+            throw config_error(std::string("config error: ") + what +
+                               " takes a size value, but \"" + raw + "\" is a " +
+                               quantity_name(cv.kind) + " value");
+        if (cv.canonical <= 0.0)
+            throw config_error(std::string("config error: ") + what + " must be positive, got \"" +
+                               raw + "\"");
+        return format_number(cv.canonical); /* canonical size base is bytes */
+    case value_form::plain:
+    case value_form::unknown_suffix:
+        break;
+    }
+    throw config_error(std::string("config error: ") + what +
+                       " must be a size value: a bare number of bytes or a value with a size unit "
+                       "(B/KiB/MiB/GiB), got \"" +
+                       raw + "\"");
+}
+
+/* Parse + validate a `workload:` map, unit-resolving its size/time params. Only
+ * the `synthetic` type is wired: the type is read first, and any other type is
+ * rejected up front with a clear "not yet configurable" diagnostic (so a
+ * dumpi/trace workload does not trip over a per-key error for a key this path
+ * doesn't model). `traffic` is kept verbatim -- the pattern-name -> enum meaning
+ * is model-specific, so the model main validates it. Unknown keys are rejected
+ * like everywhere else in the front-end. `where` names the owner in diagnostics
+ * (a component or a job). */
+workload_block parse_workload(ryml::ConstNodeRef node, const std::string& where) {
+    if (!node.is_map())
+        throw config_error("config error: " + where +
+                           ": \"workload\" must be a map (type, and type-specific settings)");
+    if (!has(node, "type"))
+        throw config_error("config error: " + where + ": workload needs a \"type\" (synthetic)");
+    workload_block wl;
+    wl.present = true;
+    wl.type = scalar(node["type"]);
+    if (wl.type != "synthetic")
+        throw config_error("config error: " + where + ": workload type \"" + wl.type +
+                           "\" is not yet configurable from this format; only \"synthetic\" is "
+                           "wired -- use the legacy .conf path for other workload types");
+    for (ryml::ConstNodeRef c : node.children()) {
+        std::string k = key_of(c);
+        if (k == "type") {
+            continue;
+        } else if (k == "traffic") {
+            wl.has_traffic = true;
+            wl.traffic = scalar(c);
+            if (wl.traffic.empty())
+                throw config_error("config error: " + where +
+                                   ": workload.traffic must be a non-empty pattern name");
+        } else if (k == "num_messages") {
+            std::string what = where + " workload.num_messages";
+            long v = parse_int_strict(scalar(c), what.c_str());
+            if (v <= 0)
+                throw config_error("config error: " + where +
+                                   ": workload.num_messages must be a positive integer, got \"" +
+                                   scalar(c) + "\"");
+            wl.has_num_messages = true;
+            wl.num_messages = std::to_string(v);
+        } else if (k == "payload_size") {
+            std::string what = where + " workload.payload_size";
+            wl.has_payload_size = true;
+            wl.payload_size = resolve_size_bytes(what.c_str(), scalar(c));
+        } else if (k == "arrival_time") {
+            std::string what = where + " workload.arrival_time";
+            wl.has_arrival_time = true;
+            wl.arrival_time = resolve_time_ns(what.c_str(), scalar(c));
+        } else {
+            throw config_error("config error: " + where + ": workload: unexpected key \"" + k +
+                               "\" (supported: type, traffic, num_messages, payload_size, "
+                               "arrival_time)");
+        }
+    }
+    return wl;
+}
+
+/* Parse + validate the top-level `jobs:` block: a sequence of jobs, each a
+ * workload placed on a set of node slots. Structural validation happens here
+ * (unique non-empty ids, one workload, positive ranks, exactly one placement
+ * form); placement is resolved against the topology's slot count at compile time
+ * (compile_jobs), which is the first point the count is known. */
+void parse_jobs(ryml::ConstNodeRef root, friendly_config& cfg) {
+    if (!has(root, "jobs"))
+        return;
+    ryml::ConstNodeRef jobs = root["jobs"];
+    if (!jobs.is_seq())
+        throw config_error("config error: \"jobs\" must be a list of job blocks");
+    /* a later document restating jobs: replaces the earlier list wholesale. */
+    cfg.jobs.clear();
+    cfg.has_jobs = true;
+    for (ryml::ConstNodeRef jnode : jobs.children()) {
+        if (!jnode.is_map())
+            throw config_error("config error: jobs: each entry must be a block with id, workload, "
+                               "ranks, and placement");
+        job j;
+        bool has_ranks = false, has_placement = false;
+        for (ryml::ConstNodeRef f : jnode.children()) {
+            std::string k = key_of(f);
+            if (k == "id") {
+                j.id = scalar(f);
+            } else if (k == "workload") {
+                std::string where =
+                    j.id.empty() ? std::string("jobs: entry") : ("job \"" + j.id + "\"");
+                j.wl = parse_workload(f, where);
+            } else if (k == "ranks") {
+                std::string where = j.id.empty() ? std::string("jobs: entry ranks")
+                                                 : ("job \"" + j.id + "\" ranks");
+                j.ranks = parse_int_strict(scalar(f), where.c_str());
+                has_ranks = true;
+            } else if (k == "placement") {
+                has_placement = true;
+                if (!f.is_map())
+                    throw config_error("config error: job placement must be a block: either "
+                                       "{ policy: contiguous } or { nodes: [ ... ] }");
+                bool has_policy = has(f, "policy"), has_nodes = has(f, "nodes");
+                if (has_policy == has_nodes)
+                    throw config_error("config error: job placement must set exactly one of "
+                                       "\"policy\" or \"nodes\"");
+                for (ryml::ConstNodeRef p : f.children()) {
+                    std::string pk = key_of(p);
+                    if (pk != "policy" && pk != "nodes")
+                        throw config_error("config error: job placement: unexpected key \"" + pk +
+                                           "\" (only policy or nodes)");
+                }
+                if (has_policy) {
+                    std::string policy = scalar(f["policy"]);
+                    if (policy != "contiguous")
+                        throw config_error("config error: job placement policy \"" + policy +
+                                           "\" is not supported (only \"contiguous\")");
+                    j.contiguous = true;
+                } else {
+                    ryml::ConstNodeRef nodes = f["nodes"];
+                    if (!nodes.is_seq() || nodes.num_children() == 0)
+                        throw config_error("config error: job placement nodes must be a non-empty "
+                                           "list of node indices");
+                    for (ryml::ConstNodeRef n : nodes.children()) {
+                        long idx = parse_int_strict(scalar(n), "job placement node index");
+                        if (idx < 0)
+                            throw config_error("config error: job placement node index must be "
+                                               "non-negative, got \"" +
+                                               scalar(n) + "\"");
+                        j.nodes.push_back(idx);
+                    }
+                }
+            } else if (k == "qos") {
+                throw config_error("config error: job \"qos\" is recognized but not yet "
+                                   "configurable from this format; remove it (use the legacy path "
+                                   "for QoS)");
+            } else {
+                throw config_error("config error: jobs: unexpected key \"" + k +
+                                   "\" (supported: id, workload, ranks, placement)");
+            }
+        }
+        if (j.id.empty())
+            throw config_error("config error: every job needs a non-empty \"id\"");
+        for (const job& e : cfg.jobs)
+            if (e.id == j.id)
+                throw config_error("config error: duplicate job id \"" + j.id + "\"");
+        if (!j.wl.present)
+            throw config_error("config error: job \"" + j.id + "\" needs a \"workload\"");
+        if (!has_ranks)
+            throw config_error("config error: job \"" + j.id + "\" needs a \"ranks\" count");
+        if (j.ranks <= 0)
+            throw config_error("config error: job \"" + j.id +
+                               "\" ranks must be a positive integer");
+        if (!has_placement)
+            throw config_error("config error: job \"" + j.id +
+                               "\" needs a \"placement\" (contiguous policy or a node list)");
+        if (!j.contiguous && static_cast<long>(j.nodes.size()) != j.ranks)
+            throw config_error("config error: job \"" + j.id + "\" ranks (" +
+                               std::to_string(j.ranks) +
+                               ") does not match its placement node "
+                               "count (" +
+                               std::to_string(j.nodes.size()) + ")");
+        cfg.jobs.push_back(std::move(j));
+    }
+}
+
 /* Parse the top-level `simulation:` block, validating and resolving each setting
  * into cfg.simulation (emitted into PARAMS after the topology compiles). Unknown
  * keys are rejected, like everywhere else in the front-end. */
@@ -990,7 +1229,7 @@ void validate_toplevel_keys(ryml::ConstNodeRef root, bool is_base) {
     for (ryml::ConstNodeRef c : root.children()) {
         std::string k = key_of(c);
         if (k != "schema_version" && k != "components" && k != "topology" && k != "sections" &&
-            k != "simulation" && k != "include")
+            k != "simulation" && k != "jobs" && k != "include")
             throw config_error("config error: unexpected top-level key \"" + k + "\"");
         if (k == "include" && is_base)
             throw config_error("config error: an included file cannot itself use \"include\" "
@@ -1042,6 +1281,7 @@ void merge_document(ryml::ConstNodeRef root, friendly_config& cfg) {
     }
     parse_sections(root, cfg);
     parse_simulation(root, cfg);
+    parse_jobs(root, cfg);
 }
 
 /* -------------------------------------------------------------------------
@@ -1161,8 +1401,10 @@ void add_user_param(compiled_section& params, const model_units& units, const st
     add_user_param(params, units, key, std::vector<std::string>{value});
 }
 
-/* Compile a parametric fabric into LPGROUPS + PARAMS. */
-void compile_fabric(const friendly_config& cfg, compiled_config& out) {
+/* Compile a parametric fabric into LPGROUPS + PARAMS. Reports the total number
+ * of per-terminal workload slots (repetitions * terminals per rep) in
+ * total_slots, for workload/jobs placement validation. */
+void compile_fabric(const friendly_config& cfg, compiled_config& out, long& total_slots) {
     const fabric& fab = cfg.fab;
 
     const fabric_model* model = find_fabric_model(fab.model);
@@ -1188,6 +1430,7 @@ void compile_fabric(const friendly_config& cfg, compiled_config& out) {
                            "component; a parametric fabric defines the network itself");
 
     layout lay = model->derive(fab.shape);
+    total_slots = lay.repetitions * lay.terminals_per_rep;
 
     /* A backstop over every model's derivation: a shape that produces a
      * degenerate layout (e.g. num_groups: 0) must not reach codes_mapping. Each
@@ -1274,7 +1517,8 @@ void compile_fabric(const friendly_config& cfg, compiled_config& out) {
  * peer compute nodes, each one repetition running the component's workload LP
  * over its NIC LP. simplep2p's link table stays referenced by path in the
  * component params; the friendly form supplies only the node count. */
-void compile_flat(const friendly_config& cfg, compiled_config& out) {
+void compile_flat(const friendly_config& cfg, compiled_config& out, long& total_slots) {
+    total_slots = cfg.node_count;
     const component* comp = cfg.find_component(cfg.flat_component);
     if (!comp)
         throw config_error("config error: topology.component \"" + cfg.flat_component +
@@ -1340,6 +1584,133 @@ void apply_simulation(const friendly_config& cfg, compiled_config& out) {
     }
 }
 
+/* -------------------------------------------------------------------------
+ * Workloads and jobs (`workload:` shortcut / `jobs:` block)
+ *
+ * What a node runs is separate from what a node is. The inline `workload:` on
+ * the topology's compute component is the common single-workload case; the
+ * top-level `jobs:` block is the explicit multi-job form. Both are mutually
+ * exclusive and only synthetic workloads are wired here. A synthetic workload's
+ * resolved params land in a dedicated WORKLOAD section (or a JOBS section, one
+ * subsection per job, for a richer placement) that a model main reads with the
+ * codes-workload-config helper -- config beats the model default, and the CLI
+ * beats config. The section is inert for a legacy .conf, which emits none.
+ * ---------------------------------------------------------------------- */
+
+/* Emit a workload's resolved params as keys on `sec`, in a fixed order that is
+ * independent of the source key order, so equivalent configs (an inline
+ * shortcut and a single all-nodes job) compile to an identical tree. */
+void add_workload_keys(compiled_section& sec, const workload_block& wl) {
+    sec.add_key("type", wl.type);
+    if (wl.has_traffic)
+        sec.add_key("traffic", wl.traffic);
+    if (wl.has_num_messages)
+        sec.add_key("num_messages", wl.num_messages);
+    if (wl.has_payload_size)
+        sec.add_key("payload_size", wl.payload_size);
+    if (wl.has_arrival_time)
+        sec.add_key("arrival_time", wl.arrival_time);
+}
+
+/* Emit a top-level WORKLOAD section for a single synthetic workload. The inline
+ * shortcut and a single all-nodes synthetic job both lower to exactly this. */
+void emit_workload_section(compiled_config& out, const workload_block& wl) {
+    compiled_section& sec = out.add_section("WORKLOAD");
+    add_workload_keys(sec, wl);
+}
+
+/* Compile the inline `workload:` shortcut or the `jobs:` block into the tree,
+ * resolving and validating placement against the topology's slot count. The two
+ * forms are mutually exclusive. `host_key` is the topology's compute component
+ * (a workload: may live only there). A single synthetic job that covers every
+ * slot contiguously lowers to the same WORKLOAD section as the inline shortcut,
+ * so the two spellings are tree-equal; any richer placement emits a JOBS section
+ * carrying each job's resolved workload and node allocation. */
+void compile_workload_jobs(const friendly_config& cfg, compiled_config& out, long total_slots,
+                           const std::string& host_key) {
+    /* An inline workload: is meaningful only on the compute component; reject it
+     * anywhere else rather than silently ignoring it. */
+    const workload_block* inline_wl = nullptr;
+    for (const component& c : cfg.components) {
+        if (!c.workload.present)
+            continue;
+        if (c.key != host_key)
+            throw config_error("config error: component \"" + c.key +
+                               "\" carries a workload: but is not the topology's compute node; put "
+                               "the workload on \"" +
+                               host_key +
+                               "\" (the component the topology runs) or use a jobs: block");
+        inline_wl = &c.workload;
+    }
+
+    if (inline_wl && cfg.has_jobs)
+        throw config_error("config error: a component sets an inline workload: and the config also "
+                           "has a jobs: block; use one form or the other, not both");
+
+    if (inline_wl) {
+        emit_workload_section(out, *inline_wl);
+        return;
+    }
+    if (!cfg.has_jobs)
+        return;
+
+    /* Resolve + validate placement across all jobs against the slot count: a
+     * contiguous job packs the next range, an explicit job takes its listed
+     * nodes; every slot is booked at most once and none runs past the end. */
+    std::vector<char> booked(static_cast<size_t>(total_slots), 0);
+    long contig_cursor = 0;
+    long total_ranks = 0;
+    std::vector<std::vector<long>> alloc(cfg.jobs.size());
+    for (size_t ji = 0; ji < cfg.jobs.size(); ++ji) {
+        const job& j = cfg.jobs[ji];
+        total_ranks += j.ranks;
+        std::vector<long>& nodes = alloc[ji];
+        if (j.contiguous) {
+            for (long r = 0; r < j.ranks; ++r)
+                nodes.push_back(contig_cursor + r);
+            contig_cursor += j.ranks;
+        } else {
+            nodes = j.nodes;
+        }
+        for (long idx : nodes) {
+            if (idx >= total_slots)
+                throw config_error("config error: job \"" + j.id + "\" places a rank on node " +
+                                   std::to_string(idx) + ", but the topology has only " +
+                                   std::to_string(total_slots) + " node slots (0.." +
+                                   std::to_string(total_slots - 1) + ")");
+            if (booked[static_cast<size_t>(idx)])
+                throw config_error("config error: job \"" + j.id + "\" double-books node " +
+                                   std::to_string(idx) + " (already assigned to another job)");
+            booked[static_cast<size_t>(idx)] = 1;
+        }
+    }
+    if (total_ranks > total_slots)
+        throw config_error("config error: jobs request " + std::to_string(total_ranks) +
+                           " ranks but the topology has only " + std::to_string(total_slots) +
+                           " node slots");
+
+    /* A single all-nodes synthetic job desugars to the inline-shortcut tree. */
+    if (cfg.jobs.size() == 1 && cfg.jobs[0].contiguous && cfg.jobs[0].ranks == total_slots) {
+        emit_workload_section(out, cfg.jobs[0].wl);
+        return;
+    }
+
+    /* Otherwise emit a JOBS section: one subsection per job with its resolved
+     * workload params, rank count, and the node allocation it was placed on. */
+    compiled_section& jobs_sec = out.add_section("JOBS");
+    for (size_t ji = 0; ji < cfg.jobs.size(); ++ji) {
+        const job& j = cfg.jobs[ji];
+        compiled_section& js = jobs_sec.add_subsection(j.id);
+        add_workload_keys(js, j.wl);
+        js.add_key("ranks", std::to_string(j.ranks));
+        std::vector<std::string> nodev;
+        nodev.reserve(alloc[ji].size());
+        for (long idx : alloc[ji])
+            nodev.push_back(std::to_string(idx));
+        js.add_key("nodes", std::move(nodev));
+    }
+}
+
 } // namespace
 
 std::vector<std::string> parse_includes(std::string_view doc) {
@@ -1385,17 +1756,36 @@ compiled_config compile(std::string_view main_doc, const std::vector<std::string
         throw config_error("config error: missing required \"topology\" block");
 
     compiled_config out;
+    long total_slots = 0;
+    std::string host_key; /* the topology's compute component (carries any workload:) */
     if (cfg.explicit_groups) {
-        /* explicit form: LPGROUPS and PARAMS were built verbatim during parse. */
+        /* explicit form: LPGROUPS and PARAMS were built verbatim during parse. An
+         * explicit-groups layout has no single compute-component notion, so the
+         * workload/jobs shortcuts (which place a per-terminal workload) do not
+         * apply; reject them rather than silently ignoring them. */
+        bool any_workload = false;
+        for (const auto& c : cfg.components)
+            any_workload = any_workload || c.workload.present;
+        if (any_workload || cfg.has_jobs)
+            throw config_error("config error: workload:/jobs: are not supported with an "
+                               "explicit-groups topology; lay out the workload LPs in the groups "
+                               "directly");
         out.sections.push_back(std::move(cfg.explicit_lpgroups));
         out.sections.push_back(std::move(cfg.explicit_params));
-    } else if (cfg.parametric)
-        compile_fabric(cfg, out);
-    else if (cfg.flat)
-        compile_flat(cfg, out);
+    } else if (cfg.parametric) {
+        compile_fabric(cfg, out, total_slots);
+        host_key = cfg.fab.hosts_component;
+    } else if (cfg.flat) {
+        compile_flat(cfg, out, total_slots);
+        host_key = cfg.flat_component;
+    }
 
     /* run-level `simulation:` settings are appended to the PARAMS just emitted. */
     apply_simulation(cfg, out);
+
+    /* inline workload: / jobs: -> a WORKLOAD (or JOBS) section following PARAMS. */
+    if (!cfg.explicit_groups)
+        compile_workload_jobs(cfg, out, total_slots, host_key);
 
     /* verbatim `sections:` blocks follow the compiler-derived topology sections. */
     for (compiled_section& s : cfg.passthrough)
