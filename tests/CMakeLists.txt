@@ -16,6 +16,7 @@ option(CODES_ENABLE_ZMQML_HYBRID_TESTS
 add_executable(codes-config-compiler-test
     codes-config-compiler-test.cxx
     ${CMAKE_SOURCE_DIR}/src/modelconfig/config_compiler.cxx
+    ${CMAKE_SOURCE_DIR}/src/modelconfig/unit_convert.cxx
     ${CODES_RYML_IMPL_TU})
 target_include_directories(codes-config-compiler-test SYSTEM PRIVATE ${CODES_RYML_INCLUDE_DIRS})
 target_include_directories(codes-config-compiler-test PRIVATE ${CMAKE_SOURCE_DIR}/src/modelconfig)

@@ -6,6 +6,8 @@
 
 #include "config_compiler.h"
 
+#include "unit_convert.h"
+
 #include <codes_ryml.hpp>
 
 #include <algorithm>
@@ -167,6 +169,121 @@ struct layout {
     long routers_per_rep;   /* router/switch LP count per repetition */
 };
 
+/* -------------------------------------------------------------------------
+ * Per-parameter unit metadata.
+ *
+ * A dimensioned PARAMS key carries its quantity and the model's internal unit,
+ * expressed as how many canonical base units make up one internal unit (time
+ * base = ns, size base = bytes, bandwidth base = bytes/second). A unit-bearing
+ * value is normalized to the base unit (unit_convert) then divided by this scale
+ * to get the number the model reads; a bare number is emitted verbatim, so it
+ * already means the internal unit. See add_user_param.
+ * ---------------------------------------------------------------------- */
+struct param_unit {
+    const char* name;      /* PARAMS key name */
+    quantity kind;         /* time / size / bandwidth */
+    double internal_scale; /* canonical base units per one internal unit */
+};
+
+/* Bandwidth internal-unit scales (bytes/second in one internal unit). CODES
+ * models do NOT agree on a bandwidth unit -- these come straight from each
+ * model's own byte-time arithmetic (see doc/dev/yaml-config.md). */
+constexpr double BW_GIB_S = 1024.0 * 1024.0 * 1024.0;    /* GiB/s: bytes_to_ns() models */
+constexpr double BW_MIB_S = 1024.0 * 1024.0;             /* MiB/s: simplenet net_bw_mbps */
+constexpr double BW_BYTES_NS = 1000.0 * 1000.0 * 1000.0; /* bytes/ns (= GB/s): fattree */
+
+/* Time internal-unit scales (ns in one internal unit). */
+constexpr double T_NS = 1.0;
+constexpr double T_US = 1000.0; /* the dragonfly QoS counting_* windows are read in us */
+
+constexpr double SZ_BYTES = 1.0; /* every size param is read in bytes */
+
+/* Dimensioned keys whose unit is the same in every model that reads them: byte
+ * counts and nanosecond delays. Looked up for every model in addition to its own
+ * table below, so they need not be repeated per model. */
+const param_unit common_params[] = {
+    {"packet_size", quantity::size, SZ_BYTES},    {"chunk_size", quantity::size, SZ_BYTES},
+    {"message_size", quantity::size, SZ_BYTES},   {"credit_size", quantity::size, SZ_BYTES},
+    {"buffer_size", quantity::size, SZ_BYTES},    {"vc_size", quantity::size, SZ_BYTES},
+    {"cn_vc_size", quantity::size, SZ_BYTES},     {"local_vc_size", quantity::size, SZ_BYTES},
+    {"global_vc_size", quantity::size, SZ_BYTES}, {"router_delay", quantity::time, T_NS},
+    {"soft_delay", quantity::time, T_NS},         {"net_startup_ns", quantity::time, T_NS},
+};
+
+/* Per-model dimensioned keys: the bandwidths (whose unit varies by model) and
+ * the microsecond QoS counting windows. Sizes and ns delays come from
+ * common_params above. */
+const param_unit dragonfly_units[] = {
+    {"local_bandwidth", quantity::bandwidth, BW_GIB_S},
+    {"global_bandwidth", quantity::bandwidth, BW_GIB_S},
+    {"cn_bandwidth", quantity::bandwidth, BW_GIB_S},
+};
+const param_unit dragonfly_dally_units[] = {
+    {"local_bandwidth", quantity::bandwidth, BW_GIB_S},
+    {"global_bandwidth", quantity::bandwidth, BW_GIB_S},
+    {"cn_bandwidth", quantity::bandwidth, BW_GIB_S},
+    {"counting_start", quantity::time, T_US},
+    {"counting_interval", quantity::time, T_US},
+};
+const param_unit dragonfly_plus_units[] = {
+    {"local_bandwidth", quantity::bandwidth, BW_GIB_S},
+    {"global_bandwidth", quantity::bandwidth, BW_GIB_S},
+    {"cn_bandwidth", quantity::bandwidth, BW_GIB_S},
+    {"counting_start", quantity::time, T_US},
+    {"counting_interval", quantity::time, T_US},
+    {"counting_end", quantity::time, T_US},
+};
+const param_unit dragonfly_custom_units[] = {
+    {"local_bandwidth", quantity::bandwidth, BW_GIB_S},
+    {"global_bandwidth", quantity::bandwidth, BW_GIB_S},
+    {"cn_bandwidth", quantity::bandwidth, BW_GIB_S},
+    {"counting_start", quantity::time, T_US},
+    {"counting_interval", quantity::time, T_US},
+};
+const param_unit slimfly_units[] = {
+    {"local_bandwidth", quantity::bandwidth, BW_GIB_S},
+    {"global_bandwidth", quantity::bandwidth, BW_GIB_S},
+    {"cn_bandwidth", quantity::bandwidth, BW_GIB_S},
+};
+const param_unit torus_units[] = {
+    {"link_bandwidth", quantity::bandwidth, BW_GIB_S},
+};
+const param_unit express_mesh_units[] = {
+    {"link_bandwidth", quantity::bandwidth, BW_GIB_S},
+    {"cn_bandwidth", quantity::bandwidth, BW_GIB_S},
+};
+/* fattree reads bandwidth as bytes/ns (1/bandwidth ns per byte), NOT the GiB/s
+ * convention the bytes_to_ns() models use -- a value means a different rate here. */
+const param_unit fattree_units[] = {
+    {"link_bandwidth", quantity::bandwidth, BW_BYTES_NS},
+    {"cn_bandwidth", quantity::bandwidth, BW_BYTES_NS},
+};
+
+/* simplenet's sole scalar rate; despite the "mbps" spelling the model reads it in
+ * MiB/s (rate_to_ns divides bytes by 1024*1024). simplep2p/loggp take their rates
+ * from files, so they have no scalar bandwidth key here. */
+const param_unit simplenet_units[] = {
+    {"net_bw_mbps", quantity::bandwidth, BW_MIB_S},
+};
+
+/* count of a param_unit table declared as a C array */
+template <class T, size_t N> constexpr size_t array_len(const T (&)[N]) {
+    return N;
+}
+
+/* Find the unit metadata for a PARAMS key: the model's own table first, then the
+ * shared common table; nullptr if the key is not a known dimensioned param. */
+const param_unit* find_param_unit(const param_unit* model_units, size_t n_model,
+                                  const std::string& key) {
+    for (size_t i = 0; i < n_model; ++i)
+        if (key == model_units[i].name)
+            return &model_units[i];
+    for (const param_unit& p : common_params)
+        if (key == p.name)
+            return &p;
+    return nullptr;
+}
+
 struct fabric_model {
     const char* name;                       /* friendly name used in fabric.model */
     const char* terminal_lp;                /* LPGROUPS lp-type name for the NIC/terminal */
@@ -175,6 +292,8 @@ struct fabric_model {
     const char* router_method;              /* modelnet_order method for the router, or nullptr
                                   if the router is not a separate model-net method */
     layout (*derive)(const kv_list& shape); /* shape -> LP layout */
+    const param_unit* units;                /* model's dimensioned-param unit table */
+    size_t n_units;                         /* entries in `units` */
 };
 
 /* Look up a shape value by name, throwing if absent. The value is parsed
@@ -371,19 +490,24 @@ layout derive_dragonfly_custom(const kv_list& shape) {
 
 const fabric_model fabric_models[] = {
     {"dragonfly", "modelnet_dragonfly", "modelnet_dragonfly_router", "dragonfly",
-     "dragonfly_router", derive_dragonfly},
+     "dragonfly_router", derive_dragonfly, dragonfly_units, array_len(dragonfly_units)},
     {"dragonfly-dally", "modelnet_dragonfly_dally", "modelnet_dragonfly_dally_router",
-     "dragonfly_dally", "dragonfly_dally_router", derive_dragonfly_dally},
-    {"fattree", "modelnet_fattree", "fattree_switch", "fattree", nullptr, derive_fattree},
-    {"torus", "modelnet_torus", nullptr, "torus", nullptr, derive_torus},
+     "dragonfly_dally", "dragonfly_dally_router", derive_dragonfly_dally, dragonfly_dally_units,
+     array_len(dragonfly_dally_units)},
+    {"fattree", "modelnet_fattree", "fattree_switch", "fattree", nullptr, derive_fattree,
+     fattree_units, array_len(fattree_units)},
+    {"torus", "modelnet_torus", nullptr, "torus", nullptr, derive_torus, torus_units,
+     array_len(torus_units)},
     {"express-mesh", "modelnet_express_mesh", "modelnet_express_mesh_router", "express_mesh",
-     "express_mesh_router", derive_express_mesh},
+     "express_mesh_router", derive_express_mesh, express_mesh_units, array_len(express_mesh_units)},
     {"slimfly", "modelnet_slimfly", "modelnet_slimfly_router", "slimfly", "slimfly_router",
-     derive_slimfly},
+     derive_slimfly, slimfly_units, array_len(slimfly_units)},
     {"dragonfly-plus", "modelnet_dragonfly_plus", "modelnet_dragonfly_plus_router",
-     "dragonfly_plus", "dragonfly_plus_router", derive_dragonfly_plus},
+     "dragonfly_plus", "dragonfly_plus_router", derive_dragonfly_plus, dragonfly_plus_units,
+     array_len(dragonfly_plus_units)},
     {"dragonfly-custom", "modelnet_dragonfly_custom", "modelnet_dragonfly_custom_router",
-     "dragonfly_custom", "dragonfly_custom_router", derive_dragonfly_custom},
+     "dragonfly_custom", "dragonfly_custom_router", derive_dragonfly_custom, dragonfly_custom_units,
+     array_len(dragonfly_custom_units)},
 };
 
 const fabric_model* find_fabric_model(const std::string& name) {
@@ -397,15 +521,19 @@ const fabric_model* find_fabric_model(const std::string& name) {
  * Maps a friendly network name to the LPGROUPS lp-type name and the
  * modelnet_order method the model registers. */
 struct network_model {
-    const char* name;   /* friendly name used in a component's network: field */
-    const char* nic_lp; /* LPGROUPS lp-type name for the NIC */
-    const char* method; /* modelnet_order method name */
+    const char* name;        /* friendly name used in a component's network: field */
+    const char* nic_lp;      /* LPGROUPS lp-type name for the NIC */
+    const char* method;      /* modelnet_order method name */
+    const param_unit* units; /* model's dimensioned-param unit table */
+    size_t n_units;          /* entries in `units` */
 };
 
 const network_model network_models[] = {
-    {"simplenet", "modelnet_simplenet", "simplenet"},
-    {"simplep2p", "modelnet_simplep2p", "simplep2p"},
-    {"loggp", "modelnet_loggp", "loggp"},
+    {"simplenet", "modelnet_simplenet", "simplenet", simplenet_units, array_len(simplenet_units)},
+    /* simplep2p and loggp read their rates from files (paths pass through as
+     * non-numeric values), so they declare no scalar dimensioned param here. */
+    {"simplep2p", "modelnet_simplep2p", "simplep2p", nullptr, 0},
+    {"loggp", "modelnet_loggp", "loggp", nullptr, 0},
 };
 
 const network_model* find_network_model(const std::string& name) {
@@ -839,25 +967,104 @@ bool is_derived_param(const std::string& key) {
     return false;
 }
 
-/* Append a user-supplied key to PARAMS, refusing to let it shadow a key the
- * compiler derives itself. compile_fabric/compile_flat emit the derived keys
+/* A model's dimensioned-param unit table, threaded from the model registry into
+ * PARAMS emission so unit conversion is per-model (link_bandwidth is GiB/s in
+ * torus but bytes/ns in fattree, so the same key resolves differently). */
+struct model_units {
+    const param_unit* tbl;
+    size_t n;
+};
+
+const char* quantity_name(quantity q) {
+    switch (q) {
+    case quantity::time:
+        return "time";
+    case quantity::size:
+        return "size";
+    case quantity::bandwidth:
+        return "bandwidth";
+    }
+    return "value";
+}
+
+/* Resolve one raw PARAMS value for `key` against the model's unit table:
+ *
+ *  - a value with a recognized unit is converted to the model's internal unit
+ *    for that dimensioned key (rejecting a unit of the wrong quantity, e.g. a
+ *    time on a size key, and a negative magnitude);
+ *  - a bare number is emitted verbatim, so it already means the internal unit
+ *    (identity for ns/bytes keys, pass-through for bandwidth, which has no safe
+ *    universal default);
+ *  - a non-numeric string (a name, path, enum) passes through untouched;
+ *  - a unit-suffixed value on a knob the model can't classify is a trap -- the
+ *    model would atof() it and silently read the bare number -- so it is
+ *    rejected with a diagnostic naming the key.
+ *
+ * Trailing garbage after a number (an unrecognized suffix) is rejected on a
+ * dimensioned key but passed through on an unclassified one (a value like a
+ * "4,2,2" dim_length or a "5.dat" filename is not ours to reject). */
+std::string resolve_param_value(const model_units& units, const std::string& key,
+                                const std::string& raw) {
+    const param_unit* pu = find_param_unit(units.tbl, units.n, key);
+    classified_value cv = classify_value(raw);
+
+    if (pu) {
+        switch (cv.form) {
+        case value_form::plain:
+        case value_form::bare_number:
+            return raw; /* verbatim: already the model's internal unit */
+        case value_form::with_unit:
+            if (cv.kind != pu->kind)
+                throw config_error("config error: parameter \"" + key + "\" takes a " +
+                                   quantity_name(pu->kind) + " value, but \"" + raw + "\" is a " +
+                                   quantity_name(cv.kind) + " value");
+            if (cv.canonical < 0.0)
+                throw config_error("config error: parameter \"" + key + "\" value \"" + raw +
+                                   "\" must not be negative");
+            return format_number(cv.canonical / pu->internal_scale);
+        case value_form::unknown_suffix:
+            throw config_error("config error: parameter \"" + key + "\" value \"" + raw +
+                               "\" has an unrecognized unit; use ns/us/ms/s (time), "
+                               "B/KiB/MiB/GiB (size), or a bit/byte rate like Gbps/GiBps "
+                               "(bandwidth), or write a bare number in the model's internal unit");
+        }
+    } else if (cv.form == value_form::with_unit) {
+        throw config_error(
+            "config error: parameter \"" + key +
+            "\" is a pass-through model knob that is not "
+            "unit-aware, so the unit-bearing value \"" +
+            raw +
+            "\" would be read as its bare number by the model; drop the unit and write the value "
+            "in the model's internal unit, or use a recognized dimensioned parameter");
+    }
+    return raw;
+}
+
+/* Append a user-supplied key to PARAMS, resolving any unit-bearing values
+ * against `units` (see resolve_param_value) and refusing to let it shadow a key
+ * the compiler derives itself. compile_fabric/compile_flat emit the derived keys
  * (modelnet_order) first, then append the user's fabric/component params; because
  * the config store returns the FIRST match for a name, a user key of the same
  * name would land after the derived one and be silently ignored. The front-end
  * never silently drops a key, so reject the collision here with a diagnostic. (An
  * explicit-groups config derives no PARAMS at all and writes modelnet_order
  * itself, so that path builds PARAMS directly and never goes through here.) */
-void add_user_param(compiled_section& params, const std::string& key,
+void add_user_param(compiled_section& params, const model_units& units, const std::string& key,
                     const std::vector<std::string>& values) {
     if (is_derived_param(key))
         throw config_error("config error: \"" + key +
                            "\" is derived by the compiler from the topology and cannot be set as a "
                            "model parameter; remove it (the compiler emits it for you)");
-    params.add_key(key, values);
+    std::vector<std::string> resolved;
+    resolved.reserve(values.size());
+    for (const std::string& v : values)
+        resolved.push_back(resolve_param_value(units, key, v));
+    params.add_key(key, std::move(resolved));
 }
 
-void add_user_param(compiled_section& params, const std::string& key, const std::string& value) {
-    add_user_param(params, key, std::vector<std::string>{value});
+void add_user_param(compiled_section& params, const model_units& units, const std::string& key,
+                    const std::string& value) {
+    add_user_param(params, units, key, std::vector<std::string>{value});
 }
 
 /* Compile a parametric fabric into LPGROUPS + PARAMS. */
@@ -923,18 +1130,23 @@ void compile_fabric(const friendly_config& cfg, compiled_config& out) {
     else
         params.add_key("modelnet_order", std::vector<std::string>{model->term_method});
 
+    /* dimensioned params are resolved against this model's unit table (see
+     * resolve_param_value): a unit-bearing value converts to the model's internal
+     * unit, a bare number passes through. */
+    const model_units units{model->units, model->n_units};
+
     /* shape parameters pass straight through (num_routers etc.). */
     for (const auto& kv : fab.shape)
-        add_user_param(params, kv.first, kv.second);
+        add_user_param(params, units, kv.first, kv.second);
 
     /* per-link-class params become <class>_<param> (local_bandwidth, ...). */
     for (const link_class& cls : fab.links)
         for (const auto& kv : cls.params)
-            add_user_param(params, cls.name + "_" + kv.first, kv.second);
+            add_user_param(params, units, cls.name + "_" + kv.first, kv.second);
 
     /* routing.algorithm -> "routing"; any other routing.* passes through. */
     for (const auto& kv : fab.routing)
-        add_user_param(params, kv.first == "algorithm" ? std::string("routing") : kv.first,
+        add_user_param(params, units, kv.first == "algorithm" ? std::string("routing") : kv.first,
                        kv.second);
 
     /* connections.{intra,inter} -> the file-enumerated model's connection-file
@@ -942,26 +1154,26 @@ void compile_fabric(const friendly_config& cfg, compiled_config& out) {
      * working directory). */
     for (const auto& kv : fab.connections) {
         if (kv.first == "intra")
-            add_user_param(params, "intra-group-connections", kv.second);
+            add_user_param(params, units, "intra-group-connections", kv.second);
         else if (kv.first == "inter")
-            add_user_param(params, "inter-group-connections", kv.second);
+            add_user_param(params, units, "inter-group-connections", kv.second);
         else
-            add_user_param(params, kv.first, kv.second);
+            add_user_param(params, units, kv.first, kv.second);
     }
 
     /* remaining scalar fabric keys (packet_size, chunk_size, parity pass-through
      * knobs) map to PARAMS verbatim. */
     for (const auto& kv : fab.extra)
-        add_user_param(params, kv.first, kv.second);
+        add_user_param(params, units, kv.first, kv.second);
 
     /* list-valued fabric keys (slimfly's generator_set_X / _X_prime) emit as
      * multi-value PARAMS, e.g. generator_set_X=("1","4"). */
     for (const auto& kv : fab.extra_lists)
-        add_user_param(params, kv.first, kv.second);
+        add_user_param(params, units, kv.first, kv.second);
 
     /* the workload component's own params (if any) also land in PARAMS. */
     for (const auto& kv : host->params)
-        add_user_param(params, kv.first, kv.second);
+        add_user_param(params, units, kv.first, kv.second);
 }
 
 /* Compile a flat (enumerated) network into LPGROUPS + PARAMS: `node_count`
@@ -999,8 +1211,9 @@ void compile_flat(const friendly_config& cfg, compiled_config& out) {
      * straight through. --- */
     compiled_section& params = out.add_section("PARAMS");
     params.add_key("modelnet_order", std::vector<std::string>{net->method});
+    const model_units units{net->units, net->n_units};
     for (const auto& kv : comp->params)
-        add_user_param(params, kv.first, kv.second);
+        add_user_param(params, units, kv.first, kv.second);
 }
 
 } // namespace

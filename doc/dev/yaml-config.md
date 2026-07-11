@@ -78,6 +78,111 @@ write `modelnet_order` yourself under `params:`.)
 
 ---
 
+# Units and dimensioned values
+
+A parameter that carries a physical dimension — a latency, a size, a bandwidth —
+may be written **either** as a bare number in the model's internal unit **or** as
+a unit-bearing string that the compiler converts to that unit before emitting it.
+
+```yaml
+    packet_size: 2KiB          # -> 2048   (bytes)
+    router_delay: 1.5us        # -> 1500   (nanoseconds)
+    cn_bandwidth: 100Gbps      # -> converted to the model's bandwidth unit
+```
+
+## Bare numbers: the default unit
+
+A bare number keeps a documented default unit:
+
+| Quantity | Bare number means |
+|----------|-------------------|
+| time / latency | **nanoseconds** |
+| size | **bytes** |
+| count (num_routers, num_vcs, …) | **unitless** |
+| bandwidth | **the model's internal unit** — see the table below |
+
+For time and size these defaults are exactly the units every model already reads,
+so a bare number and an explicit `ns`/`B` suffix produce the identical value — and
+every existing config keeps compiling unchanged. **Bandwidth is the exception:**
+CODES models do not agree on a bandwidth unit (some read GiB/s, one reads bytes/ns,
+simplenet reads MiB/s), so there is no safe universal default. A bare bandwidth
+number is passed through as the model's internal unit. **Writing bandwidth with an
+explicit unit is strongly recommended** — it says what you mean regardless of which
+model reads it.
+
+## Accepted unit suffixes
+
+The suffix is matched exactly and is **case-sensitive** — the bit/byte distinction
+rides on the case of `b`/`B` (`Gbps` is gigabit/s, `GBps` is gigabyte/s).
+
+| Quantity | Suffixes |
+|----------|----------|
+| time | `ns`, `us` (microseconds), `ms`, `s` |
+| size | `B`, `KiB`, `MiB`, `GiB` (binary, 1024-based); `KB`, `MB`, `GB` (decimal, 1000-based) |
+| bandwidth — bit rates | `bps`, `Kbps`, `Mbps`, `Gbps` (decimal, divided by 8 to bytes) |
+| bandwidth — byte rates | `Bps`, `KBps`, `MBps`, `GBps` (decimal); `KiBps`, `MiBps`, `GiBps` (binary) |
+
+Conversions are exact whenever the result is a whole number (`2KiB` → `2048`,
+`1.5us` → `1500`); otherwise the emitted value is a plain decimal (never
+scientific notation) that round-trips to the same double the model would compute.
+
+**Rejections** (each a config error naming the parameter):
+
+- an **unknown suffix** or trailing junk on a dimensioned parameter (`packet_size:
+  512qux`);
+- a unit of the **wrong quantity** (`packet_size: 5ms` — a time on a size);
+- a **negative** dimensioned value (`cn_bandwidth: -1Gbps`);
+- a unit on a parameter the compiler **cannot classify** (a plain count or an
+  opaque pass-through knob, e.g. `num_vcs: 4KiB`). The model would read such a
+  value with `atof`/`strtol` and silently keep only the leading number, so the
+  front-end rejects it: drop the unit and write the model's internal unit, or use
+  a recognized dimensioned parameter. (A clearly non-numeric value — a routing
+  name, a file path — still passes through untouched.)
+
+Units are applied to the friendly **component** and **fabric** parameters (flat
+and parametric topologies). The escape-hatch `format: groups` `params:` and the
+verbatim `sections:` blocks are passed through unchanged, so write internal-unit
+numbers there.
+
+## Bandwidth internal units per model
+
+A bare bandwidth number — and any value you convert — lands in the unit the model
+actually reads. These come from each model's own byte-time arithmetic:
+
+| Model(s) | Bandwidth parameter(s) | Internal unit (what a bare number means) |
+|----------|------------------------|------------------------------------------|
+| dragonfly, dragonfly-dally, dragonfly-plus, dragonfly-custom, slimfly | `local_bandwidth`, `global_bandwidth`, `cn_bandwidth` | **GiB/s** (1024³ bytes/s) |
+| torus | `link_bandwidth` | **GiB/s** |
+| express-mesh | `link_bandwidth`, `cn_bandwidth` | **GiB/s** |
+| fattree | `link_bandwidth`, `cn_bandwidth` | **bytes/ns** (= GB/s, decimal 10⁹) — **not** GiB/s |
+| simplenet | `net_bw_mbps` | **MiB/s** (1024² bytes/s) — despite the `mbps` name |
+| simplep2p | `net_bw_mbps_file` (per-pair matrix) | MiB/s, read from the referenced file (not a scalar, not converted) |
+| loggp | rates come from `net_config_file` | not a scalar parameter |
+
+The same string means different physical rates across models: `link_bandwidth:
+1GBps` is `1` in fattree (bytes/ns) but `≈0.931` in torus (GiB/s). Because a bare
+number is a raw pass-through, `link_bandwidth: 12.5` likewise means 12.5 GiB/s in
+torus and 12.5 bytes/ns in fattree — another reason to prefer explicit bandwidth
+units.
+
+## Time and size internal units
+
+Every size parameter (`packet_size`, `chunk_size`, `message_size`, `vc_size` and
+the `*_vc_size` variants, `buffer_size`, `credit_size`) is read in **bytes**, and
+the common latency knobs (`router_delay`, `soft_delay`, `net_startup_ns`) in
+**nanoseconds** — so a bare number needs no suffix. The one exception is the
+dragonfly QoS statistics window, read in **microseconds**:
+
+| Model(s) | Parameter(s) | Internal unit |
+|----------|--------------|---------------|
+| dragonfly-dally, dragonfly-custom | `counting_start`, `counting_interval` | **microseconds** |
+| dragonfly-plus | `counting_start`, `counting_interval`, `counting_end` | **microseconds** |
+
+A bare number there means microseconds (`counting_start: 100` is 100 µs); an
+explicit time unit is converted accordingly (`counting_start: 5ms` → `5000`).
+
+---
+
 # Flat networks
 
 The flat point-to-point network models — `simplenet`, `simplep2p`, and `loggp` —
