@@ -70,6 +70,12 @@ The compiler walks the friendly form and emits the `LPGROUPS` (LP layout) and
 - any scalar key the compiler doesn't special-case is **passed through verbatim**
   to `PARAMS`, so advanced model knobs need no compiler change.
 
+The compiler derives `modelnet_order` from the fabric/network model, so it must
+**not** be set by hand on a flat component or a parametric fabric — doing so would
+otherwise be silently ignored (the compiler-derived value wins), so it is rejected
+as a config error instead. (The explicit-groups form derives nothing, so there you
+write `modelnet_order` yourself under `params:`.)
+
 ---
 
 # Flat networks
@@ -608,7 +614,10 @@ topology:
 Each group names its `repetitions` and, under `lps`, the LP types with their
 per-repetition counts — a direct, validated transcription of a `.conf`
 `LPGROUPS`. There is no network to derive from, so `modelnet_order` and any other
-knobs come from whatever you put in `params`. `params:` follows the same
+knobs come from whatever you put in `params`. `modelnet_order` is **required** when
+your layout includes model-net LP types (e.g. `modelnet_dragonfly`) and lists the
+methods present; it is simply omitted for configs with no model-net models at all
+(a pure storage cluster or mapping test). `params:` follows the same
 scalar/list/nested-map rules as a `sections:` block (below): a scalar becomes a
 single-value key, a list a multi-value key, and a nested map a subsection. Group
 and LP-type names are free-form (they match what each model registers).

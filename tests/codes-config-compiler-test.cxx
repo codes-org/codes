@@ -742,6 +742,104 @@ topology:
     EXPECT_EQ(find_key(*grp, "modelnet_torus_router"), nullptr);
 }
 
+// --- compiler-derived PARAMS keys can't be shadowed by user params ----------
+//
+// The compiler emits modelnet_order (derived from the model) as the first PARAMS
+// key, then appends the user's fabric/component params. The config store returns
+// the first match for a name, so a user param of the same name would land after
+// the derived one and be silently ignored -- the front-end must reject that
+// instead of silently dropping the user's value.
+
+TEST(ConfigCompiler, FlatRejectsUserModelnetOrderParam) {
+    // reachable via a flat component's pass-through params.
+    EXPECT_THROW(compile(R"(
+schema_version: 1
+components:
+  cn:
+    model: nw-lp
+    network: simplenet
+    modelnet_order: bogus
+topology: { format: flat, component: cn, nodes: 4 }
+)"),
+                 config_error);
+}
+
+TEST(ConfigCompiler, ParametricRejectsUserModelnetOrderFabricKey) {
+    // reachable via a fabric's pass-through scalar keys.
+    EXPECT_THROW(compile(R"(
+schema_version: 1
+components:
+  compute_host: { model: nw-lp }
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly
+    shape:
+      num_routers: 4
+    modelnet_order: bogus
+  hosts:
+    component: compute_host
+)"),
+                 config_error);
+}
+
+TEST(ConfigCompiler, ParametricRejectsUserModelnetOrderHostParam) {
+    // reachable via the host component's own params (appended to PARAMS).
+    EXPECT_THROW(compile(R"(
+schema_version: 1
+components:
+  compute_host:
+    model: nw-lp
+    modelnet_order: bogus
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly
+    shape:
+      num_routers: 4
+  hosts:
+    component: compute_host
+)"),
+                 config_error);
+}
+
+TEST(ConfigCompiler, DerivedKeyGuardIsExactMatchNotPrefix) {
+    // a nearby, legitimate key that merely shares a prefix is accepted -- the
+    // guard is an exact-name match, not a prefix ban.
+    compiled_config c = compile(R"(
+schema_version: 1
+components:
+  cn:
+    model: nw-lp
+    network: simplenet
+    modelnet_scheduler: fcfs
+topology: { format: flat, component: cn, nodes: 4 }
+)");
+    const compiled_section* params = find_section(c, "PARAMS");
+    ASSERT_NE(params, nullptr);
+    EXPECT_NE(find_key(*params, "modelnet_scheduler"), nullptr);
+}
+
+TEST(ConfigCompiler, ExplicitGroupsAllowsUserModelnetOrder) {
+    // the explicit-groups form derives no PARAMS at all -- the user lays out
+    // everything, including modelnet_order -- so it is NOT guarded there.
+    compiled_config c = compile(R"(
+schema_version: 1
+topology:
+  format: groups
+  params:
+    modelnet_order: [dragonfly, dragonfly_router]
+  groups:
+    G: { repetitions: 1, lps: { a: 1 } }
+)");
+    const compiled_section* params = find_section(c, "PARAMS");
+    ASSERT_NE(params, nullptr);
+    const compiled_key* order = find_key(*params, "modelnet_order");
+    ASSERT_NE(order, nullptr);
+    ASSERT_EQ(order->values.size(), 2u);
+    EXPECT_EQ(order->values.at(0), "dragonfly");
+}
+
 // --- includes / multi-document merge ----------------------------------------
 
 TEST(ConfigCompiler, IncludeMergesComponentsFromBaseDoc) {

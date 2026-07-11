@@ -826,6 +826,40 @@ void merge_document(ryml::ConstNodeRef root, friendly_config& cfg) {
  * Compile: friendly IR -> compiled_config
  * ---------------------------------------------------------------------- */
 
+/* PARAMS keys the compiler derives from the topology itself, rather than passing
+ * through from the user. Currently just modelnet_order (computed from the fabric/
+ * network model registry); the array leaves room for more without touching the
+ * call sites. */
+const char* const derived_params_keys[] = {"modelnet_order"};
+
+bool is_derived_param(const std::string& key) {
+    for (const char* k : derived_params_keys)
+        if (key == k)
+            return true;
+    return false;
+}
+
+/* Append a user-supplied key to PARAMS, refusing to let it shadow a key the
+ * compiler derives itself. compile_fabric/compile_flat emit the derived keys
+ * (modelnet_order) first, then append the user's fabric/component params; because
+ * the config store returns the FIRST match for a name, a user key of the same
+ * name would land after the derived one and be silently ignored. The front-end
+ * never silently drops a key, so reject the collision here with a diagnostic. (An
+ * explicit-groups config derives no PARAMS at all and writes modelnet_order
+ * itself, so that path builds PARAMS directly and never goes through here.) */
+void add_user_param(compiled_section& params, const std::string& key,
+                    const std::vector<std::string>& values) {
+    if (is_derived_param(key))
+        throw config_error("config error: \"" + key +
+                           "\" is derived by the compiler from the topology and cannot be set as a "
+                           "model parameter; remove it (the compiler emits it for you)");
+    params.add_key(key, values);
+}
+
+void add_user_param(compiled_section& params, const std::string& key, const std::string& value) {
+    add_user_param(params, key, std::vector<std::string>{value});
+}
+
 /* Compile a parametric fabric into LPGROUPS + PARAMS. */
 void compile_fabric(const friendly_config& cfg, compiled_config& out) {
     const fabric& fab = cfg.fab;
@@ -891,42 +925,43 @@ void compile_fabric(const friendly_config& cfg, compiled_config& out) {
 
     /* shape parameters pass straight through (num_routers etc.). */
     for (const auto& kv : fab.shape)
-        params.add_key(kv.first, kv.second);
+        add_user_param(params, kv.first, kv.second);
 
     /* per-link-class params become <class>_<param> (local_bandwidth, ...). */
     for (const link_class& cls : fab.links)
         for (const auto& kv : cls.params)
-            params.add_key(cls.name + "_" + kv.first, kv.second);
+            add_user_param(params, cls.name + "_" + kv.first, kv.second);
 
     /* routing.algorithm -> "routing"; any other routing.* passes through. */
     for (const auto& kv : fab.routing)
-        params.add_key(kv.first == "algorithm" ? std::string("routing") : kv.first, kv.second);
+        add_user_param(params, kv.first == "algorithm" ? std::string("routing") : kv.first,
+                       kv.second);
 
     /* connections.{intra,inter} -> the file-enumerated model's connection-file
      * keys; paths pass through verbatim (the model reads them relative to the
      * working directory). */
     for (const auto& kv : fab.connections) {
         if (kv.first == "intra")
-            params.add_key("intra-group-connections", kv.second);
+            add_user_param(params, "intra-group-connections", kv.second);
         else if (kv.first == "inter")
-            params.add_key("inter-group-connections", kv.second);
+            add_user_param(params, "inter-group-connections", kv.second);
         else
-            params.add_key(kv.first, kv.second);
+            add_user_param(params, kv.first, kv.second);
     }
 
     /* remaining scalar fabric keys (packet_size, chunk_size, parity pass-through
      * knobs) map to PARAMS verbatim. */
     for (const auto& kv : fab.extra)
-        params.add_key(kv.first, kv.second);
+        add_user_param(params, kv.first, kv.second);
 
     /* list-valued fabric keys (slimfly's generator_set_X / _X_prime) emit as
      * multi-value PARAMS, e.g. generator_set_X=("1","4"). */
     for (const auto& kv : fab.extra_lists)
-        params.add_key(kv.first, kv.second);
+        add_user_param(params, kv.first, kv.second);
 
     /* the workload component's own params (if any) also land in PARAMS. */
     for (const auto& kv : host->params)
-        params.add_key(kv.first, kv.second);
+        add_user_param(params, kv.first, kv.second);
 }
 
 /* Compile a flat (enumerated) network into LPGROUPS + PARAMS: `node_count`
@@ -965,7 +1000,7 @@ void compile_flat(const friendly_config& cfg, compiled_config& out) {
     compiled_section& params = out.add_section("PARAMS");
     params.add_key("modelnet_order", std::vector<std::string>{net->method});
     for (const auto& kv : comp->params)
-        params.add_key(kv.first, kv.second);
+        add_user_param(params, kv.first, kv.second);
 }
 
 } // namespace
