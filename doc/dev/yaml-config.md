@@ -24,12 +24,13 @@ enable and no configure-time option to set.
 
 ## Shape of a config
 
-A config has up to six top-level blocks:
+A config has up to seven top-level blocks:
 
 ```yaml
 schema_version: 1   # required; this build understands version 1
 components:          # named component configs referenced by the topology
 topology:            # flat network, parametric fabric, or explicit LP groups
+jobs:                # explicit multi-job workload placement (or an inline workload: on a component)
 sections:            # config a model reads directly, carried through verbatim
 simulation:          # run-level settings (end time, event-pool factor)
 include:             # other config files to reuse (base; this file overrides)
@@ -41,13 +42,19 @@ include:             # other config files to reuse (base; this file overrides)
 - **`components`** is a map of name → component. A **component** pairs a model
   (`model:`) with its parameters; a flat-network component also names the NIC
   model it runs over (`network:`). Components are referenced by name from the
-  topology. The key `type:` is reserved for a future schema version and is
-  rejected rather than passed through as a model param.
+  topology. The compute component may carry an inline `workload:` — the
+  single-workload shortcut, see "Workloads and jobs" below. The key `type:` is
+  reserved for a future schema version and is rejected rather than passed through
+  as a model param.
 - **`topology`** selects the layout, via one of three `format`s: `flat` is an
   all-to-all point-to-point network described by a component and a node count;
   `parametric` is an HPC fabric described by shape parameters; `groups` lays the
   LP groups out directly (the escape hatch for configs that aren't a single
   network). Each is documented in its own section below.
+- **`jobs`** places workloads on the topology's nodes — what the nodes run, as
+  opposed to what they are. The common single-workload case is instead an inline
+  `workload:` on the compute component; both are covered in "Workloads and jobs"
+  below.
 - **`sections`** carries config a model reads directly by name (DIRECTOR,
   NETWORK_SURROGATE, resource, …) through verbatim — see `sections:` below.
 - **`simulation`** carries run-level settings — the simulation end time and the
@@ -748,6 +755,131 @@ exactly that.
 
 ---
 
+# Workloads and jobs: what a node runs
+
+What a node **runs** is separate from what a node **is**. A topology gives you
+the node models and the network; a workload says what traffic those nodes
+generate. There are two spellings, and a config uses **one or the other, never
+both**.
+
+## The single-workload shortcut: inline `workload:`
+
+The common case — every compute node runs the same workload — is an inline
+`workload:` block on the topology's compute component:
+
+```yaml
+components:
+  compute_host:
+    model: nw-lp
+    network: { ... }          # (flat topologies) or omitted for a parametric fabric
+    workload:
+      type: synthetic
+      traffic: uniform        # a pattern name the synthetic model accepts
+      num_messages: 30        # positive integer
+      payload_size: "2KiB"    # size-valued: units apply (resolves to bytes)
+      arrival_time: "1us"     # time-valued: units apply (resolves to nanoseconds)
+```
+
+It desugars to a single job on **all** of that component's nodes. The compiler
+lowers it to a `WORKLOAD` section carrying the resolved params, which shows up in
+the resolved-config dump like anything else. A `workload:` may live **only** on
+the component the topology actually runs (the flat `component:` or the parametric
+`hosts.component`); putting one on any other component, or on an explicit-groups
+topology, is a config error.
+
+## Explicit multi-job: `jobs:`
+
+To place several workloads on disjoint sets of nodes, use a top-level `jobs:`
+list instead:
+
+```yaml
+jobs:
+  - id: production
+    workload: { type: synthetic, traffic: uniform, num_messages: 30 }
+    ranks: 256
+    placement: { policy: contiguous }
+  - id: background
+    workload: { type: synthetic, traffic: nearest_neighbor, arrival_time: "1us" }
+    ranks: 128
+    placement: { nodes: [ 384, 385, 386, ... ] }   # explicit node list — the escape hatch
+```
+
+Each job needs a unique non-empty `id`, exactly one `workload`, a positive
+`ranks` count, and a `placement` that is **exactly one** of:
+
+- `{ policy: contiguous }` — the job is assigned the next contiguous range of
+  node slots (jobs pack in declared order from node 0); or
+- `{ nodes: [ ... ] }` — an explicit list of node indices, whose length must
+  equal `ranks`.
+
+The compiler validates the whole allocation: every node index is in range
+(`0 .. total_slots-1`), no node is booked by two jobs, and the total rank count
+fits the topology. A single synthetic job placed contiguously on **every** node
+compiles to exactly the `WORKLOAD` section the inline shortcut produces — the two
+spellings are interchangeable for that case. Any richer placement compiles to a
+`JOBS` section: a `num_jobs` marker plus one subsection per job carrying its
+resolved workload, `ranks`, and the resolved `nodes` allocation.
+
+## Which workload types are wired
+
+Only `type: synthetic` is wired end to end. Other workload types (e.g. `dumpi`
+trace replay) and a job-level `qos:` key are **recognized** — the block shape is
+understood — but rejected with a clear "not yet configurable from this format"
+error; keep the legacy `.conf` path for those. Unknown keys anywhere in a
+`workload:` or `jobs:` block are rejected like everywhere else in the front-end.
+
+### Synthetic workload keys
+
+| key            | value                          | notes                                   |
+| -------------- | ------------------------------ | --------------------------------------- |
+| `type`         | `synthetic`                    | required; the discriminator             |
+| `traffic`      | a pattern name (`uniform`, …)  | mapped to the model's own traffic enum  |
+| `num_messages` | positive integer               | messages generated per terminal         |
+| `payload_size` | size-valued (`"2KiB"`, `2048`) | resolves to bytes                       |
+| `arrival_time` | time-valued (`"1us"`, `1000`)  | resolves to nanoseconds                 |
+
+`traffic` is left as a **verbatim name** the synthetic model maps to its own
+enum, because the pattern set and the enum values differ per model (only
+`uniform` is universally pattern 1). Each synthetic driver accepts the patterns
+its C enum defines — e.g. the dragonfly driver takes `uniform`, `nearest_group`,
+`nearest_neighbor`, `rand_perm`, `random_other_group`; fat-tree adds `bisection`;
+slim-fly adds `worst_case`, `gather`, `scatter`, and the `nearest_neighbor_1d/2d/
+3d` variants. An unrecognized name aborts at run time with a diagnostic naming
+the offending value.
+
+## Command-line precedence for synthetic params
+
+The synthetic drivers already expose `traffic`, `num_messages`, `payload_size`,
+and `arrival_time` as ROSS command-line options. Configuring them here does not
+take that away — the precedence is:
+
+```
+command line  >  config (workload:/jobs:)  >  the model's built-in default
+```
+
+A driver applies each config value only when the command line did not set that
+option, so a parameter sweep can share one config and vary a single knob on the
+command line. Detection works exactly like `end_time`'s (below): the option's
+global is compared to its registered default, so a value equal to the default
+passed on the command line is indistinguishable from omitting it (the config wins
+there) — the same one edge case, per knob. A legacy `.conf` carries no `WORKLOAD`
+section, so every apply is a no-op and `.conf` behavior is unchanged.
+
+## Multi-job execution status
+
+Multi-job placement **compiles and validates** today, but the synthetic drivers
+do **not execute** it yet: they generate a single global traffic pattern with no
+per-job destination dispatch. A driver that loads a multi-job `JOBS` config
+therefore **aborts** with a clear message rather than silently running global
+traffic and ignoring the placement. To run a multi-job workload today, use
+`model-net-mpi-replay` (trace replay with an `alloc_file`), or collapse the
+config to a single `workload:` (or a one-job `jobs:` entry on all nodes), which
+does execute. The compiled `JOBS` section — job count and per-job node
+allocation — is the inspectable artifact a future job-aware synthetic executor
+would consume.
+
+---
+
 # Config a model reads directly: `sections:`
 
 Not every subsystem's config is topology the compiler derives. Many read their
@@ -871,12 +1003,16 @@ the exact default; pick any other number and precedence is unambiguous.
 
 **A model that sets its own end time still wins.** `end_time` is applied inside
 `codes_mapping_setup()`, the setup call every model makes between loading the
-config and running. A handful of models hardcode `g_tw_ts_end` *after* that call
-(several synthetic-traffic drivers run a fixed span regardless of config); for
-those the hardcoded value stands and the config `end_time` has no effect. Models
-that never set their own end time — most of them — honor the config value. This
-is deliberate: the config front-end does not rewrite model `main()`s, so a model
-that insists on its own end time keeps it.
+config and running. A model is free to hardcode `g_tw_ts_end` *after* that call;
+if it does, its value stands and the config `end_time` has no effect. This is
+deliberate: the config front-end does not rewrite model `main()`s, so a model
+that insists on its own end time keeps it. Most models never set their own end
+time and honor the config value. The synthetic-traffic drivers
+(`model-net-synthetic`, `model-net-synthetic-dragonfly-all`) treat their built-in
+5-day span as a **fallback**: they apply it only when neither the config nor
+`--end` set an end time, so a config `end_time` (and a command-line `--end`) is
+honored. (This also fixed a prior bug where those two drivers unconditionally
+overwrote `g_tw_ts_end`, silently ignoring `--end`.)
 
 ## `pe_mem_factor`
 
