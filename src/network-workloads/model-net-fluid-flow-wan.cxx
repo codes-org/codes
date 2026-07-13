@@ -688,8 +688,8 @@ static void load_config(void) {
     read_int_param("FLUID_FLOW_WAN", "round_robin_max_entries_per_egress",
                    &cfg.round_robin_max_entries_per_egress);
     read_double_param("FLUID_FLOW_WAN", "round_robin_quantum_mbit", &cfg.round_robin_quantum_mbit);
-    read_string_param("FLUID_FLOW_WAN", "director_fallback_scheduler", cfg.director_fallback_scheduler,
-                      sizeof(cfg.director_fallback_scheduler));
+    read_string_param("FLUID_FLOW_WAN", "director_fallback_scheduler",
+                      cfg.director_fallback_scheduler, sizeof(cfg.director_fallback_scheduler));
     read_string_param("FLUID_FLOW_WAN", "director_candidate_selection_policy",
                       cfg.director_candidate_selection_policy,
                       sizeof(cfg.director_candidate_selection_policy));
@@ -738,7 +738,8 @@ static void load_config(void) {
         strcmp(cfg.director_candidate_selection_policy, "sjf") != 0 &&
         strcmp(cfg.director_candidate_selection_policy, "ljf") != 0) {
         tw_error(TW_LOC,
-                 "FLUID_FLOW_WAN.director_candidate_selection_policy must be fifo, sjf, or ljf; got '%s'",
+                 "FLUID_FLOW_WAN.director_candidate_selection_policy must be fifo, sjf, or ljf; "
+                 "got '%s'",
                  cfg.director_candidate_selection_policy);
     }
 
@@ -750,14 +751,12 @@ static void load_config(void) {
     }
 
     if (cfg.director_inference_timeout_ms <= 0) {
-        tw_error(TW_LOC,
-                 "FLUID_FLOW_WAN.director_inference_timeout_ms must be positive; got %d",
+        tw_error(TW_LOC, "FLUID_FLOW_WAN.director_inference_timeout_ms must be positive; got %d",
                  cfg.director_inference_timeout_ms);
     }
 
     if (strcmp(cfg.switch_scheduler, "ml") == 0 && cfg.director_endpoint[0] == '\0') {
-        tw_error(TW_LOC,
-                 "FLUID_FLOW_WAN.director_endpoint is required when switch_scheduler=ml");
+        tw_error(TW_LOC, "FLUID_FLOW_WAN.director_endpoint is required when switch_scheduler=ml");
     }
 
     if (cfg.round_robin_max_entries_per_egress <= 0) {
@@ -792,10 +791,10 @@ static void configure_fluid_flow_wan_server_debug(int rank) {
     }
 
     try {
-        const std::vector<std::string> reply = zmqml_director_request(
-            "fluid-flow-wan", "torchscript", "set-debug",
-            {"1", cfg.debug_prints ? "1" : "0"}, "None",
-            cfg.director_inference_timeout_ms, cfg.director_endpoint);
+        const std::vector<std::string> reply =
+            zmqml_director_request("fluid-flow-wan", "torchscript", "set-debug",
+                                   {"1", cfg.debug_prints ? "1" : "0"}, "None",
+                                   cfg.director_inference_timeout_ms, cfg.director_endpoint);
 
         if ((reply.empty() || reply[0] != "done") && cfg.debug_prints) {
             fprintf(stderr,
@@ -1059,8 +1058,7 @@ static void begin_switch_traffic_metrics_event(switch_state* ns, fluid_msg* m) {
         return;
     }
 
-    if (ns->traffic_metrics_interval >= 0 &&
-        m->interval_id == ns->traffic_metrics_interval + 1) {
+    if (ns->traffic_metrics_interval >= 0 && m->interval_id == ns->traffic_metrics_interval + 1) {
         ns->ingress_mbit_previous = ns->ingress_mbit_current;
         ns->egress_mbit_previous = ns->egress_mbit_current;
         ns->dropped_mbit_previous = ns->dropped_mbit_current;
@@ -1314,25 +1312,22 @@ static void append_switch_training_log(const switch_state* ns, const fluid_msg* 
 
         const queued_flowlet& q = candidate->before;
         std::ostringstream row;
-        row << ns->switch_id << '-' << m->interval_id << '-' << m->port_id << ','
-            << m->interval_id << ',' << ns->switch_id << ',' << switches[ns->switch_id].name
-            << ',' << m->port_id << ','
-            << (m->rc_log_target_is_terminal ? "terminal" : "switch") << ','
+        row << ns->switch_id << '-' << m->interval_id << '-' << m->port_id << ',' << m->interval_id
+            << ',' << ns->switch_id << ',' << switches[ns->switch_id].name << ',' << m->port_id
+            << ',' << (m->rc_log_target_is_terminal ? "terminal" : "switch") << ','
             << m->rc_log_target_index << ',' << m->rc_log_target_is_terminal << ','
             << cfg.switch_scheduler << ',' << cfg.director_candidate_selection_policy << ','
             << m->rc_ml_used_fallback << ',' << m->rc_ml_total_queued_flowlets << ','
-            << m->rc_ml_candidate_count << ',' << candidate->candidate_rank << ','
-            << q.flowlet_id << ',' << q.source_terminal << ',' << q.destination_terminal << ','
+            << m->rc_ml_candidate_count << ',' << candidate->candidate_rank << ',' << q.flowlet_id
+            << ',' << q.source_terminal << ',' << q.destination_terminal << ','
             << q.creation_interval << ',' << q.enqueue_interval << ','
             << (m->interval_id - q.creation_interval) << ','
             << (m->interval_id - q.enqueue_interval) << ',' << q.remaining_mbit << ','
             << candidate->allocation_mbit << ',' << m->rc_log_capacity_mbit << ','
-            << m->rc_log_port_queued_before_mbit << ','
-            << m->rc_log_port_queued_after_mbit << ','
-            << m->rc_log_shared_queued_before_mbit << ','
-            << m->rc_log_shared_queued_after_mbit << ',' << ns->shared_buffer_mbit << ','
-            << shared_occupancy << ',' << m->rc_log_sent_total_mbit << ','
-            << m->rc_ml_ingress_mbit_current << ','
+            << m->rc_log_port_queued_before_mbit << ',' << m->rc_log_port_queued_after_mbit << ','
+            << m->rc_log_shared_queued_before_mbit << ',' << m->rc_log_shared_queued_after_mbit
+            << ',' << ns->shared_buffer_mbit << ',' << shared_occupancy << ','
+            << m->rc_log_sent_total_mbit << ',' << m->rc_ml_ingress_mbit_current << ','
             << m->rc_ml_ingress_mbit_previous << ',' << m->rc_ml_egress_mbit_current << ','
             << m->rc_ml_egress_mbit_previous << ',' << m->rc_ml_dropped_mbit_current << ','
             << m->rc_ml_dropped_mbit_previous << ',' << m->rc_ml_total_active_flowlets << ','
@@ -1721,14 +1716,12 @@ static void terminal_commit_event(terminal_state* ns, tw_bf* b, fluid_msg* m, tw
 
 static void terminal_finalize(terminal_state* ns, tw_lp* lp) {
     if (cfg.debug_prints) {
-        printf(
-            "fluid-flow-wan-terminal gid=%llu terminal=%d switch=%d "
-            "generated_mbit=%.6f sent_mbit=%.6f received_mbit=%.6f "
-            "generated_flowlets=%d received_fragments=%d\n",
-            (unsigned long long)lp->gid, ns->terminal_id,
-            ns->attached_switch, ns->generated_mbit,
-            ns->sent_to_switch_mbit, ns->received_mbit,
-            ns->generated_flowlets, ns->received_fragments);
+        printf("fluid-flow-wan-terminal gid=%llu terminal=%d switch=%d "
+               "generated_mbit=%.6f sent_mbit=%.6f received_mbit=%.6f "
+               "generated_flowlets=%d received_fragments=%d\n",
+               (unsigned long long)lp->gid, ns->terminal_id, ns->attached_switch,
+               ns->generated_mbit, ns->sent_to_switch_mbit, ns->received_mbit,
+               ns->generated_flowlets, ns->received_fragments);
     }
 }
 
@@ -1917,7 +1910,7 @@ static void send_flowlet_fragment(switch_state* ns, int port_id, const queued_fl
 static std::unordered_map<std::string, std::vector<double>> fluid_flow_wan_inference_cache;
 
 static std::string build_fluid_flow_wan_inference_payload(const switch_state* ns,
-                                                        const fluid_msg* m) {
+                                                          const fluid_msg* m) {
     std::ostringstream out;
     out << std::setprecision(17);
 
@@ -1926,17 +1919,15 @@ static std::string build_fluid_flow_wan_inference_payload(const switch_state* ns
         occupancy = m->rc_log_shared_queued_before_mbit / ns->shared_buffer_mbit;
     }
 
-    out << "{\"schema\":\"fluid-flow-wan-v1\",\"global_features\":["
-        << ns->shared_buffer_mbit << ','
-        << m->rc_log_shared_queued_before_mbit << ',' << occupancy << ','
+    out << "{\"schema\":\"fluid-flow-wan-v1\",\"global_features\":[" << ns->shared_buffer_mbit
+        << ',' << m->rc_log_shared_queued_before_mbit << ',' << occupancy << ','
         << m->rc_ml_ingress_mbit_current << ',' << m->rc_ml_ingress_mbit_previous << ','
         << m->rc_ml_egress_mbit_current << ',' << m->rc_ml_egress_mbit_previous << ','
         << m->rc_ml_dropped_mbit_current << ',' << m->rc_ml_dropped_mbit_previous << ','
-        << m->rc_ml_total_active_flowlets << "],\"port_features\":["
-        << m->port_id << ',' << m->rc_log_target_index << ',' << m->rc_log_capacity_mbit << ','
+        << m->rc_ml_total_active_flowlets << "],\"port_features\":[" << m->port_id << ','
+        << m->rc_log_target_index << ',' << m->rc_log_capacity_mbit << ','
         << m->rc_log_port_queued_before_mbit << ',' << m->rc_log_active_before_entries << ','
-        << m->rc_log_target_is_terminal
-        << "],\"candidate_features\":[";
+        << m->rc_log_target_is_terminal << "],\"candidate_features\":[";
 
     for (int i = 0; i < MAX_ML_CANDIDATES; ++i) {
         if (i > 0) {
@@ -1965,7 +1956,7 @@ static std::string build_fluid_flow_wan_inference_payload(const switch_state* ns
 }
 
 static bool request_fluid_flow_wan_weights(const switch_state* ns, const fluid_msg* m,
-                                         std::vector<double>* weights_out) {
+                                           std::vector<double>* weights_out) {
     weights_out->clear();
     if (m->rc_ml_candidate_count <= 0) {
         return false;
@@ -1981,10 +1972,10 @@ static bool request_fluid_flow_wan_weights(const switch_state* ns, const fluid_m
     }
 
     try {
-        std::vector<std::string> reply = zmqml_director_request(
-            "fluid-flow-wan", "torchscript", "inference",
-            {"1", std::to_string(ns->switch_id)}, payload,
-            cfg.director_inference_timeout_ms, cfg.director_endpoint);
+        std::vector<std::string> reply =
+            zmqml_director_request("fluid-flow-wan", "torchscript", "inference",
+                                   {"1", std::to_string(ns->switch_id)}, payload,
+                                   cfg.director_inference_timeout_ms, cfg.director_endpoint);
         if (reply.size() < 3 || reply[0] != "done") {
             return false;
         }
@@ -2443,11 +2434,10 @@ static void switch_finalize(switch_state* ns, tw_lp* lp) {
                "sent_fragments=%d enqueued_mbit=%.6f sent_mbit=%.6f "
                "local_delivery_mbit=%.6f dropped_mbit=%.6f "
                "queued_mbit=%.6f\n",
-               (unsigned long long)lp->gid, ns->switch_id,
-               switches[ns->switch_id].name.c_str(), ns->num_ports,
-               ns->shared_buffer_mbit, ns->received_fragments,
-               ns->sent_fragments, ns->enqueued_mbit, ns->sent_mbit,
-               ns->delivered_local_mbit, ns->dropped_mbit, queued);
+               (unsigned long long)lp->gid, ns->switch_id, switches[ns->switch_id].name.c_str(),
+               ns->num_ports, ns->shared_buffer_mbit, ns->received_fragments, ns->sent_fragments,
+               ns->enqueued_mbit, ns->sent_mbit, ns->delivered_local_mbit, ns->dropped_mbit,
+               queued);
     }
 
     for (int p = 0; p < ns->num_ports; ++p) {
@@ -2571,19 +2561,18 @@ static void write_log_headers(int rank) {
                           "age_intervals,capacity_mbit,queued_before_mbit,send_mbit,"
                           "remaining_after_mbit,dropped_mbit\n");
 
-    write_log_header_file(
-        cfg.switch_training_log_path,
-        "decision_id,interval,switch,switch_name,port,target_type,target_index,"
-        "target_is_terminal,scheduler,candidate_selection_policy,used_fallback,"
-        "total_queued_flowlets,candidate_count,candidate_rank,flowlet_id,"
-        "source_terminal,destination_terminal,creation_interval,enqueue_interval,"
-        "age_intervals,enqueue_age_intervals,remaining_mbit,allocation_mbit,"
-        "capacity_mbit,port_queued_before_mbit,port_queued_after_mbit,"
-        "shared_queued_before_mbit,shared_queued_after_mbit,shared_buffer_mbit,"
-        "shared_buffer_occupancy,sent_total_mbit,ingress_mbit_current,"
-        "ingress_mbit_previous,egress_mbit_current,egress_mbit_previous,"
-        "dropped_mbit_current,dropped_mbit_previous,total_active_flowlets,"
-        "active_before,active_after\n");
+    write_log_header_file(cfg.switch_training_log_path,
+                          "decision_id,interval,switch,switch_name,port,target_type,target_index,"
+                          "target_is_terminal,scheduler,candidate_selection_policy,used_fallback,"
+                          "total_queued_flowlets,candidate_count,candidate_rank,flowlet_id,"
+                          "source_terminal,destination_terminal,creation_interval,enqueue_interval,"
+                          "age_intervals,enqueue_age_intervals,remaining_mbit,allocation_mbit,"
+                          "capacity_mbit,port_queued_before_mbit,port_queued_after_mbit,"
+                          "shared_queued_before_mbit,shared_queued_after_mbit,shared_buffer_mbit,"
+                          "shared_buffer_occupancy,sent_total_mbit,ingress_mbit_current,"
+                          "ingress_mbit_previous,egress_mbit_current,egress_mbit_previous,"
+                          "dropped_mbit_current,dropped_mbit_previous,total_active_flowlets,"
+                          "active_before,active_after\n");
 }
 
 int main(int argc, char** argv) {
