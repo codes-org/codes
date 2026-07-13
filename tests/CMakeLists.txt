@@ -2,8 +2,8 @@ enable_testing()
 
 configure_file(run-test.sh.in run-test.sh)
 
-option(CODES_ENABLE_ZMQML_HYBRID_TESTS
-       "Register ZMQML hybrid workflow tests that require a running zmqmlserver.py"
+option(CODES_ENABLE_DIRECTOR_TESTS
+       "Register Director workflow tests that require a running zmqmlserver.py"
        OFF)
 # ---------------------------------------------------------------------------
 # Unit-test smoke test. The GoogleTest framework (GTest::gtest / gtest_main) is
@@ -297,12 +297,13 @@ if(USE_UNION)
     list(APPEND test-shell-files ${union-shell-files})
 endif()
 
-if(USE_ZEROMQ AND CODES_ENABLE_ZMQML_HYBRID_TESTS)
-    list(APPEND test-shell-files
+if(USE_ZEROMQ AND CODES_ENABLE_DIRECTOR_TESTS)
+    set(director-shell-files
         zmqml-iteration-time-hybrid-workflow.sh
         zmqml-event-time-hybrid-workflow.sh
         zmqml-fluid-flow-wan-hybrid-workflow.sh
     )
+    list(APPEND test-shell-files ${director-shell-files})
 endif()
 
 foreach(testname ${test-shell-files})
@@ -310,6 +311,15 @@ foreach(testname ${test-shell-files})
         COMMAND "${CMAKE_CURRENT_BINARY_DIR}/run-test.sh" "${CMAKE_CURRENT_SOURCE_DIR}/${testname}"
         WORKING_DIRECTORY "${CODES_BINARY_DIR}")
 endforeach()
+
+if(USE_ZEROMQ AND CODES_ENABLE_DIRECTOR_TESTS)
+    # These tests share one stateful ZeroMQ server, so they must not overlap.
+    # The label exposes them as one Director test family to CTest and CI.
+    set_tests_properties(${director-shell-files} PROPERTIES
+        LABELS "director"
+        RUN_SERIAL TRUE
+        TIMEOUT 1200)
+endif()
 
 # The union-surrogate tests run a heavy MILC+Jacobi UNION workload -- ~30 min for
 # the set. Label them "nightly" so PR/push CI skips them (ctest --label-exclude

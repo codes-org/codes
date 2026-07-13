@@ -99,6 +99,7 @@ grep '"status": "done"' "$artifacts/load-models.json"
 
 sed \
     -e 's|topology_yaml_file="[^"]*";|topology_yaml_file="fluid-flow-wan-topology.yaml";|' \
+    -e 's|debug_prints="[01]";|debug_prints="1";|' \
     -e "s|director_endpoint=\"[^\"]*\";|director_endpoint=\"$endpoint\";|" \
     -e 's|terminal_log_path="[^"]*";|terminal_log_path="logs/terminal-events.csv";|' \
     -e 's|switch_log_path="[^"]*";|switch_log_path="logs/switch-events.csv";|' \

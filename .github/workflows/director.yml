@@ -1,4 +1,4 @@
-name: ZMQML Hybrid
+name: Director
 
 on:
   pull_request:
@@ -10,11 +10,11 @@ on:
 
 env:
   ROSS_REF: 9b6ccb18f9b9db438bf41b5b221d0ef16a4dac48
-  ZMQML_IMAGE: ghcr.io/codes-org/codes-ci-full:latest
+  DIRECTOR_IMAGE: ghcr.io/codes-org/codes-ci-full:latest
 
 jobs:
-  zmqml-hybrid:
-    name: zmqml hybrid workflows
+  director:
+    name: director model workflows
     runs-on: ubuntu-24.04
 
     steps:
@@ -31,47 +31,48 @@ jobs:
           path: ross
 
       - name: Pull full dependency image
-        run: docker pull "$ZMQML_IMAGE"
+        run: docker pull "$DIRECTOR_IMAGE"
 
       - name: Create Docker network
-        run: docker network create codes-zmqml-ci
+        run: docker network create codes-director-ci
 
-      - name: Start ZMQML server container
+      - name: Start ZeroMQ server
         run: |
-          mkdir -p "$PWD/zmqml-artifacts"
+          mkdir -p "$PWD/director-artifacts"
 
           docker run -d \
-            --name zmqml-server \
-            --network codes-zmqml-ci \
+            --name director-server \
+            --network codes-director-ci \
             -v "$PWD/codes:/work/codes" \
-            -v "$PWD/zmqml-artifacts:/work/zmqml-artifacts" \
+            -v "$PWD/director-artifacts:/work/director-artifacts" \
             -w /work/codes/src/surrogate/zmqml \
             -e ZMQML_ITERATION_HISTORY_LEN=2 \
             -e ZMQML_ITERATION_HORIZON=3 \
             -e ZMQML_ITERATION_TRAIN_STRIDE=1 \
             -e ZMQML_EVENT_TIME_MIN_ROWS=4 \
             -e ZMQML_EVENT_TIME_EPOCHS=2 \
-            -e ZMQML_RECORD_LOG_PATH=/work/zmqml-artifacts/iteration-records.csv \
-            -e ZMQML_EVENT_TIME_RECORD_LOG_PATH=/work/zmqml-artifacts/event-time-records.csv \
-            "$ZMQML_IMAGE" \
+            -e ZMQML_FLUID_FLOW_WAN_EPOCHS=2 \
+            -e ZMQML_RECORD_LOG_PATH=/work/director-artifacts/iteration-records.csv \
+            -e ZMQML_EVENT_TIME_RECORD_LOG_PATH=/work/director-artifacts/event-time-records.csv \
+            "$DIRECTOR_IMAGE" \
             bash -euxo pipefail -c '
               exec python3 -u zmqmlserver.py
             '
 
           sleep 5
-          docker ps --filter name=zmqml-server
-          docker logs zmqml-server
+          docker ps --filter name=director-server
+          docker logs director-server
 
-      - name: Build ROSS and CODES with ZMQML
+      - name: Build ROSS and CODES with Director support
         run: |
           docker run --rm \
-            --name codes-zmqml-build \
-            --network codes-zmqml-ci \
+            --name codes-director-build \
+            --network codes-director-ci \
             -v "$PWD/codes:/work/codes" \
             -v "$PWD/ross:/work/ross" \
             -v "$PWD/ross-install:/work/ross-install" \
             -w /work \
-            "$ZMQML_IMAGE" \
+            "$DIRECTOR_IMAGE" \
             bash -euxo pipefail -c '
               cmake -S ross -B ross/build -G Ninja \
                 -DCMAKE_BUILD_TYPE=Debug \
@@ -89,7 +90,7 @@ jobs:
                 -DCODES_USE_SWM=ON \
                 -DCODES_USE_TORCH=ON \
                 -DCODES_USE_ZEROMQ=ON \
-                -DCODES_ENABLE_ZMQML_HYBRID_TESTS=ON \
+                -DCODES_ENABLE_DIRECTOR_TESTS=ON \
                 -DCMAKE_C_COMPILER=mpicc \
                 -DCMAKE_CXX_COMPILER=mpicxx \
                 -DCMAKE_PREFIX_PATH="/work/ross-install;/opt/swm;/opt/argobots" \
@@ -98,44 +99,47 @@ jobs:
               cmake --build build -j
             '
 
-      - name: Run ZMQML hybrid tests
+      - name: Run Director tests
         run: |
           docker run --rm \
-            --name codes-zmqml-tests \
-            --network codes-zmqml-ci \
+            --name codes-director-tests \
+            --network codes-director-ci \
             -v "$PWD/codes:/work/codes" \
-            -v "$PWD/zmqml-artifacts:/work/zmqml-artifacts" \
+            -v "$PWD/director-artifacts:/work/director-artifacts" \
             -w /work/codes \
-            -e ZMQML_ENDPOINT=tcp://zmqml-server:5555 \
+            -e ZMQML_ENDPOINT=tcp://director-server:5555 \
             -e ZMQML_TEST_NP=1 \
             -e ZMQML_CTL_TIMEOUT=30 \
-            "$ZMQML_IMAGE" \
+            "$DIRECTOR_IMAGE" \
             bash -euxo pipefail -c '
-              ctest --test-dir build -N \
-                -R "zmqml-(iteration-time|event-time)-hybrid-workflow.sh" \
-                | tee /tmp/zmqml-ctest-list.txt
+              ctest --test-dir build -N -L director \
+                | tee /tmp/director-ctest-list.txt
 
-              grep -E "Test #[0-9]+: zmqml-(iteration-time|event-time)-hybrid-workflow.sh" \
-                /tmp/zmqml-ctest-list.txt
+              grep -F "zmqml-iteration-time-hybrid-workflow.sh" \
+                /tmp/director-ctest-list.txt
+              grep -F "zmqml-event-time-hybrid-workflow.sh" \
+                /tmp/director-ctest-list.txt
+              grep -F "zmqml-fluid-flow-wan-hybrid-workflow.sh" \
+                /tmp/director-ctest-list.txt
 
               ctest --test-dir build \
-                -R "zmqml-(iteration-time|event-time)-hybrid-workflow.sh" \
+                -L director \
                 --output-on-failure \
                 --timeout 1200 \
                 -VV
             '
 
-      - name: Validate ZMQML server logs
+      - name: Validate ZeroMQ server logs
         run: |
-          mkdir -p "$PWD/zmqml-artifacts"
-          docker logs zmqml-server 2>&1 | tee "$PWD/zmqml-artifacts/zmqml-server.log"
+          mkdir -p "$PWD/director-artifacts"
+          docker logs director-server 2>&1 | tee "$PWD/director-artifacts/director-server.log"
 
           require_log() {
             local pattern="$1"
             local description="$2"
 
-            if ! grep -nE "$pattern" "$PWD/zmqml-artifacts/zmqml-server.log"; then
-              echo "::error::Missing server-side ZMQML evidence: $description"
+            if ! grep -nE "$pattern" "$PWD/director-artifacts/director-server.log"; then
+              echo "::error::Missing server-side Director evidence: $description"
               exit 1
             fi
           }
@@ -155,28 +159,31 @@ jobs:
           require_log '\[event-time inference\].*predictions=' \
             'event-time inference reached the server and returned predictions'
 
-          test -s "$PWD/zmqml-artifacts/iteration-records.csv"
-          test -s "$PWD/zmqml-artifacts/event-time-records.csv"
+          require_log '\[fluid-flow-wan inference\].*switch=' \
+            'fluid-flow-WAN inference reached the server and returned allocations'
 
-      - name: Dump ZMQML server logs
+          test -s "$PWD/director-artifacts/iteration-records.csv"
+          test -s "$PWD/director-artifacts/event-time-records.csv"
+
+      - name: Dump ZeroMQ server logs
         if: always()
-        run: docker logs zmqml-server || true
+        run: docker logs director-server || true
 
-      - name: Stop ZMQML server
+      - name: Stop ZeroMQ server
         if: always()
         run: |
-          docker rm -f zmqml-server || true
-          docker network rm codes-zmqml-ci || true
+          docker rm -f director-server || true
+          docker network rm codes-director-ci || true
 
-      - name: Upload ZMQML logs
+      - name: Upload Director logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: zmqml-hybrid-logs
+          name: director-logs
           path: |
             codes/build/Testing/Temporary/LastTest.log
             codes/build/Testing/Temporary/LastTestsFailed.log
             codes/build/testing-output/**
-            zmqml-artifacts/**
+            director-artifacts/**
           if-no-files-found: ignore
           retention-days: 14
