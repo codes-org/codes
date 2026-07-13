@@ -1629,6 +1629,7 @@ TEST(ConfigCompilerJobs, MultiJobEmitsJobsSectionWithNodeAllocation) {
     EXPECT_EQ(find_section(c, "WORKLOAD"), nullptr);
     const compiled_section* jobs = find_section(c, "JOBS");
     ASSERT_NE(jobs, nullptr);
+    EXPECT_EQ(find_key(*jobs, "num_jobs")->values.at(0), "2");
     const compiled_section* front = find_subsection(*jobs, "front");
     const compiled_section* back = find_subsection(*jobs, "back");
     ASSERT_NE(front, nullptr);

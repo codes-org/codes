@@ -393,6 +393,7 @@ int main(int argc, char** argv) {
          * .conf, which carries no WORKLOAD section. */
         codes_workload_config_apply_traffic(&traffic, traffic_default, traffic_names);
         codes_workload_config_apply_double("arrival_time", &arrival_time, arrival_time_default);
+        codes_workload_config_check_unsupported_jobs("model-net-synthetic-fattree");
 
         net_ids = model_net_configure(&num_nets);
         //assert(num_nets==1);

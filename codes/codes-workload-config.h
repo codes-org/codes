@@ -44,6 +44,17 @@ struct codes_workload_traffic_name {
 };
 
 /**
+ * Abort (via tw_error) if the loaded config carries a JOBS section -- an explicit
+ * multi-job placement (see the config compiler). The synthetic mains generate a
+ * single global traffic pattern and cannot yet execute per-job placement, so
+ * running such a config would silently ignore it. The config still compiles and
+ * validates; this makes a main that cannot honor it fail loudly with guidance
+ * rather than misrun. A no-op for a single-workload (WORKLOAD-section) or legacy
+ * config. @p model_name names the model in the diagnostic.
+ */
+void codes_workload_config_check_unsupported_jobs(const char* model_name);
+
+/**
  * Apply an integer WORKLOAD key to @p val unless the command line already set it.
  *
  * @param key         the WORKLOAD key name (e.g. "num_messages", "payload_size").

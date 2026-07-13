@@ -705,6 +705,7 @@ int main(int argc, char** argv) {
         codes_workload_config_apply_int("num_messages", &num_msgs, num_msgs_default);
         codes_workload_config_apply_int("payload_size", &PAYLOAD_SZ, payload_sz_default);
         codes_workload_config_apply_double("arrival_time", &arrival_time, arrival_time_default);
+        codes_workload_config_check_unsupported_jobs("model-net-synthetic-dragonfly-all");
 
         net_ids = model_net_configure(&num_nets);
         //assert(num_nets==1);

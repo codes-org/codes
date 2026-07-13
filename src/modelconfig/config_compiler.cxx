@@ -1695,9 +1695,11 @@ void compile_workload_jobs(const friendly_config& cfg, compiled_config& out, lon
         return;
     }
 
-    /* Otherwise emit a JOBS section: one subsection per job with its resolved
+    /* Otherwise emit a JOBS section: a job count (a marker a reader keys on to
+     * detect the multi-job form) plus one subsection per job with its resolved
      * workload params, rank count, and the node allocation it was placed on. */
     compiled_section& jobs_sec = out.add_section("JOBS");
+    jobs_sec.add_key("num_jobs", std::to_string(cfg.jobs.size()));
     for (size_t ji = 0; ji < cfg.jobs.size(); ++ji) {
         const job& j = cfg.jobs[ji];
         compiled_section& js = jobs_sec.add_subsection(j.id);
