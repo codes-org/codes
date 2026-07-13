@@ -34,7 +34,7 @@
 extern std::vector<std::string>
 zmqml_request(const std::string& cmd,
               const std::vector<std::string>& args = std::vector<std::string>(),
-              const std::string& bindata = "None");
+              const std::string& bindata = "None", int timeout_ms = -1);
 /**
  * Sends a unified Director request.
  *
@@ -45,6 +45,7 @@ extern std::vector<std::string>
 zmqml_director_request(const std::string& surrogate_family, const std::string& surrogate_backend,
                        const std::string& operation,
                        const std::vector<std::string>& args = std::vector<std::string>(),
-                       const std::string& bindata = "None");
+                       const std::string& bindata = "None", int timeout_ms = -1,
+                       const std::string& endpoint_override = "");
 
 #endif

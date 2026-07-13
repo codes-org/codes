@@ -1,4 +1,4 @@
-# Interval-fluid switch/terminal pure-PDES example.
+# Fluid-flow WAN switch/terminal pure-PDES example.
 # Run from the build directory, for example:
 #   mpirun -np 1 ./src/model-net-fluid-flow-wan --synch=1 -- doc/example/fluid-flow-wan.conf
 
@@ -32,7 +32,7 @@ FLUID_FLOW_WAN
     terminal_min_send_mbit="0";
     terminal_max_send_fraction_of_link_capacity="1.0";
 
-    debug_prints="0";
+    debug_prints="1";
     # This can be either round_robin or fifo.
     switch_scheduler="round_robin";
     round_robin_max_entries_per_egress="8";

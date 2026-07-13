@@ -1,6 +1,6 @@
 
 /*
- * Standalone interval-fluid switch/terminal workload model.
+ * Standalone fluid-flow WAN switch/terminal workload model.
  *
  * Terminal LPs generate stochastic bounded workload flowlets. Switch LPs route
  * flowlets, queue them per output link, enforce a shared switch-wide buffer,
@@ -19,20 +19,28 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <fstream>
+#include <iomanip>
 #include <limits>
 #include <map>
 #include <queue>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <ross.h>
 
+#include "codes_config.h"
 #include "codes/codes.h"
 #include "codes/codes_mapping.h"
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
+
+#if CODES_HAVE_ZEROMQ
+#include "zmqmlrequester.h"
+#endif
 
 static const char* GROUP_NAME = "FLUID_FLOW_WAN_GRP";
 static const char* TERMINAL_LP_NAME = "fluid-flow-wan-terminal-lp";
@@ -48,6 +56,7 @@ static constexpr int MAX_PORTS_PER_SWITCH = 128;
  * topology/workload.
  */
 static constexpr int MAX_RC_ALLOCATIONS = 256;
+static constexpr int MAX_ML_CANDIDATES = 32;
 static constexpr double EPS = 1e-9;
 
 static constexpr double PHASE_GENERATE = 0.10;
@@ -93,6 +102,12 @@ struct sim_config {
     char switch_scheduler[64] = "round_robin";
     int round_robin_max_entries_per_egress = 32;
     double round_robin_quantum_mbit = 0.0;
+
+    char director_fallback_scheduler[64] = "round_robin";
+    char director_candidate_selection_policy[64] = "fifo";
+    int director_max_candidate_flowlets = MAX_ML_CANDIDATES;
+    int director_inference_timeout_ms = 5000;
+    char director_endpoint[256] = "tcp://localhost:5555";
 };
 
 static sim_config cfg;
@@ -147,6 +162,15 @@ struct switch_state {
     int scheduled_egress_interval[MAX_PORTS_PER_SWITCH];
     int rr_next_queue_index[MAX_PORTS_PER_SWITCH];
 
+    /* Current and previous interval traffic observations used by the ML policy. */
+    int traffic_metrics_interval;
+    double ingress_mbit_current;
+    double ingress_mbit_previous;
+    double egress_mbit_current;
+    double egress_mbit_previous;
+    double dropped_mbit_current;
+    double dropped_mbit_previous;
+
     double enqueued_mbit;
     double sent_mbit;
     double delivered_local_mbit;
@@ -166,6 +190,14 @@ struct rc_alloc_record {
     int queue_index;
     queued_flowlet before;
     double send_mbit;
+};
+
+struct ml_candidate_record {
+    int valid;
+    int queue_index;
+    int candidate_rank;
+    queued_flowlet before;
+    double allocation_mbit;
 };
 
 struct fluid_msg {
@@ -197,6 +229,14 @@ struct fluid_msg {
     int rc_prev_scheduled_egress_interval;
     int rc_prev_rr_next_queue_index;
 
+    int rc_prev_traffic_metrics_interval;
+    double rc_prev_ingress_mbit_current;
+    double rc_prev_ingress_mbit_previous;
+    double rc_prev_egress_mbit_current;
+    double rc_prev_egress_mbit_previous;
+    double rc_prev_dropped_mbit_current;
+    double rc_prev_dropped_mbit_previous;
+
     int rc_log_target_is_terminal;
     int rc_log_target_index;
     double rc_log_capacity_mbit;
@@ -209,7 +249,19 @@ struct fluid_msg {
     int rc_log_active_before_entries;
     int rc_log_active_after_entries;
 
+    int rc_ml_candidate_count;
+    int rc_ml_total_queued_flowlets;
+    int rc_ml_total_active_flowlets;
+    int rc_ml_used_fallback;
+    double rc_ml_ingress_mbit_current;
+    double rc_ml_ingress_mbit_previous;
+    double rc_ml_egress_mbit_current;
+    double rc_ml_egress_mbit_previous;
+    double rc_ml_dropped_mbit_current;
+    double rc_ml_dropped_mbit_previous;
+
     rc_alloc_record rc_allocs[MAX_RC_ALLOCATIONS];
+    ml_candidate_record rc_ml_candidates[MAX_ML_CANDIDATES];
 };
 
 static void terminal_init(terminal_state* ns, tw_lp* lp);
@@ -636,6 +688,17 @@ static void load_config(void) {
     read_int_param("FLUID_FLOW_WAN", "round_robin_max_entries_per_egress",
                    &cfg.round_robin_max_entries_per_egress);
     read_double_param("FLUID_FLOW_WAN", "round_robin_quantum_mbit", &cfg.round_robin_quantum_mbit);
+    read_string_param("FLUID_FLOW_WAN", "director_fallback_scheduler", cfg.director_fallback_scheduler,
+                      sizeof(cfg.director_fallback_scheduler));
+    read_string_param("FLUID_FLOW_WAN", "director_candidate_selection_policy",
+                      cfg.director_candidate_selection_policy,
+                      sizeof(cfg.director_candidate_selection_policy));
+    read_int_param("FLUID_FLOW_WAN", "director_max_candidate_flowlets",
+                   &cfg.director_max_candidate_flowlets);
+    read_int_param("FLUID_FLOW_WAN", "director_inference_timeout_ms",
+                   &cfg.director_inference_timeout_ms);
+    read_string_param("FLUID_FLOW_WAN", "director_endpoint", cfg.director_endpoint,
+                      sizeof(cfg.director_endpoint));
     read_double_param("FLUID_FLOW_WAN", "interval_seconds", &cfg.interval_seconds);
     read_int_param("FLUID_FLOW_WAN", "num_send_intervals", &cfg.num_send_intervals);
     read_int_param("FLUID_FLOW_WAN", "num_drain_intervals", &cfg.num_drain_intervals);
@@ -650,10 +713,51 @@ static void load_config(void) {
     read_int_param("FLUID_FLOW_WAN", "debug_prints", &cfg.debug_prints);
 
     if (strcmp(cfg.switch_scheduler, "fifo") != 0 &&
-        strcmp(cfg.switch_scheduler, "round_robin") != 0) {
+        strcmp(cfg.switch_scheduler, "round_robin") != 0 &&
+        strcmp(cfg.switch_scheduler, "ml") != 0) {
         tw_error(TW_LOC,
-                 "FLUID_FLOW_WAN.switch_scheduler must be one of: fifo, round_robin; got '%s'",
+                 "FLUID_FLOW_WAN.switch_scheduler must be one of: fifo, round_robin, ml; got '%s'",
                  cfg.switch_scheduler);
+    }
+
+#if !CODES_HAVE_ZEROMQ
+    if (strcmp(cfg.switch_scheduler, "ml") == 0) {
+        tw_error(TW_LOC,
+                 "FLUID_FLOW_WAN.switch_scheduler=ml requires a build configured with USE_ZEROMQ");
+    }
+#endif
+
+    if (strcmp(cfg.director_fallback_scheduler, "fifo") != 0 &&
+        strcmp(cfg.director_fallback_scheduler, "round_robin") != 0) {
+        tw_error(TW_LOC,
+                 "FLUID_FLOW_WAN.director_fallback_scheduler must be fifo or round_robin; got '%s'",
+                 cfg.director_fallback_scheduler);
+    }
+
+    if (strcmp(cfg.director_candidate_selection_policy, "fifo") != 0 &&
+        strcmp(cfg.director_candidate_selection_policy, "sjf") != 0 &&
+        strcmp(cfg.director_candidate_selection_policy, "ljf") != 0) {
+        tw_error(TW_LOC,
+                 "FLUID_FLOW_WAN.director_candidate_selection_policy must be fifo, sjf, or ljf; got '%s'",
+                 cfg.director_candidate_selection_policy);
+    }
+
+    if (cfg.director_max_candidate_flowlets <= 0 ||
+        cfg.director_max_candidate_flowlets > MAX_ML_CANDIDATES) {
+        tw_error(TW_LOC,
+                 "FLUID_FLOW_WAN.director_max_candidate_flowlets must be in [1, %d]; got %d",
+                 MAX_ML_CANDIDATES, cfg.director_max_candidate_flowlets);
+    }
+
+    if (cfg.director_inference_timeout_ms <= 0) {
+        tw_error(TW_LOC,
+                 "FLUID_FLOW_WAN.director_inference_timeout_ms must be positive; got %d",
+                 cfg.director_inference_timeout_ms);
+    }
+
+    if (strcmp(cfg.switch_scheduler, "ml") == 0 && cfg.director_endpoint[0] == '\0') {
+        tw_error(TW_LOC,
+                 "FLUID_FLOW_WAN.director_endpoint is required when switch_scheduler=ml");
     }
 
     if (cfg.round_robin_max_entries_per_egress <= 0) {
@@ -679,6 +783,41 @@ static void load_config(void) {
     }
     load_topology_yaml(cfg.topology_yaml_file);
     compute_routes();
+}
+
+static void configure_fluid_flow_wan_server_debug(int rank) {
+#if CODES_HAVE_ZEROMQ
+    if (rank != 0 || strcmp(cfg.switch_scheduler, "ml") != 0) {
+        return;
+    }
+
+    try {
+        const std::vector<std::string> reply = zmqml_director_request(
+            "fluid-flow-wan", "torchscript", "set-debug",
+            {"1", cfg.debug_prints ? "1" : "0"}, "None",
+            cfg.director_inference_timeout_ms, cfg.director_endpoint);
+
+        if ((reply.empty() || reply[0] != "done") && cfg.debug_prints) {
+            fprintf(stderr,
+                    "[fluid-flow-wan ML] could not synchronize server "
+                    "debug_prints=%d\n",
+                    cfg.debug_prints);
+        }
+    } catch (const std::exception& ex) {
+        /*
+         * Keep startup best-effort so the configured deterministic fallback
+         * can still handle an unavailable inference server.
+         */
+        if (cfg.debug_prints) {
+            fprintf(stderr,
+                    "[fluid-flow-wan ML] could not synchronize server "
+                    "debug_prints=%d: %s\n",
+                    cfg.debug_prints, ex.what());
+        }
+    }
+#else
+    (void)rank;
+#endif
 }
 
 static tw_lpid get_switch_gid(int switch_id) {
@@ -898,6 +1037,125 @@ static int active_flowlet_count_on_port(const switch_state* ns, int port_id) {
     return count;
 }
 
+
+static int active_flowlet_count_on_switch(const switch_state* ns) {
+    int count = 0;
+    for (int port_id = 0; port_id < ns->num_ports; ++port_id) {
+        count += active_flowlet_count_on_port(ns, port_id);
+    }
+    return count;
+}
+
+static void begin_switch_traffic_metrics_event(switch_state* ns, fluid_msg* m) {
+    m->rc_prev_traffic_metrics_interval = ns->traffic_metrics_interval;
+    m->rc_prev_ingress_mbit_current = ns->ingress_mbit_current;
+    m->rc_prev_ingress_mbit_previous = ns->ingress_mbit_previous;
+    m->rc_prev_egress_mbit_current = ns->egress_mbit_current;
+    m->rc_prev_egress_mbit_previous = ns->egress_mbit_previous;
+    m->rc_prev_dropped_mbit_current = ns->dropped_mbit_current;
+    m->rc_prev_dropped_mbit_previous = ns->dropped_mbit_previous;
+
+    if (ns->traffic_metrics_interval == m->interval_id) {
+        return;
+    }
+
+    if (ns->traffic_metrics_interval >= 0 &&
+        m->interval_id == ns->traffic_metrics_interval + 1) {
+        ns->ingress_mbit_previous = ns->ingress_mbit_current;
+        ns->egress_mbit_previous = ns->egress_mbit_current;
+        ns->dropped_mbit_previous = ns->dropped_mbit_current;
+    } else {
+        ns->ingress_mbit_previous = 0.0;
+        ns->egress_mbit_previous = 0.0;
+        ns->dropped_mbit_previous = 0.0;
+    }
+
+    ns->traffic_metrics_interval = m->interval_id;
+    ns->ingress_mbit_current = 0.0;
+    ns->egress_mbit_current = 0.0;
+    ns->dropped_mbit_current = 0.0;
+}
+
+static void restore_switch_traffic_metrics_event(switch_state* ns, const fluid_msg* m) {
+    ns->traffic_metrics_interval = m->rc_prev_traffic_metrics_interval;
+    ns->ingress_mbit_current = m->rc_prev_ingress_mbit_current;
+    ns->ingress_mbit_previous = m->rc_prev_ingress_mbit_previous;
+    ns->egress_mbit_current = m->rc_prev_egress_mbit_current;
+    ns->egress_mbit_previous = m->rc_prev_egress_mbit_previous;
+    ns->dropped_mbit_current = m->rc_prev_dropped_mbit_current;
+    ns->dropped_mbit_previous = m->rc_prev_dropped_mbit_previous;
+}
+
+static std::vector<int> select_ml_candidate_indices(const std::vector<queued_flowlet>& qv) {
+    std::vector<int> indices;
+    indices.reserve(qv.size());
+    for (int i = 0; i < (int)qv.size(); ++i) {
+        if (qv[i].valid && qv[i].remaining_mbit > EPS) {
+            indices.push_back(i);
+        }
+    }
+
+    auto tie_break_less = [&](int lhs, int rhs) {
+        if (qv[lhs].enqueue_interval != qv[rhs].enqueue_interval) {
+            return qv[lhs].enqueue_interval < qv[rhs].enqueue_interval;
+        }
+        if (qv[lhs].flowlet_id != qv[rhs].flowlet_id) {
+            return qv[lhs].flowlet_id < qv[rhs].flowlet_id;
+        }
+        return lhs < rhs;
+    };
+
+    if (strcmp(cfg.director_candidate_selection_policy, "fifo") == 0) {
+        std::stable_sort(indices.begin(), indices.end(), tie_break_less);
+    } else if (strcmp(cfg.director_candidate_selection_policy, "sjf") == 0) {
+        std::stable_sort(indices.begin(), indices.end(), [&](int lhs, int rhs) {
+            if (std::fabs(qv[lhs].remaining_mbit - qv[rhs].remaining_mbit) > EPS) {
+                return qv[lhs].remaining_mbit < qv[rhs].remaining_mbit;
+            }
+            return tie_break_less(lhs, rhs);
+        });
+    } else if (strcmp(cfg.director_candidate_selection_policy, "ljf") == 0) {
+        std::stable_sort(indices.begin(), indices.end(), [&](int lhs, int rhs) {
+            if (std::fabs(qv[lhs].remaining_mbit - qv[rhs].remaining_mbit) > EPS) {
+                return qv[lhs].remaining_mbit > qv[rhs].remaining_mbit;
+            }
+            return tie_break_less(lhs, rhs);
+        });
+    }
+
+    if ((int)indices.size() > cfg.director_max_candidate_flowlets) {
+        indices.resize(cfg.director_max_candidate_flowlets);
+    }
+    return indices;
+}
+
+static void snapshot_ml_candidates(const switch_state* ns, int port_id,
+                                   const std::vector<int>& candidate_indices, fluid_msg* m) {
+    m->rc_ml_candidate_count = 0;
+    m->rc_ml_total_queued_flowlets = active_flowlet_count_on_port(ns, port_id);
+    m->rc_ml_total_active_flowlets = active_flowlet_count_on_switch(ns);
+    m->rc_ml_used_fallback = 0;
+    m->rc_ml_ingress_mbit_current = ns->ingress_mbit_current;
+    m->rc_ml_ingress_mbit_previous = ns->ingress_mbit_previous;
+    m->rc_ml_egress_mbit_current = ns->egress_mbit_current;
+    m->rc_ml_egress_mbit_previous = ns->egress_mbit_previous;
+    m->rc_ml_dropped_mbit_current = ns->dropped_mbit_current;
+    m->rc_ml_dropped_mbit_previous = ns->dropped_mbit_previous;
+
+    for (int rank = 0; rank < (int)candidate_indices.size(); ++rank) {
+        int queue_index = candidate_indices[rank];
+        if (queue_index < 0 || queue_index >= (int)ns->queues[port_id]->size()) {
+            tw_error(TW_LOC, "invalid ML candidate queue index %d", queue_index);
+        }
+        ml_candidate_record* candidate = &m->rc_ml_candidates[m->rc_ml_candidate_count++];
+        memset(candidate, 0, sizeof(*candidate));
+        candidate->valid = 1;
+        candidate->queue_index = queue_index;
+        candidate->candidate_rank = rank;
+        candidate->before = (*ns->queues[port_id])[queue_index];
+    }
+}
+
 static int find_queue_index_for_flowlet(const switch_state* ns, int port_id,
                                         const queued_flowlet& needle) {
     if (port_id < 0 || port_id >= ns->num_ports || ns->queues[port_id] == NULL) {
@@ -1038,26 +1296,49 @@ static void append_flowlet_log(int interval_id, const char* event_name, int swit
     append_log_row(cfg.flowlet_log_path, &flowlet_log_buffer, row.str());
 }
 
-static void append_switch_training_log(int interval_id, int switch_id, int port_id,
-                                       int target_is_terminal, int target_index,
-                                       double capacity_mbit, double queued_before_mbit,
-                                       double sent_mbit, double queued_after_mbit,
-                                       double dropped_mbit, int active_before, int active_after,
-                                       const std::vector<std::string>& allocations) {
-    std::ostringstream row;
-    row << interval_id << ',' << switch_id << ',' << switches[switch_id].name << ',' << port_id
-        << ',' << (target_is_terminal ? "terminal" : "switch") << ',' << target_index << ','
-        << cfg.switch_scheduler << ',' << capacity_mbit << ',' << queued_before_mbit << ','
-        << sent_mbit << ',' << queued_after_mbit << ',' << dropped_mbit << ',' << active_before
-        << ',' << active_after << ',';
-    for (size_t i = 0; i < allocations.size(); ++i) {
-        if (i > 0) {
-            row << ';';
-        }
-        row << allocations[i];
+static void append_switch_training_log(const switch_state* ns, const fluid_msg* m) {
+    if (m->rc_ml_candidate_count <= 0) {
+        return;
     }
-    row << '\n';
-    append_log_row(cfg.switch_training_log_path, &switch_training_log_buffer, row.str());
+
+    double shared_occupancy = 0.0;
+    if (ns->shared_buffer_mbit > EPS) {
+        shared_occupancy = m->rc_log_shared_queued_before_mbit / ns->shared_buffer_mbit;
+    }
+
+    for (int i = 0; i < m->rc_ml_candidate_count; ++i) {
+        const ml_candidate_record* candidate = &m->rc_ml_candidates[i];
+        if (!candidate->valid) {
+            continue;
+        }
+
+        const queued_flowlet& q = candidate->before;
+        std::ostringstream row;
+        row << ns->switch_id << '-' << m->interval_id << '-' << m->port_id << ','
+            << m->interval_id << ',' << ns->switch_id << ',' << switches[ns->switch_id].name
+            << ',' << m->port_id << ','
+            << (m->rc_log_target_is_terminal ? "terminal" : "switch") << ','
+            << m->rc_log_target_index << ',' << m->rc_log_target_is_terminal << ','
+            << cfg.switch_scheduler << ',' << cfg.director_candidate_selection_policy << ','
+            << m->rc_ml_used_fallback << ',' << m->rc_ml_total_queued_flowlets << ','
+            << m->rc_ml_candidate_count << ',' << candidate->candidate_rank << ','
+            << q.flowlet_id << ',' << q.source_terminal << ',' << q.destination_terminal << ','
+            << q.creation_interval << ',' << q.enqueue_interval << ','
+            << (m->interval_id - q.creation_interval) << ','
+            << (m->interval_id - q.enqueue_interval) << ',' << q.remaining_mbit << ','
+            << candidate->allocation_mbit << ',' << m->rc_log_capacity_mbit << ','
+            << m->rc_log_port_queued_before_mbit << ','
+            << m->rc_log_port_queued_after_mbit << ','
+            << m->rc_log_shared_queued_before_mbit << ','
+            << m->rc_log_shared_queued_after_mbit << ',' << ns->shared_buffer_mbit << ','
+            << shared_occupancy << ',' << m->rc_log_sent_total_mbit << ','
+            << m->rc_ml_ingress_mbit_current << ','
+            << m->rc_ml_ingress_mbit_previous << ',' << m->rc_ml_egress_mbit_current << ','
+            << m->rc_ml_egress_mbit_previous << ',' << m->rc_ml_dropped_mbit_current << ','
+            << m->rc_ml_dropped_mbit_previous << ',' << m->rc_ml_total_active_flowlets << ','
+            << m->rc_log_active_before_entries << ',' << m->rc_log_active_after_entries << '\n';
+        append_log_row(cfg.switch_training_log_path, &switch_training_log_buffer, row.str());
+    }
 }
 
 static int next_terminal_generate_interval_after(int interval_id) {
@@ -1219,29 +1500,6 @@ static double random_workload_mbit(int terminal_id, tw_lp* lp) {
     return min_mbit + u * (max_mbit - min_mbit);
 }
 
-static void build_allocation_strings_from_rc(const fluid_msg* m,
-                                             std::vector<std::string>& allocations) {
-    allocations.clear();
-
-    for (int i = 0; i < m->rc_alloc_count; ++i) {
-        const rc_alloc_record* rc = &m->rc_allocs[i];
-
-        if (!rc->valid || rc->send_mbit <= EPS) {
-            continue;
-        }
-
-        double remaining_after = rc->before.remaining_mbit - rc->send_mbit;
-        if (remaining_after < 0.0 && remaining_after > -EPS) {
-            remaining_after = 0.0;
-        }
-
-        std::ostringstream ss;
-        ss << rc->before.flowlet_id << ':' << rc->before.source_terminal << ':'
-           << rc->before.destination_terminal << ':' << rc->before.creation_interval << ':'
-           << rc->before.remaining_mbit << ':' << rc->send_mbit << ':' << remaining_after;
-        allocations.push_back(ss.str());
-    }
-}
 
 static void log_terminal_generate_event(const terminal_state* ns, const fluid_msg* m) {
     if (m->rc_generated) {
@@ -1320,14 +1578,7 @@ static void log_switch_egress_event(const switch_state* ns, const fluid_msg* m) 
                       m->rc_log_shared_queued_after_mbit, ns->shared_buffer_mbit, 0.0,
                       m->rc_log_active_after_entries);
 
-    std::vector<std::string> allocations;
-    build_allocation_strings_from_rc(m, allocations);
-    append_switch_training_log(m->interval_id, ns->switch_id, m->port_id,
-                               m->rc_log_target_is_terminal, m->rc_log_target_index,
-                               m->rc_log_capacity_mbit, m->rc_log_port_queued_before_mbit,
-                               m->rc_log_sent_total_mbit, m->rc_log_port_queued_after_mbit, 0.0,
-                               m->rc_log_active_before_entries, m->rc_log_active_after_entries,
-                               allocations);
+    append_switch_training_log(ns, m);
 }
 
 static void handle_workload_generate(terminal_state* ns, fluid_msg* m, tw_lp* lp) {
@@ -1469,16 +1720,22 @@ static void terminal_commit_event(terminal_state* ns, tw_bf* b, fluid_msg* m, tw
 }
 
 static void terminal_finalize(terminal_state* ns, tw_lp* lp) {
-    printf(
-        "fluid-flow-wan-terminal gid=%llu terminal=%d switch=%d generated_mbit=%.6f sent_mbit=%.6f "
-        "received_mbit=%.6f generated_flowlets=%d received_fragments=%d\n",
-        (unsigned long long)lp->gid, ns->terminal_id, ns->attached_switch, ns->generated_mbit,
-        ns->sent_to_switch_mbit, ns->received_mbit, ns->generated_flowlets, ns->received_fragments);
+    if (cfg.debug_prints) {
+        printf(
+            "fluid-flow-wan-terminal gid=%llu terminal=%d switch=%d "
+            "generated_mbit=%.6f sent_mbit=%.6f received_mbit=%.6f "
+            "generated_flowlets=%d received_fragments=%d\n",
+            (unsigned long long)lp->gid, ns->terminal_id,
+            ns->attached_switch, ns->generated_mbit,
+            ns->sent_to_switch_mbit, ns->received_mbit,
+            ns->generated_flowlets, ns->received_fragments);
+    }
 }
 
 static void switch_init(switch_state* ns, tw_lp* lp) {
     memset(ns, 0, sizeof(*ns));
     ns->switch_id = codes_mapping_get_lp_relative_id(lp->gid, 0, 0);
+    ns->traffic_metrics_interval = -1;
     if (ns->switch_id < 0 || ns->switch_id >= (int)switches.size()) {
         tw_error(TW_LOC, "switch LP relative id %d out of range", ns->switch_id);
     }
@@ -1534,6 +1791,7 @@ static void switch_init(switch_state* ns, tw_lp* lp) {
 
 static void handle_switch_arrival(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     ns->received_fragments++;
+    ns->ingress_mbit_current += m->mbit;
     int dst_sw = terminals[m->destination_terminal].switch_id;
     int port_id = -1;
     if (dst_sw == ns->switch_id) {
@@ -1564,6 +1822,7 @@ static void handle_switch_arrival(switch_state* ns, fluid_msg* m, tw_lp* lp) {
         m->rc_log_active_before_entries = 0;
         m->rc_log_active_after_entries = 0;
         ns->dropped_mbit += m->mbit;
+        ns->dropped_mbit_current += m->mbit;
         log_switch_arrival_event(ns, m);
         return;
     }
@@ -1604,6 +1863,7 @@ static void handle_switch_arrival(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     m->rc_coalesced = coalesced;
     m->rc_accepted_mbit = accepted;
     m->rc_dropped_mbit = dropped;
+    ns->dropped_mbit_current += dropped;
 
     double port_queued_after = queued_mbit_on_port(ns, port_id);
     int active_after = active_flowlet_count_on_port(ns, port_id);
@@ -1654,6 +1914,124 @@ static void send_flowlet_fragment(switch_state* ns, int port_id, const queued_fl
     ns->sent_fragments++;
 }
 
+static std::unordered_map<std::string, std::vector<double>> fluid_flow_wan_inference_cache;
+
+static std::string build_fluid_flow_wan_inference_payload(const switch_state* ns,
+                                                        const fluid_msg* m) {
+    std::ostringstream out;
+    out << std::setprecision(17);
+
+    double occupancy = 0.0;
+    if (ns->shared_buffer_mbit > EPS) {
+        occupancy = m->rc_log_shared_queued_before_mbit / ns->shared_buffer_mbit;
+    }
+
+    out << "{\"schema\":\"fluid-flow-wan-v1\",\"global_features\":["
+        << ns->shared_buffer_mbit << ','
+        << m->rc_log_shared_queued_before_mbit << ',' << occupancy << ','
+        << m->rc_ml_ingress_mbit_current << ',' << m->rc_ml_ingress_mbit_previous << ','
+        << m->rc_ml_egress_mbit_current << ',' << m->rc_ml_egress_mbit_previous << ','
+        << m->rc_ml_dropped_mbit_current << ',' << m->rc_ml_dropped_mbit_previous << ','
+        << m->rc_ml_total_active_flowlets << "],\"port_features\":["
+        << m->port_id << ',' << m->rc_log_target_index << ',' << m->rc_log_capacity_mbit << ','
+        << m->rc_log_port_queued_before_mbit << ',' << m->rc_log_active_before_entries << ','
+        << m->rc_log_target_is_terminal
+        << "],\"candidate_features\":[";
+
+    for (int i = 0; i < MAX_ML_CANDIDATES; ++i) {
+        if (i > 0) {
+            out << ',';
+        }
+        if (i < m->rc_ml_candidate_count && m->rc_ml_candidates[i].valid) {
+            const ml_candidate_record& candidate = m->rc_ml_candidates[i];
+            const queued_flowlet& q = candidate.before;
+            out << '[' << q.remaining_mbit << ',' << (m->interval_id - q.creation_interval) << ','
+                << (m->interval_id - q.enqueue_interval) << ',' << q.source_terminal << ','
+                << q.destination_terminal << ',' << candidate.candidate_rank << ']';
+        } else {
+            out << "[0,0,0,0,0,0]";
+        }
+    }
+
+    out << "],\"candidate_mask\":[";
+    for (int i = 0; i < MAX_ML_CANDIDATES; ++i) {
+        if (i > 0) {
+            out << ',';
+        }
+        out << (i < m->rc_ml_candidate_count && m->rc_ml_candidates[i].valid ? 1 : 0);
+    }
+    out << "]}";
+    return out.str();
+}
+
+static bool request_fluid_flow_wan_weights(const switch_state* ns, const fluid_msg* m,
+                                         std::vector<double>* weights_out) {
+    weights_out->clear();
+    if (m->rc_ml_candidate_count <= 0) {
+        return false;
+    }
+
+#if CODES_HAVE_ZEROMQ
+    std::string payload = build_fluid_flow_wan_inference_payload(ns, m);
+    std::string cache_key = std::to_string(ns->switch_id) + ":" + payload;
+    auto cached = fluid_flow_wan_inference_cache.find(cache_key);
+    if (cached != fluid_flow_wan_inference_cache.end()) {
+        *weights_out = cached->second;
+        return true;
+    }
+
+    try {
+        std::vector<std::string> reply = zmqml_director_request(
+            "fluid-flow-wan", "torchscript", "inference",
+            {"1", std::to_string(ns->switch_id)}, payload,
+            cfg.director_inference_timeout_ms, cfg.director_endpoint);
+        if (reply.size() < 3 || reply[0] != "done") {
+            return false;
+        }
+
+        std::istringstream predictions(reply[2]);
+        double value = 0.0;
+        while (predictions >> value) {
+            weights_out->push_back(value);
+        }
+
+        if ((int)weights_out->size() != MAX_ML_CANDIDATES) {
+            weights_out->clear();
+            return false;
+        }
+
+        double positive_sum = 0.0;
+        for (int i = 0; i < m->rc_ml_candidate_count; ++i) {
+            double weight = (*weights_out)[i];
+            if (!std::isfinite(weight) || weight < 0.0) {
+                weights_out->clear();
+                return false;
+            }
+            positive_sum += weight;
+        }
+        if (positive_sum <= EPS) {
+            weights_out->clear();
+            return false;
+        }
+
+        fluid_flow_wan_inference_cache.emplace(cache_key, *weights_out);
+        return true;
+    } catch (const std::exception& ex) {
+        if (cfg.debug_prints) {
+            fprintf(stderr,
+                    "[fluid-flow-wan ML] inference failed on switch %d port %d interval %d: %s\n",
+                    ns->switch_id, m->port_id, m->interval_id, ex.what());
+        }
+        weights_out->clear();
+        return false;
+    }
+#else
+    (void)ns;
+    (void)m;
+    return false;
+#endif
+}
+
 static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     int port_id = m->port_id;
     if (port_id < 0 || port_id >= ns->num_ports) {
@@ -1695,6 +2073,9 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     m->rc_log_active_before_entries = active_before;
     m->rc_log_active_after_entries = active_before;
 
+    std::vector<int> candidate_indices = select_ml_candidate_indices(qv);
+    snapshot_ml_candidates(ns, port_id, candidate_indices, m);
+
     auto add_to_plan = [&](int idx, double requested_send) -> double {
         if (idx < 0 || idx >= (int)send_plan.size() || requested_send <= EPS) {
             return 0.0;
@@ -1706,81 +2087,130 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
         }
 
         double actual_send = std::min(requested_send, still_available_for_flowlet);
+        actual_send = std::min(actual_send, remaining_capacity);
         send_plan[idx] += actual_send;
+        remaining_capacity -= actual_send;
         return actual_send;
     };
 
-    if (strcmp(cfg.switch_scheduler, "fifo") == 0) {
+    bool used_round_robin_plan = false;
+
+    auto build_fifo_plan = [&]() {
         for (int i = 0; i < (int)qv.size() && remaining_capacity > EPS; ++i) {
             if (!qv[i].valid || qv[i].remaining_mbit <= EPS) {
                 continue;
             }
-
-            double requested_send = std::min(qv[i].remaining_mbit, remaining_capacity);
-            double planned_send = add_to_plan(i, requested_send);
-            remaining_capacity -= planned_send;
+            add_to_plan(i, qv[i].remaining_mbit);
         }
-    } else if (strcmp(cfg.switch_scheduler, "round_robin") == 0) {
-        /*
-         * Bounded round-robin:
-         *   - keep a persistent per-port cursor,
-         *   - visit queued flowlets circularly,
-         *   - serve at most round_robin_max_entries_per_egress flowlets,
-         *   - use a fixed quantum if configured, otherwise use one full
-         *     output-port interval as the quantum.
-         *
-         * This avoids touching hundreds of active flowlets in one egress event,
-         * which keeps reverse metadata, logs, and optimistic rollback bounded.
-         */
+    };
+
+    auto build_round_robin_plan = [&]() {
+        used_round_robin_plan = true;
         int qsize = (int)qv.size();
         int entries_to_serve = std::min(active_before, cfg.round_robin_max_entries_per_egress);
+        if (qsize <= 0 || entries_to_serve <= 0 || remaining_capacity <= EPS) {
+            return;
+        }
 
-        if (qsize > 0 && entries_to_serve > 0 && remaining_capacity > EPS) {
-            int idx = ns->rr_next_queue_index[port_id];
-            if (idx < 0 || idx >= qsize) {
-                idx = 0;
+        int idx = ns->rr_next_queue_index[port_id];
+        if (idx < 0 || idx >= qsize) {
+            idx = 0;
+        }
+
+        double quantum = cfg.round_robin_quantum_mbit;
+        if (quantum <= EPS) {
+            quantum = capacity;
+        }
+
+        int visited = 0;
+        int served = 0;
+        while (remaining_capacity > EPS && visited < qsize && served < entries_to_serve) {
+            if (qv[idx].valid && qv[idx].remaining_mbit > EPS) {
+                double before_capacity = remaining_capacity;
+                add_to_plan(idx, std::min(qv[idx].remaining_mbit, quantum));
+                if (remaining_capacity < before_capacity - EPS) {
+                    served++;
+                }
+            }
+            idx = (idx + 1) % qsize;
+            visited++;
+        }
+        ns->rr_next_queue_index[port_id] = idx;
+    };
+
+    auto build_configured_fallback_plan = [&]() {
+        m->rc_ml_used_fallback = 1;
+        if (strcmp(cfg.director_fallback_scheduler, "fifo") == 0) {
+            build_fifo_plan();
+        } else {
+            build_round_robin_plan();
+        }
+    };
+
+    if (strcmp(cfg.switch_scheduler, "fifo") == 0) {
+        build_fifo_plan();
+    } else if (strcmp(cfg.switch_scheduler, "round_robin") == 0) {
+        build_round_robin_plan();
+    } else if (strcmp(cfg.switch_scheduler, "ml") == 0) {
+        std::vector<double> weights;
+        bool inference_ok = request_fluid_flow_wan_weights(ns, m, &weights);
+        if (inference_ok) {
+            std::vector<double> candidate_remaining(m->rc_ml_candidate_count, 0.0);
+            for (int i = 0; i < m->rc_ml_candidate_count; ++i) {
+                candidate_remaining[i] = m->rc_ml_candidates[i].before.remaining_mbit;
             }
 
-            double quantum = cfg.round_robin_quantum_mbit;
-            if (quantum <= EPS) {
-                /*
-                 * Default round-robin quantum is one full output-port interval.
-                 * This keeps the scheduler fair over time without splitting one
-                 * interval into many tiny fragments.
-                 */
-                quantum = capacity;
-            }
-
-            int visited = 0;
-            int served = 0;
-            while (remaining_capacity > EPS && visited < qsize && served < entries_to_serve) {
-                if (qv[idx].valid && qv[idx].remaining_mbit > EPS) {
-                    double requested_send = std::min(qv[idx].remaining_mbit, quantum);
-                    requested_send = std::min(requested_send, remaining_capacity);
-                    double planned_send = add_to_plan(idx, requested_send);
-                    remaining_capacity -= planned_send;
-                    if (planned_send > EPS) {
-                        served++;
+            while (remaining_capacity > EPS) {
+                double active_weight_sum = 0.0;
+                for (int i = 0; i < m->rc_ml_candidate_count; ++i) {
+                    if (candidate_remaining[i] > EPS && weights[i] > EPS) {
+                        active_weight_sum += weights[i];
                     }
                 }
+                if (active_weight_sum <= EPS) {
+                    break;
+                }
 
-                idx = (idx + 1) % qsize;
-                visited++;
+                double round_capacity = remaining_capacity;
+                double progress = 0.0;
+                for (int i = 0; i < m->rc_ml_candidate_count && remaining_capacity > EPS; ++i) {
+                    if (candidate_remaining[i] <= EPS || weights[i] <= EPS) {
+                        continue;
+                    }
+                    double requested = round_capacity * weights[i] / active_weight_sum;
+                    requested = std::min(requested, candidate_remaining[i]);
+                    double sent = add_to_plan(m->rc_ml_candidates[i].queue_index, requested);
+                    candidate_remaining[i] -= sent;
+                    progress += sent;
+                }
+                if (progress <= EPS) {
+                    break;
+                }
             }
 
-            ns->rr_next_queue_index[port_id] = idx;
+            /* Keep the output link work-conserving when selected candidates are too small. */
+            if (remaining_capacity > EPS && queued_before > capacity - remaining_capacity + EPS) {
+                build_configured_fallback_plan();
+            }
+        } else {
+            build_configured_fallback_plan();
         }
     } else {
         tw_error(TW_LOC, "unknown switch scheduler '%s'", cfg.switch_scheduler);
     }
 
+    for (int i = 0; i < m->rc_ml_candidate_count; ++i) {
+        int queue_index = m->rc_ml_candidates[i].queue_index;
+        if (queue_index >= 0 && queue_index < (int)send_plan.size()) {
+            m->rc_ml_candidates[i].allocation_mbit = send_plan[queue_index];
+        }
+    }
+
     for (int i = 0; i < (int)qv.size(); ++i) {
         double send = send_plan[i];
-
         if (!qv[i].valid || send <= EPS) {
             continue;
         }
-
         if (send > qv[i].remaining_mbit + EPS) {
             tw_error(TW_LOC,
                      "computed send %.12f exceeds remaining %.12f for flowlet %llu "
@@ -1791,7 +2221,6 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
 
         queued_flowlet before = qv[i];
         send = std::min(send, qv[i].remaining_mbit);
-
         if (m->rc_alloc_count >= MAX_RC_ALLOCATIONS) {
             tw_error(TW_LOC,
                      "too many egress allocations for reverse metadata: switch %d port %d "
@@ -1811,13 +2240,10 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
         sent_total += send;
     }
 
+    ns->egress_mbit_current += sent_total;
     compact_port_queue(ns, port_id);
 
-    /*
-     * This keeps the round-robin cursor valid after completed flowlets are removed.
-     * The cursor is restored exactly by rollback through rc_prev_rr_next_queue_index.
-     */
-    if (strcmp(cfg.switch_scheduler, "round_robin") == 0) {
+    if (used_round_robin_plan) {
         if (qv.empty()) {
             ns->rr_next_queue_index[port_id] = 0;
         } else {
@@ -1837,11 +2263,6 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     log_switch_egress_event(ns, m);
 
     if (queued_after > EPS) {
-        /*
-         * This event's reverse handler restores scheduled_egress_interval from
-         * rc_prev_scheduled_egress_interval.  Pass NULL here so the next-event
-         * scheduling does not overwrite this event's saved pre-state.
-         */
         request_switch_egress(ns, m->interval_id + 1, port_id, lp, NULL);
     }
 }
@@ -1849,6 +2270,7 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
 
 static void switch_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp) {
     (void)b;
+    begin_switch_traffic_metrics_event(ns, m);
     switch (m->event_type) {
     case FLOWLET_ARRIVAL:
         handle_switch_arrival(ns, m, lp);
@@ -1979,6 +2401,8 @@ static void switch_rev_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp
     default:
         tw_error(TW_LOC, "switch reverse received unknown event type %d", m->event_type);
     }
+
+    restore_switch_traffic_metrics_event(ns, m);
 }
 
 static void switch_commit_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp) {
@@ -2008,16 +2432,23 @@ static void switch_commit_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp*
 }
 
 static void switch_finalize(switch_state* ns, tw_lp* lp) {
-    double queued = 0.0;
-    for (int p = 0; p < ns->num_ports; ++p) {
-        queued += queued_mbit_on_port(ns, p);
+    if (cfg.debug_prints) {
+        double queued = 0.0;
+        for (int p = 0; p < ns->num_ports; ++p) {
+            queued += queued_mbit_on_port(ns, p);
+        }
+
+        printf("fluid-flow-wan gid=%llu switch=%d name=%s ports=%d "
+               "shared_buffer_mbit=%.6f received_fragments=%d "
+               "sent_fragments=%d enqueued_mbit=%.6f sent_mbit=%.6f "
+               "local_delivery_mbit=%.6f dropped_mbit=%.6f "
+               "queued_mbit=%.6f\n",
+               (unsigned long long)lp->gid, ns->switch_id,
+               switches[ns->switch_id].name.c_str(), ns->num_ports,
+               ns->shared_buffer_mbit, ns->received_fragments,
+               ns->sent_fragments, ns->enqueued_mbit, ns->sent_mbit,
+               ns->delivered_local_mbit, ns->dropped_mbit, queued);
     }
-    printf("fluid-flow-wan gid=%llu switch=%d name=%s ports=%d shared_buffer_mbit=%.6f "
-           "received_fragments=%d sent_fragments=%d enqueued_mbit=%.6f sent_mbit=%.6f "
-           "local_delivery_mbit=%.6f dropped_mbit=%.6f queued_mbit=%.6f\n",
-           (unsigned long long)lp->gid, ns->switch_id, switches[ns->switch_id].name.c_str(),
-           ns->num_ports, ns->shared_buffer_mbit, ns->received_fragments, ns->sent_fragments,
-           ns->enqueued_mbit, ns->sent_mbit, ns->delivered_local_mbit, ns->dropped_mbit, queued);
 
     for (int p = 0; p < ns->num_ports; ++p) {
         delete ns->queues[p];
@@ -2025,7 +2456,7 @@ static void switch_finalize(switch_state* ns, tw_lp* lp) {
     }
 }
 
-const tw_optdef app_opt[] = {TWOPT_GROUP("interval-fluid switch/terminal workload"), TWOPT_END()};
+const tw_optdef app_opt[] = {TWOPT_GROUP("fluid-flow WAN switch/terminal workload"), TWOPT_END()};
 
 static const char* find_config_arg(int argc, char** argv) {
     for (int i = argc - 1; i >= 1; --i) {
@@ -2140,10 +2571,19 @@ static void write_log_headers(int rank) {
                           "age_intervals,capacity_mbit,queued_before_mbit,send_mbit,"
                           "remaining_after_mbit,dropped_mbit\n");
 
-    write_log_header_file(cfg.switch_training_log_path,
-                          "interval,switch,switch_name,port,target_type,target_index,scheduler,"
-                          "capacity_mbit,queued_before_mbit,sent_mbit,queued_after_mbit,"
-                          "dropped_mbit,active_before,active_after,allocations\n");
+    write_log_header_file(
+        cfg.switch_training_log_path,
+        "decision_id,interval,switch,switch_name,port,target_type,target_index,"
+        "target_is_terminal,scheduler,candidate_selection_policy,used_fallback,"
+        "total_queued_flowlets,candidate_count,candidate_rank,flowlet_id,"
+        "source_terminal,destination_terminal,creation_interval,enqueue_interval,"
+        "age_intervals,enqueue_age_intervals,remaining_mbit,allocation_mbit,"
+        "capacity_mbit,port_queued_before_mbit,port_queued_after_mbit,"
+        "shared_queued_before_mbit,shared_queued_after_mbit,shared_buffer_mbit,"
+        "shared_buffer_occupancy,sent_total_mbit,ingress_mbit_current,"
+        "ingress_mbit_previous,egress_mbit_current,egress_mbit_previous,"
+        "dropped_mbit_current,dropped_mbit_previous,total_active_flowlets,"
+        "active_before,active_after\n");
 }
 
 int main(int argc, char** argv) {
@@ -2165,6 +2605,8 @@ int main(int argc, char** argv) {
     configuration_load(config_file, MPI_COMM_CODES, &config);
     load_config();
     validate_ross_message_size_or_abort(rank);
+    configure_fluid_flow_wan_server_debug(rank);
+    MPI_Barrier(MPI_COMM_CODES);
 
     add_lp_types();
     codes_mapping_setup();
@@ -2186,9 +2628,13 @@ int main(int argc, char** argv) {
     if (rank == 0) {
         printf("fluid-flow-wan config: switches=%zu terminals=%zu interval_seconds=%.6f "
                "num_send_intervals=%d num_drain_intervals=%d switch_scheduler=%s "
+               "director_candidate_policy=%s director_max_candidates=%d "
+               "director_fallback=%s "
                "buffer_mode=shared csv_logs=%s ross_message_size=%d fluid_msg_size=%zu\n",
                switches.size(), terminals.size(), cfg.interval_seconds, cfg.num_send_intervals,
                cfg.num_drain_intervals, cfg.switch_scheduler,
+               cfg.director_candidate_selection_policy, cfg.director_max_candidate_flowlets,
+               cfg.director_fallback_scheduler,
                fluid_csv_forward_logs_enabled() ? "buffered-forward" : "buffered-commit",
                get_configured_message_size_bytes(), sizeof(fluid_msg));
     }

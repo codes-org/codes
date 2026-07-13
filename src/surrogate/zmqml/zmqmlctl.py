@@ -59,10 +59,10 @@ def main() -> int:
     )
 
     save = sub.add_parser("save", help="Save active Director surrogate model")
-    save.add_argument("path", help="Output .pt path")
+    save.add_argument("path", help="Output model path or directory")
 
     load = sub.add_parser("load", help="Load Director surrogate model")
-    load.add_argument("path", help="Input .pt path")
+    load.add_argument("path", help="Input model path or directory")
 
     status = sub.add_parser("status", help="Show Director surrogate model status")
     status.add_argument(

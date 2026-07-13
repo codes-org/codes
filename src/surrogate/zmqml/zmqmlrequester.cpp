@@ -8,6 +8,7 @@
 #include <cmath>
 #include <numeric>
 #include <regex>
+#include <stdexcept>
 #include <cstring>
 #include <cstdlib>
 
@@ -30,13 +31,36 @@ static string endpoint_from_env() {
 static string endpoint = endpoint_from_env();
 static int debug = 0;
 
+static int resolve_timeout_ms(int requested_timeout_ms) {
+    const char* env = getenv("ZMQML_TIMEOUT_MS");
+    if (env != nullptr && env[0] != '\0') {
+        char* end = nullptr;
+        long value = strtol(env, &end, 10);
+        if (end != env && *end == '\0' && value > 0 && value <= 3600000) {
+            return static_cast<int>(value);
+        }
+    }
+    return requested_timeout_ms;
+}
+
+static void configure_socket(zmq::socket_t& socket, int requested_timeout_ms) {
+    const int timeout_ms = resolve_timeout_ms(requested_timeout_ms);
+    if (timeout_ms > 0) {
+        socket.set(zmq::sockopt::sndtimeo, timeout_ms);
+        socket.set(zmq::sockopt::rcvtimeo, timeout_ms);
+    }
+    socket.set(zmq::sockopt::linger, 0);
+}
+
 
 /**
  * See zmqmlrequester.h
  */
-vector<string> zmqml_request(const string& cmd, const vector<string>& args, const string& bindata) {
+vector<string> zmqml_request(const string& cmd, const vector<string>& args, const string& bindata,
+                             int timeout_ms) {
     zmq::context_t context(1);
     zmq::socket_t socket(context, ZMQ_REQ);
+    configure_socket(socket, timeout_ms);
     socket.connect(endpoint);
 
     Document msg;
@@ -74,7 +98,10 @@ vector<string> zmqml_request(const string& cmd, const vector<string>& args, cons
     socket.send(reqmsg, zmq::send_flags::none);
 
     zmq::message_t reply;
-    socket.recv(reply);
+    auto recv_result = socket.recv(reply, zmq::recv_flags::none);
+    if (!recv_result) {
+        throw std::runtime_error("ZeroMQ request timed out waiting for a reply");
+    }
 
     string tmp(static_cast<char*>(reply.data()), reply.size());
     Document response;
@@ -106,10 +133,12 @@ vector<string> zmqml_request(const string& cmd, const vector<string>& args, cons
 
 vector<string> zmqml_director_request(const string& surrogate_family,
                                       const string& surrogate_backend, const string& operation,
-                                      const vector<string>& args, const string& bindata) {
+                                      const vector<string>& args, const string& bindata,
+                                      int timeout_ms, const string& endpoint_override) {
     zmq::context_t context(1);
     zmq::socket_t socket(context, ZMQ_REQ);
-    socket.connect(endpoint);
+    configure_socket(socket, timeout_ms);
+    socket.connect(endpoint_override.empty() ? endpoint : endpoint_override);
 
     Document msg;
     msg.SetObject();
@@ -156,7 +185,10 @@ vector<string> zmqml_director_request(const string& surrogate_family,
     socket.send(reqmsg, zmq::send_flags::none);
 
     zmq::message_t reply;
-    socket.recv(reply);
+    auto recv_result = socket.recv(reply, zmq::recv_flags::none);
+    if (!recv_result) {
+        throw std::runtime_error("ZeroMQ request timed out waiting for a reply");
+    }
 
     string tmp(static_cast<char*>(reply.data()), reply.size());
     Document response;

@@ -19,6 +19,7 @@ import numpy as np
 from runmlpacketdelay import run_mlpacketdelay_training
 from model.mliterationtime import IterationTimeModelRegistry
 from model.mleventtime import EventTimeModel
+from model.mlfluidflowwan import FluidFlowWanModelRegistry
 import csv
 import io
 import pickle
@@ -53,6 +54,14 @@ EVENT_TIME_MODEL_KWARGS = {
     "max_epochs": int(os.environ.get("ZMQML_EVENT_TIME_EPOCHS", "80")),
     "lr": float(os.environ.get("ZMQML_EVENT_TIME_LR", "0.001")),
     "hidden_dim": int(os.environ.get("ZMQML_EVENT_TIME_HIDDEN_DIM", "64")),
+}
+
+FLUID_FLOW_WAN_MODEL_KWARGS = {
+    "max_candidates": int(os.environ.get("ZMQML_FLUID_FLOW_WAN_MAX_CANDIDATES", "32")),
+    "min_examples": int(os.environ.get("ZMQML_FLUID_FLOW_WAN_MIN_EXAMPLES", "16")),
+    "hidden_dim": int(os.environ.get("ZMQML_FLUID_FLOW_WAN_HIDDEN_DIM", "64")),
+    "max_epochs": int(os.environ.get("ZMQML_FLUID_FLOW_WAN_EPOCHS", "100")),
+    "lr": float(os.environ.get("ZMQML_FLUID_FLOW_WAN_LR", "0.001")),
 }
 
 DEFAULT_TERMINAL_MODEL_SCOPE = "terminal"
@@ -228,10 +237,12 @@ class ScopedEventTimeModelRegistry:
 
 iteration_time_models = IterationTimeModelRegistry(**ITERATION_MODEL_KWARGS)
 event_time_models = ScopedEventTimeModelRegistry(EVENT_TIME_MODEL_KWARGS)
+fluid_flow_wan_models = FluidFlowWanModelRegistry(**FLUID_FLOW_WAN_MODEL_KWARGS)
 
 event_time_model = event_time_models.get()
 iteration_model_path = os.environ.get("ZMQML_ITERATION_MODEL_PATH", "").strip()
 event_time_model_path = os.environ.get("ZMQML_EVENT_TIME_MODEL_PATH", "").strip()
+fluid_flow_wan_model_dir = os.environ.get("ZMQML_FLUID_FLOW_WAN_MODEL_DIR", "").strip()
 event_time_record_log_path = os.environ.get("ZMQML_EVENT_TIME_RECORD_LOG_PATH", "").strip()
 record_log_path = os.environ.get("ZMQML_RECORD_LOG_PATH", "").strip()
 record_format = os.environ.get("ZMQML_RECORD_FORMAT", "app_id,client,iteration,value").strip()
@@ -265,6 +276,13 @@ if event_time_model_path:
     event_time_model_version = 1
     print(
         f"[zmqmlserver] loaded event-time model(s): {event_time_model_path}",
+        flush=True,
+    )
+
+if fluid_flow_wan_model_dir:
+    loaded = fluid_flow_wan_models.load(fluid_flow_wan_model_dir)
+    print(
+        f"[zmqmlserver] loaded {loaded} fluid-flow-wan model(s): {fluid_flow_wan_model_dir}",
         flush=True,
     )
 
@@ -1266,6 +1284,181 @@ def iteration_time_model_status_command(args):
         "clients": ";".join(per_client),
     }
 
+
+def load_fluid_flow_wan_records_csv_command(args):
+    st = time.time()
+    real_args = _real_command_args(args)
+    if not real_args:
+        return {
+            "status": "failed",
+            "et": str(time.time() - st),
+            "error": "missing fluid-flow-wan training CSV path",
+        }
+
+    try:
+        loaded = fluid_flow_wan_models.load_records_csv(real_args[0])
+    except Exception as exc:
+        return {
+            "status": "failed",
+            "et": str(time.time() - st),
+            "error": str(exc),
+        }
+
+    ret = {
+        "status": "done",
+        "et": str(time.time() - st),
+        "loaded_rows": str(loaded),
+    }
+    ret.update(fluid_flow_wan_models.status())
+    return ret
+
+
+def train_fluid_flow_wan_model_command(args):
+    st = time.time()
+    real_args = _real_command_args(args)
+    target = real_args[0] if real_args else "all"
+    try:
+        trained = fluid_flow_wan_models.train(target)
+    except Exception as exc:
+        return {
+            "status": "failed",
+            "et": str(time.time() - st),
+            "error": str(exc),
+        }
+
+    ret = {
+        "status": "done" if trained > 0 else "failed",
+        "et": str(time.time() - st),
+        "trained_models": str(trained),
+        "target": str(target),
+    }
+    ret.update(fluid_flow_wan_models.status())
+    if trained <= 0:
+        ret["error"] = (
+            "no fluid-flow-wan model was trained; verify that each switch has enough "
+            "egress decisions with nonzero selected allocations"
+        )
+    return ret
+
+
+def save_fluid_flow_wan_model_command(args):
+    st = time.time()
+    real_args = _real_command_args(args)
+    if not real_args:
+        return {
+            "status": "failed",
+            "et": str(time.time() - st),
+            "error": "missing fluid-flow-wan output directory",
+        }
+    try:
+        saved = fluid_flow_wan_models.save(real_args[0])
+    except Exception as exc:
+        return {
+            "status": "failed",
+            "et": str(time.time() - st),
+            "error": str(exc),
+        }
+    ret = {
+        "status": "done" if saved > 0 else "failed",
+        "et": str(time.time() - st),
+        "saved_models": str(saved),
+        "path": str(real_args[0]),
+    }
+    ret.update(fluid_flow_wan_models.status())
+    return ret
+
+
+def load_fluid_flow_wan_model_command(args):
+    st = time.time()
+    real_args = _real_command_args(args)
+    if not real_args:
+        return {
+            "status": "failed",
+            "et": str(time.time() - st),
+            "error": "missing fluid-flow-wan model directory",
+        }
+    try:
+        loaded = fluid_flow_wan_models.load(real_args[0])
+    except Exception as exc:
+        return {
+            "status": "failed",
+            "et": str(time.time() - st),
+            "error": str(exc),
+        }
+    ret = {
+        "status": "done",
+        "et": str(time.time() - st),
+        "loaded_models": str(loaded),
+        "path": str(real_args[0]),
+    }
+    ret.update(fluid_flow_wan_models.status())
+    return ret
+
+
+def fluid_flow_wan_model_status_command(args):
+    st = time.time()
+    ret = {
+        "status": "done",
+        "et": str(time.time() - st),
+    }
+    ret.update(fluid_flow_wan_models.status())
+    return ret
+
+
+def launch_fluid_flow_wan_inferencing(args, bindata):
+    st = time.time()
+    real_args = _real_command_args(args)
+    if not real_args:
+        return {
+            "status": "failed",
+            "et": str(time.time() - st),
+            "error": "missing logical switch id",
+        }
+
+    try:
+        switch_id = int(real_args[0])
+        payload = json.loads(bindata.decode("utf-8"))
+        if payload.get("schema") != "fluid-flow-wan-v1":
+            raise ValueError(
+                f"unsupported fluid-flow-wan schema: {payload.get('schema')!r}"
+            )
+        predictions = fluid_flow_wan_models.predict(
+            switch_id=switch_id,
+            global_features=list(payload["global_features"]),
+            port_features=list(payload["port_features"]),
+            candidate_features=list(payload["candidate_features"]),
+            candidate_mask=list(payload["candidate_mask"]),
+        )
+
+        candidate_mask = list(payload["candidate_mask"])
+        active_candidates = sum(
+            1 for value in candidate_mask if float(value) > 0.0
+        )
+        port_features = list(payload["port_features"])
+        port_id = int(port_features[0]) if port_features else -1
+        nonzero_predictions = sum(
+            1 for value in predictions if float(value) > 0.0
+        )
+
+        director_debug(
+            f"[fluid-flow-wan inference] switch={switch_id} "
+            f"port={port_id} active_candidates={active_candidates} "
+            f"nonzero_predictions={nonzero_predictions} "
+            f"weight_sum={sum(float(value) for value in predictions):.9f}"
+        )
+    except Exception as exc:
+        return {
+            "status": "failed",
+            "et": str(time.time() - st),
+            "error": str(exc),
+        }
+
+    return {
+        "status": "done",
+        "et": str(time.time() - st),
+        "predictions": " ".join(str(float(value)) for value in predictions),
+    }
+
 def launch_surrogate_inferencing(args, bindata):
     return launch_iteration_time_inferencing(args, bindata)
 
@@ -1284,7 +1477,7 @@ def director_request_command(msg, bindata):
 
         {
             "cmd": "director-request",
-            "surrogate_family": "iteration-time" | "event-time",
+            "surrogate_family": "iteration-time" | "event-time" | "fluid-flow-wan",
             "surrogate_backend": "...",
             "operation": "send-records" | "inference" | "train-model" |
                          "save-model" | "load-model" | "load-records-csv" |
@@ -1306,6 +1499,10 @@ def director_request_command(msg, bindata):
         "do-inference": "inference",
     }
     operation = operation_aliases.get(operation, operation)
+
+    if operation == "set-debug":
+        status, et = set_director_debug_prints(args)
+        return {"status": status, "et": str(et)}
 
     if family in ("", "iteration", "iteration-time"):
         if operation == "send-records":
@@ -1351,6 +1548,20 @@ def director_request_command(msg, bindata):
             return load_event_time_records_csv_command(args)
         if operation == "model-status":
             return event_time_model_status_command(args)
+
+    if family == "fluid-flow-wan":
+        if operation == "inference":
+            return launch_fluid_flow_wan_inferencing(args, bindata)
+        if operation == "train-model":
+            return train_fluid_flow_wan_model_command(args)
+        if operation == "save-model":
+            return save_fluid_flow_wan_model_command(args)
+        if operation == "load-model":
+            return load_fluid_flow_wan_model_command(args)
+        if operation == "load-records-csv":
+            return load_fluid_flow_wan_records_csv_command(args)
+        if operation == "model-status":
+            return fluid_flow_wan_model_status_command(args)
 
     return {
         "status": "failed",

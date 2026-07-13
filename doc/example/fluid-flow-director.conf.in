@@ -1,0 +1,59 @@
+# Fluid-flow WAN switch/terminal hybrid Director example.
+# Start zmqmlserver.py with one switch-<id>.pt model per logical switch,
+# then run from the build directory, for example:
+#   ZMQML_ENDPOINT=tcp://localhost:5555 mpirun -np 1 \
+#     ./src/model-net-fluid-flow-wan --synch=1 -- doc/example/fluid-flow-director.conf
+
+LPGROUPS
+{
+    FLUID_FLOW_WAN_GRP
+    {
+        repetitions="1";
+        fluid-flow-wan-switch-lp="3";
+        fluid-flow-wan-terminal-lp="6";
+    }
+}
+
+PARAMS
+{
+    message_size="32768";
+    pe_mem_factor="1024";
+}
+
+FLUID_FLOW_WAN
+{
+    topology_yaml_file="fluid-flow-wan-topology.yaml";
+
+    interval_seconds="1";
+    num_send_intervals="20";
+    num_drain_intervals="20";
+    rng_seed="12345";
+
+    terminal_send_every_n_intervals="1";
+    terminal_send_probability="1.0";
+    terminal_min_send_mbit="0";
+    terminal_max_send_fraction_of_link_capacity="1.0";
+
+    debug_prints="0";
+    # Hybrid scheduling. The ZeroMQ server loads one switch-<id>.pt model
+    # for every logical switch and returns one allocation weight per candidate.
+    switch_scheduler="ml";
+
+    # Used if inference fails or if selected candidates do not fill the port.
+    director_fallback_scheduler="round_robin";
+
+    # Select at most 32 candidates before calling the model.
+    # Supported policies: fifo, sjf, ljf.
+    director_candidate_selection_policy="fifo";
+    director_max_candidate_flowlets="32";
+    director_inference_timeout_ms="5000";
+    director_endpoint="tcp://localhost:5555";
+
+    round_robin_max_entries_per_egress="8";
+    round_robin_quantum_mbit="0";
+
+    terminal_log_path="../../zmqml_artifacts/fluid-flow-wan/hybrid/terminal-events.csv";
+    switch_log_path="../../zmqml_artifacts/fluid-flow-wan/hybrid/switch-events.csv";
+    flowlet_log_path="../../zmqml_artifacts/fluid-flow-wan/hybrid/flowlet-events.csv";
+    switch_training_log_path="../../zmqml_artifacts/fluid-flow-wan/hybrid/switch-decisions.csv";
+}
