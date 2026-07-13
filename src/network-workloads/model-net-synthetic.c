@@ -16,6 +16,7 @@
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
 #include "codes/net/dragonfly.h"
+#include "codes/codes-workload-config.h"
 
 #define PAYLOAD_SZ 2048
 
@@ -59,6 +60,15 @@ enum TRAFFIC {
     NEAREST_GROUP = 2, /* sends message to the node connected to the neighboring router */
     NEAREST_NEIGHBOR =
         3 /* sends message to the next node (potentially connected to the same router) */
+};
+
+/* friendly workload.traffic names -> this model's traffic enum, for the
+ * codes-workload-config helper. */
+static const struct codes_workload_traffic_name traffic_names[] = {
+    {"uniform", UNIFORM},
+    {"nearest_group", NEAREST_GROUP},
+    {"nearest_neighbor", NEAREST_NEIGHBOR},
+    {NULL, 0},
 };
 
 struct svr_state {
@@ -316,6 +326,12 @@ int main(int argc, char** argv) {
     int num_nets;
     int* net_ids;
 
+    /* capture the option defaults before tw_init parses the command line, so the
+     * config-vs-CLI helper can tell whether the command line overrode each. */
+    int traffic_default = traffic;
+    int num_msgs_default = num_msgs;
+    double arrival_time_default = arrival_time;
+
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
 #ifdef USE_RDAMARIS
@@ -342,13 +358,25 @@ int main(int argc, char** argv) {
 
         codes_mapping_setup();
 
+        /* apply synthetic workload params from a YAML workload:/jobs: config; the
+         * command line still wins over the config for each. Inert for a legacy
+         * .conf, which carries no WORKLOAD section. */
+        codes_workload_config_apply_traffic(&traffic, traffic_default, traffic_names);
+        codes_workload_config_apply_int("num_messages", &num_msgs, num_msgs_default);
+        codes_workload_config_apply_double("arrival_time", &arrival_time, arrival_time_default);
+
         net_ids = model_net_configure(&num_nets);
         //assert(num_nets==1);
         net_id = *net_ids;
         free(net_ids);
 
-        /* 5 days of simulation time */
-        g_tw_ts_end = s_to_ns(5 * 24 * 60 * 60);
+        /* Default run length (5 days), applied only when neither the config
+         * (PARAMS/end_time, honored by codes_mapping_setup) nor the command line
+         * (--end) set an end time. ROSS's compiled-in default is 100000.0, so an
+         * unchanged value means none was requested. This also lets --end take
+         * effect, which the previous unconditional assignment silently ignored. */
+        if (g_tw_ts_end == 100000.0)
+            g_tw_ts_end = s_to_ns(5 * 24 * 60 * 60);
         model_net_enable_sampling(sampling_interval, sampling_end_time);
 
         if (net_id != DRAGONFLY) {

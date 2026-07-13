@@ -785,3 +785,21 @@ codes_add_run_test(
     BINARY model-net-synthetic-fattree
     ARGS   --sync=1 --end=40000 -- "${_tconf}/sim-end-time-fattree.yaml"
     MARKER "Simulation End Time.*40000.00")
+
+# Synthetic workload params from a YAML workload: block. model-net-synthetic
+# sends `num_messages` events per server and prints the count in each server's
+# finalize line ("... sent_count N recvd_count ..."); the config sets 2, which is
+# distinct from the model's built-in default of 20, so the marker proves the
+# config value took effect.
+codes_add_run_test(
+    NAME   modelnet-synthetic-config-workload-params
+    BINARY model-net-synthetic
+    ARGS   --sync=1 -- "${_tconf}/synthetic-workload-dragonfly.yaml"
+    MARKER "sent_count 2 recvd_count")
+# CLI precedence: --num_messages=1 on the command line wins over the config's 2,
+# so every server sends one message instead.
+codes_add_run_test(
+    NAME   modelnet-synthetic-cli-overrides-config-workload-params
+    BINARY model-net-synthetic
+    ARGS   --sync=1 --num_messages=1 -- "${_tconf}/synthetic-workload-dragonfly.yaml"
+    MARKER "sent_count 1 recvd_count")

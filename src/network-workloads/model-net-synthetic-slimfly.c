@@ -15,6 +15,7 @@
 #include "codes/codes_mapping.h"
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
+#include "codes/codes-workload-config.h"
 
 #define LP_CONFIG_NM (model_net_lp_config_names[SLIMFLY])
 
@@ -92,6 +93,20 @@ enum TRAFFIC {
     GATHER = 6,   /* sends messages from all ranks to rank 0 */
     SCATTER = 7,  /* sends messages from rank 0 to all other ranks */
     BISECTION = 8 /* sends messages between paired nodes in opposing bisection partitions */
+};
+
+/* friendly workload.traffic names -> this model's traffic enum, for the
+ * codes-workload-config helper. */
+static const struct codes_workload_traffic_name traffic_names[] = {
+    {"uniform", UNIFORM},
+    {"worst_case", WORST_CASE},
+    {"nearest_neighbor_1d", NEAREST_NEIGHBOR_1D},
+    {"nearest_neighbor_2d", NEAREST_NEIGHBOR_2D},
+    {"nearest_neighbor_3d", NEAREST_NEIGHBOR_3D},
+    {"gather", GATHER},
+    {"scatter", SCATTER},
+    {"bisection", BISECTION},
+    {NULL, 0},
 };
 
 struct svr_state {
@@ -540,6 +555,13 @@ int main(int argc, char** argv) {
     int num_nets;
     int* net_ids;
 
+    /* capture the option defaults before tw_init parses the command line, so the
+     * config-vs-CLI helper can tell whether the command line overrode each. */
+    int traffic_default = traffic;
+    int num_msgs_default = num_msgs;
+    int payload_size_default = payload_size;
+    double arrival_time_default = arrival_time;
+
     tw_opt_add(app_opt);
     tw_init(&argc, &argv);
 #ifdef USE_RDAMARIS
@@ -564,6 +586,16 @@ int main(int argc, char** argv) {
             svr_register_model_types();
 
         codes_mapping_setup();
+
+        /* apply synthetic workload params from a YAML workload:/jobs: config; the
+         * command line still wins over the config for each. Inert for a legacy
+         * .conf, which carries no WORKLOAD section. Runs before the WORST_CASE
+         * setup below so a config-set traffic pattern is already in effect. */
+        codes_workload_config_apply_traffic(&traffic, traffic_default, traffic_names);
+        codes_workload_config_apply_int("num_messages", &num_msgs, num_msgs_default);
+        codes_workload_config_apply_int("payload_size", &payload_size, payload_size_default);
+        codes_workload_config_apply_double("arrival_time", &arrival_time, arrival_time_default);
+
         net_ids = model_net_configure(&num_nets);
         //    assert(num_nets==1);
         net_id = *net_ids;

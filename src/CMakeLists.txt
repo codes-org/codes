@@ -43,6 +43,7 @@ list(APPEND SRCS
 	workload/methods/codes-iomock-wrkld.c
 
     util/codes_mapping.c
+    util/codes-workload-config.cxx
     util/lp-type-lookup.c
     util/lp-io.c
 	util/lp-msg.c

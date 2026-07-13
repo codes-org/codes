@@ -16,6 +16,7 @@
 #include "codes/codes_mapping.h"
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
+#include "codes/codes-workload-config.h"
 
 #define PAYLOAD_SZ 512
 
@@ -73,6 +74,16 @@ enum TRAFFIC {
     NEAREST_GROUP = 3, /* sends message to the node connected to the neighboring router */
     NEAREST_NEIGHBOR =
         4 /* sends message to the next node (potentially connected to the same router) */
+};
+
+/* friendly workload.traffic names -> this model's traffic enum, for the
+ * codes-workload-config helper. */
+static const struct codes_workload_traffic_name traffic_names[] = {
+    {"uniform", UNIFORM},
+    {"bisection", BISECTION},
+    {"nearest_group", NEAREST_GROUP},
+    {"nearest_neighbor", NEAREST_NEIGHBOR},
+    {NULL, 0},
 };
 
 struct svr_state {
@@ -342,6 +353,11 @@ int main(int argc, char** argv) {
 
     lp_io_handle handle;
 
+    /* capture the option defaults before tw_init parses the command line, so the
+     * config-vs-CLI helper can tell whether the command line overrode each. */
+    int traffic_default = traffic;
+    double arrival_time_default = arrival_time;
+
     tw_opt_add(app_opt);
 
     tw_init(&argc, &argv);
@@ -372,6 +388,11 @@ int main(int argc, char** argv) {
 
         codes_mapping_setup();
 
+        /* apply synthetic workload params from a YAML workload:/jobs: config; the
+         * command line still wins over the config for each. Inert for a legacy
+         * .conf, which carries no WORKLOAD section. */
+        codes_workload_config_apply_traffic(&traffic, traffic_default, traffic_names);
+        codes_workload_config_apply_double("arrival_time", &arrival_time, arrival_time_default);
 
         net_ids = model_net_configure(&num_nets);
         //assert(num_nets==1);
