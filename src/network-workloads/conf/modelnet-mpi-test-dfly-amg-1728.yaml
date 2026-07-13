@@ -1,0 +1,29 @@
+schema_version: 1
+
+# YAML twin of modelnet-mpi-test-dfly-amg-1728.conf: a regular (Kim-Dally)
+# dragonfly with 10 routers per group. The compiler derives the group/repetition
+# counts from num_routers (num_cn = num_routers/2, num_groups = num_routers*num_cn
+# + 1, so repetitions = 510) and emits the PARAMS the dragonfly model reads.
+
+components:
+  compute_host:
+    model: nw-lp
+
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly
+    shape:
+      num_routers: 10
+    links:
+      local:  { bandwidth: 5.25, vc_size: 16384 }
+      global: { bandwidth: 4.7,  vc_size: 32768 }
+      cn:     { bandwidth: 5.25, vc_size: 16384 }
+    routing:
+      algorithm: adaptive
+    packet_size: 512
+    chunk_size: 256
+    modelnet_scheduler: fcfs
+    message_size: 656
+  hosts:
+    component: compute_host

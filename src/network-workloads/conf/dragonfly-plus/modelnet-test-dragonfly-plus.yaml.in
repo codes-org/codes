@@ -1,0 +1,37 @@
+schema_version: 1
+
+# YAML twin of modelnet-test-dragonfly-plus.conf.in: a 5-group dragonfly-plus
+# (repetitions = num_groups = 5). File-enumerated; the connection-file paths use
+# the @abs_srcdir@ token substituted at configure time.
+
+components:
+  compute_host:
+    model: nw-lp
+
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly-plus
+    shape:
+      num_router_spine: 4
+      num_router_leaf: 4
+      num_groups: 5
+      num_cns_per_router: 4
+    links:
+      local:  { bandwidth: 5.25, vc_size: 8192 }
+      global: { bandwidth: 1.5,  vc_size: 16384 }
+      cn:     { bandwidth: 8.0,  vc_size: 8192 }
+    routing:
+      algorithm: prog-adaptive
+    connections:
+      intra: "@abs_srcdir@/dfp-test-intra"
+      inter: "@abs_srcdir@/dfp-test-inter"
+    packet_size: 1024
+    chunk_size: 1024
+    modelnet_scheduler: fcfs
+    num_level_chans: 1
+    message_size: 608
+    num_global_connections: 4
+    route_scoring_metric: delta
+  hosts:
+    component: compute_host

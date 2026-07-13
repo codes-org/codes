@@ -1,0 +1,42 @@
+schema_version: 1
+
+# YAML twin of network-model.conf: an 8-group Theta-style custom dragonfly whose
+# 6x16 router mesh and inter/intra wiring come from hand-authored connection
+# files. Rather than re-derive that fabric, the twin is laid out directly with
+# the explicit-groups form and its PARAMS are carried through verbatim (including
+# the intra/inter connection-file paths, resolved relative to the run directory).
+
+topology:
+  format: groups
+  params:
+    packet_size: 4096
+    message_size: 656
+    chunk_size: 4096
+    modelnet_scheduler: fcfs
+    modelnet_order: [dragonfly_custom, dragonfly_custom_router]
+    num_router_rows: 6
+    num_router_cols: 16
+    num_groups: 8
+    router_delay: 90
+    local_vc_size: 65536
+    global_vc_size: 65536
+    cn_vc_size: 65536
+    local_bandwidth: 12.5
+    global_bandwidth: 12.5
+    cn_bandwidth: 12.5
+    num_cns_per_router: 4
+    num_global_channels: 4
+    intra-group-connections: intra-theta-8group
+    inter-group-connections: inter-theta-8group
+    routing: adaptive
+    num_injection_queues: 1
+    nic_seq_delay: 10
+    node_copy_queues: 1
+    node_eager_limit: 16000
+  groups:
+    MODELNET_GRP:
+      repetitions: 768
+      lps:
+        nw-lp: 4
+        modelnet_dragonfly_custom: 4
+        modelnet_dragonfly_custom_router: 1

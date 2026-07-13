@@ -1,0 +1,62 @@
+schema_version: 1
+
+# YAML twin of dfdally-director-72-par.conf.in: a 72-terminal dragonfly-dally
+# (repetitions = num_groups * num_routers = 36) for the union MILC/Jacobi
+# workload with the director. The network and application surrogates read their
+# own NETWORK_SURROGATE / APPLICATION_SURROGATE sections, carried through
+# verbatim. @CMAKE_SOURCE_DIR@ is substituted by CMake; the ${...} tokens by the
+# run environment.
+
+components:
+  compute_host:
+    model: nw-lp
+
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly-dally
+    shape:
+      num_routers: 4
+      num_groups: 9
+      num_cns_per_router: 2
+      num_global_channels: 2
+    links:
+      local:  { bandwidth: 5.25, vc_size: 16384 }
+      global: { bandwidth: 4.7,  vc_size: 16384 }
+      cn:     { bandwidth: 5.25, vc_size: 32768 }
+    routing:
+      algorithm: prog-adaptive
+    connections:
+      intra: "@CMAKE_SOURCE_DIR@/src/network-workloads/conf/dragonfly-dally/dfdally-72-intra"
+      inter: "@CMAKE_SOURCE_DIR@/src/network-workloads/conf/dragonfly-dally/dfdally-72-inter"
+    packet_size: 4096
+    modelnet_scheduler: fcfs
+    chunk_size: "${CHUNK_SIZE}"
+    message_size: 840
+    minimal-bias: 1
+    df-dally-vc: 1
+    counting_bool: 0
+    counting_start: 0
+    counting_windows: 1800
+    counting_interval: 300
+    num_apps: 2
+    offset: 144
+  hosts:
+    component: compute_host
+
+sections:
+  NETWORK_SURROGATE:
+    enable: "${NETWORK_SURR_ON}"
+    director_mode: delegate-to-app-director
+    fixed_switch_timestamps: ["25.0e6", "400.0e6"]
+    packet_latency_predictor: average
+    ignore_until: "2.0e6"
+    torch_jit_mode: single-static-model-for-all-terminals
+    torch_jit_model_path: ""
+    network_treatment_on_switch: "${NETWORK_MODE}"
+  APPLICATION_SURROGATE:
+    enable: "${APP_SURR_ON}"
+    director_mode: "${APP_DIRECTOR_MODE}"
+    director_num_gvt: "${EVERY_N_GVT}"
+    director_num_ns: "${EVERY_NSECS}"
+    num_iters_to_collect: 2

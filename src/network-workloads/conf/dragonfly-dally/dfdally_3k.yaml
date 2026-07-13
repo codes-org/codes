@@ -1,0 +1,47 @@
+schema_version: 1
+
+# YAML twin of dfdally_3k.conf: a ~3k-terminal dragonfly-dally (repetitions =
+# num_groups * num_routers = 342). File-enumerated, so the shape counts must match
+# the binary connection files (referenced by path).
+
+components:
+  compute_host:
+    model: nw-lp
+
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly-dally
+    shape:
+      num_routers: 18
+      num_groups: 19
+      num_cns_per_router: 9
+      num_global_channels: 9
+    links:
+      local:  { bandwidth: 12.5, vc_size: 65536 }
+      global: { bandwidth: 25.0, vc_size: 65536 }
+      cn:     { bandwidth: 6.25, vc_size: 65536 }
+    routing:
+      algorithm: prog-adaptive
+    connections:
+      intra: "../src/network-workloads/conf/dragonfly-dally/dfdally-3k-intra"
+      inter: "../src/network-workloads/conf/dragonfly-dally/dfdally-3k-inter"
+    packet_size: 4096
+    message_size: 736
+    chunk_size: 4096
+    modelnet_scheduler: fcfs
+    num_router_rows: 1
+    num_router_cols: 18
+    router_delay: 90
+    adaptive_threshold: 0
+    minimal-bias: 0
+    num_injection_queues: 1
+    nic_seq_delay: 10
+    node_copy_queues: 1
+    node_eager_limit: 16000
+    df-dally-vc: 1
+    num_row_chans: 1
+    num_col_chans: 1
+    auto_credit_delay: 0
+  hosts:
+    component: compute_host

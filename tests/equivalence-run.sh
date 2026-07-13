@@ -55,6 +55,23 @@ run_idx=0
 cmd=()
 outputs=()
 
+# Show what a run actually printed: the tail of each stream file given. On
+# failure this is called with both streams (tw_error() and most model error
+# paths write to *stdout*; stderr usually has only MPI_Abort boilerplate); on
+# success with just stdout, so even a passing test's log shows the end-of-run
+# stats and a reader can confirm the simulation actually ran.
+dump_run_output() {
+    local f
+    for f in "$@"; do
+        [[ -s "$f" ]] || continue
+        echo "---- tail of ${f} ----" >&2
+        # 80 lines reaches back past ROSS's end-of-run stats block, so the
+        # 'Net Events Processed' marker line is visible in a passing run.
+        tail -n 80 "$f" >&2
+        echo "---- end ${f} ----" >&2
+    done
+}
+
 run_one() {
     run_idx=$((run_idx + 1))
     local dir="run-${run_idx}"
@@ -76,12 +93,13 @@ run_one() {
     local rc=$?
     if [[ $rc -ne 0 ]]; then
         echo "equivalence-run.sh: run ${run_idx} exited with $rc" >&2
-        cat "$errf" >&2
+        dump_run_output "$out" "$errf"
         exit $rc
     fi
     if [[ -n "$marker" ]] && ! grep -q "$marker" "$out"; then
         echo "equivalence-run.sh: run ${run_idx} produced no '$marker' line" \
              "(did the simulation produce output?)" >&2
+        dump_run_output "$out" "$errf"
         exit 1
     fi
     local req
@@ -89,9 +107,11 @@ run_one() {
         [[ -z "$req" ]] && continue
         if ! grep -q "$req" "$out"; then
             echo "equivalence-run.sh: run ${run_idx} missing required line '$req'" >&2
+            dump_run_output "$out" "$errf"
             exit 1
         fi
     done
+    dump_run_output "$out"
     outputs+=("$out")
     cmd=()
 }

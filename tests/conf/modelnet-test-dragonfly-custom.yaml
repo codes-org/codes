@@ -1,0 +1,37 @@
+schema_version: 1
+
+# YAML twin of modelnet-test-dragonfly-custom.conf: a dragonfly-custom network
+# specified with a single num_routers (=16) per group rather than the
+# num_router_rows x num_router_cols mesh the parametric fabric derives from, so
+# the layout is written directly with the explicit-groups form and PARAMS are
+# carried through verbatim (num_routers, num_groups, router_radix, the intra/inter
+# connection files, etc.).
+
+topology:
+  format: groups
+  params:
+    packet_size: 512
+    modelnet_order: [dragonfly_custom, dragonfly_custom_router]
+    modelnet_scheduler: fcfs
+    chunk_size: 256
+    num_routers: 16
+    num_groups: 18
+    local_vc_size: 2048
+    global_vc_size: 8192
+    cn_vc_size: 1024
+    local_bandwidth: 5.25
+    global_bandwidth: 4.7
+    cn_bandwidth: 5.25
+    message_size: 368
+    num_cns_per_router: 4
+    intra-group-connections: intra
+    inter-group-connections: inter
+    routing: minimal
+    router_radix: 48
+  groups:
+    MODELNET_GRP:
+      repetitions: 288
+      lps:
+        nw-lp: 4
+        modelnet_dragonfly_custom: 4
+        modelnet_dragonfly_custom_router: 1

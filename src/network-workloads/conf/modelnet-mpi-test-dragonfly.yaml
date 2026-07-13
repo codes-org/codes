@@ -1,0 +1,28 @@
+schema_version: 1
+
+# YAML twin of modelnet-mpi-test-dragonfly.conf: a regular dragonfly with 8
+# routers per group (repetitions = 264), minimal routing.
+
+components:
+  compute_host:
+    model: nw-lp
+
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly
+    shape:
+      num_routers: 8
+    links:
+      local:  { bandwidth: 5.25, vc_size: 16384 }
+      global: { bandwidth: 4.7,  vc_size: 32768 }
+      cn:     { bandwidth: 5.25, vc_size: 16384 }
+    routing:
+      algorithm: minimal
+    packet_size: 512
+    chunk_size: 512
+    modelnet_scheduler: fcfs
+    message_size: 608
+    self_msg_overhead: 10
+  hosts:
+    component: compute_host

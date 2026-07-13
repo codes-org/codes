@@ -1,0 +1,21 @@
+schema_version: 1
+
+# YAML twin of buffer_test.conf: a BUF group with a workload LP co-located with a
+# resource LP. Not a network topology, so it uses the explicit-groups form. The
+# resource model reads its own `resource` section (carried through verbatim); the
+# compiler enforces that section's required `available` key up front.
+
+topology:
+  format: groups
+  params:
+    message_size: 300
+  groups:
+    BUF:
+      repetitions: 2
+      lps:
+        nw-lp: 2
+        resource: 1
+
+sections:
+  resource:
+    available: 8192

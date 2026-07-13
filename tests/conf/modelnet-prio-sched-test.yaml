@@ -1,0 +1,23 @@
+schema_version: 1
+
+# YAML twin of modelnet-prio-sched-test.conf: two peer compute nodes running a
+# workload over a simplenet NIC (flat all-to-all) with the priority packet
+# scheduler. The scheduler's own knobs (prio-sched-*) sit on the component and
+# pass through to PARAMS.
+
+components:
+  compute_node:
+    model: nw-lp
+    network: simplenet
+    packet_size: 512
+    message_size: 480
+    modelnet_scheduler: priority
+    prio-sched-num-prios: 10
+    prio-sched-sub-sched: fcfs
+    net_startup_ns: 1.5
+    net_bw_mbps: 20000
+
+topology:
+  format: flat
+  component: compute_node
+  nodes: 2

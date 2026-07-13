@@ -1,0 +1,20 @@
+schema_version: 1
+
+# YAML twin of modelnet-p2p-bw-loggp.conf: two peer compute nodes running a
+# workload over a loggp NIC (flat point-to-point). loggp's LogGP parameter table
+# is referenced by path (net_config_file), resolved relative to this config's
+# directory.
+
+components:
+  compute_node:
+    model: nw-lp
+    network: loggp
+    packet_size: 2147483648
+    message_size: 448
+    modelnet_scheduler: fcfs
+    net_config_file: ng-mpi-tukey.dat
+
+topology:
+  format: flat
+  component: compute_node
+  nodes: 2

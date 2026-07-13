@@ -1,0 +1,38 @@
+schema_version: 1
+
+# YAML twin of modelnet-test-slimfly.conf: an MMS slimfly built on num_routers=5.
+# It is internally generated with a separate router LP -- the compiler derives
+# repetitions = 2 * num_routers^2 (50 routers), each hosting num_terminals
+# terminals plus one router LP. The generator sets are list-valued PARAMS, so
+# they are written as YAML sequences (emitted as generator_set_X=("1","4")). The
+# local/global/cn bandwidth + vc_size trios use the per-link-class links block.
+
+components:
+  compute_host:
+    model: nw-lp
+
+topology:
+  format: parametric
+  fabric:
+    model: slimfly
+    shape:
+      num_routers: 5
+      num_terminals: 3
+    links:
+      local:  { bandwidth: 9.0, vc_size: 25600 }
+      global: { bandwidth: 9.0, vc_size: 25600 }
+      cn:     { bandwidth: 9.0, vc_size: 25600 }
+    routing:
+      algorithm: minimal
+    generator_set_X: [1, 4]
+    generator_set_X_prime: [2, 3]
+    packet_size: 512
+    chunk_size: 256
+    message_size: 464
+    modelnet_scheduler: fcfs
+    num_vcs: 4
+    global_channels: 5
+    local_channels: 2
+    link_delay: 0
+  hosts:
+    component: compute_host

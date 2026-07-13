@@ -1,0 +1,38 @@
+schema_version: 1
+
+# YAML twin of dfp-test.conf: a 5-group dragonfly-plus. It is file-enumerated, so
+# the shape counts are genuine inputs that must match the binary connection files
+# (referenced by path). The compiler derives repetitions = num_groups, terminals
+# per group = num_router_leaf * num_cns_per_router, routers per group =
+# num_router_spine + num_router_leaf.
+
+components:
+  compute_host:
+    model: nw-lp
+
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly-plus
+    shape:
+      num_router_spine: 4
+      num_router_leaf: 4
+      num_groups: 5
+      num_cns_per_router: 4
+    links:
+      local:  { bandwidth: 5.25, vc_size: 8192 }
+      global: { bandwidth: 1.5,  vc_size: 16384 }
+      cn:     { bandwidth: 8.0,  vc_size: 8192 }
+    routing:
+      algorithm: minimal
+    connections:
+      intra: "../src/network-workloads/conf/dragonfly-plus/dfp-test-intra"
+      inter: "../src/network-workloads/conf/dragonfly-plus/dfp-test-inter"
+    packet_size: 1024
+    chunk_size: 1024
+    modelnet_scheduler: fcfs
+    num_level_chans: 1
+    message_size: 608
+    num_global_connections: 4
+  hosts:
+    component: compute_host

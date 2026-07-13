@@ -1,0 +1,38 @@
+schema_version: 1
+
+# YAML twin of terminal-dragonfly-72-v5.conf.in: a 72-terminal dragonfly-dally.
+# The compiler derives repetitions = num_groups * num_routers = 36 and lays out
+# the LPs. The ${...} tokens are substituted by the experiment's envsubst step
+# before the config is loaded; router_buffer_snapshots expands to a list, so it
+# is written as a YAML sequence.
+
+components:
+  compute_host:
+    model: nw-lp
+
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly-dally
+    shape:
+      num_routers: 4
+      num_groups: 9
+      num_cns_per_router: 2
+      num_global_channels: 2
+    links:
+      local:  { bandwidth: 2.0, vc_size: 16384 }
+      global: { bandwidth: 2.0, vc_size: 16384 }
+      cn:     { bandwidth: 2.0, vc_size: 32768 }
+    routing:
+      algorithm: prog-adaptive
+    connections:
+      intra: "${PATH_TO_CODES_SRC}/src/network-workloads/conf/dragonfly-dally/dfdally-72-intra"
+      inter: "${PATH_TO_CODES_SRC}/src/network-workloads/conf/dragonfly-dally/dfdally-72-inter"
+    packet_size: 4096
+    chunk_size: "${CHUNK_SIZE}"
+    modelnet_scheduler: fcfs
+    message_size: 736
+    save_packet_latency_path: "${PACKET_LATENCY_PATH}"
+    router_buffer_snapshots: [ ${BUFFER_SNAPSHOTS} ]
+  hosts:
+    component: compute_host

@@ -1,0 +1,35 @@
+schema_version: 1
+
+# YAML twin of modelnet-test-em.conf: a 3-dimensional 4x4x4 express mesh. It is
+# internally generated with a separate router LP -- the compiler derives
+# repetitions = product(dim_length) (64 routers), each hosting num_cn terminals
+# plus one router LP. dim_length is a comma-separated string carried verbatim.
+
+components:
+  compute_host:
+    model: nw-lp
+
+topology:
+  format: parametric
+  fabric:
+    model: express-mesh
+    shape:
+      n_dims: 3
+      dim_length: "4,4,4"
+      num_cn: 3
+    routing:
+      algorithm: static
+    message_size: 512
+    packet_size: 4096
+    chunk_size: 4096
+    modelnet_scheduler: round-robin
+    gap: 1
+    num_vcs: 1
+    link_bandwidth: 12.5
+    cn_bandwidth: 12.5
+    vc_size: 65536
+    cn_vc_size: 65536
+    soft_delay: 0
+    router_delay: 90
+  hosts:
+    component: compute_host

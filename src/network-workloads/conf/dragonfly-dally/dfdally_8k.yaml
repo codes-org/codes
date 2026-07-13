@@ -1,0 +1,38 @@
+schema_version: 1
+
+# YAML twin of dfdally_8k.conf: an ~8k-terminal dragonfly-dally (repetitions =
+# num_groups * num_routers = 1040). File-enumerated, so the shape counts must
+# match the binary connection files (referenced by path).
+
+components:
+  compute_host:
+    model: nw-lp
+
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly-dally
+    shape:
+      num_routers: 16
+      num_groups: 65
+      num_cns_per_router: 8
+      num_global_channels: 8
+    links:
+      local:  { bandwidth: 2.0, vc_size: 16384 }
+      global: { bandwidth: 2.0, vc_size: 16384 }
+      cn:     { bandwidth: 2.0, vc_size: 32768 }
+    routing:
+      algorithm: prog-adaptive
+    connections:
+      intra: "../src/network-workloads/conf/dragonfly-dally/dfdally_8k_intra"
+      inter: "../src/network-workloads/conf/dragonfly-dally/dfdally_8k_inter"
+    packet_size: 4096
+    chunk_size: 4096
+    message_size: 656
+    modelnet_scheduler: fcfs
+    num_row_chans: 1
+    num_col_chans: 1
+    adaptive_threshold: 16384
+    route_scoring_metric: delta
+  hosts:
+    component: compute_host

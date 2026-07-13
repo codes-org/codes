@@ -1,0 +1,42 @@
+schema_version: 1
+
+# YAML twin of sfly_3k.conf: an MMS slimfly on num_routers=13 (repetitions =
+# 2 * 13^2 = 338), one router LP per repetition. The generator sets are list-
+# valued PARAMS written as YAML sequences; the multi-rail knobs (sf_type,
+# num_rails, ...) pass through verbatim.
+
+components:
+  compute_host:
+    model: nw-lp
+
+topology:
+  format: parametric
+  fabric:
+    model: slimfly
+    shape:
+      num_routers: 13
+      num_terminals: 9
+    links:
+      local:  { bandwidth: 12.5, vc_size: 65536 }
+      global: { bandwidth: 12.5, vc_size: 65536 }
+      cn:     { bandwidth: 12.5, vc_size: 65536 }
+    routing:
+      algorithm: adaptive
+    generator_set_X: [1, 10, 9, 12, 3, 4]
+    generator_set_X_prime: [6, 8, 2, 7, 5, 11]
+    message_size: 736
+    packet_size: 4096
+    chunk_size: 4096
+    modelnet_scheduler: fcfs
+    sf_type: 0
+    num_rails: 1
+    rail_select: none
+    num_injection_queues: 1
+    node_copy_queues: 1
+    local_channels: 6
+    global_channels: 13
+    router_delay: 90
+    csf_ratio: 1
+    num_vcs: 4
+  hosts:
+    component: compute_host
