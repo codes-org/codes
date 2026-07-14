@@ -4,6 +4,9 @@
  * See LICENSE notice in top-level directory
  */
 
+#include <stdint.h>
+#include <string.h>
+
 #include "codes/model-net.h"
 #include "codes/codes_mapping.h"
 #include "codes/surrogate/init.h" // just needed for stats on surrogate-mode
@@ -39,6 +42,30 @@ struct svr_msg {
     model_net_event_return event_rc; //helper to encode data relating to CODES rng usage
     // Used for rollback
     tw_stime previous_ts;
+    // Virtual time at which the PING carrying this message was created. It is echoed back
+    // unchanged in the PONG so the original sender can compute the round trip time (RTT).
+    // NOTE: PING/PONG messages are built as stack structs below, so this field must be
+    // explicitly assigned everywhere a message is created or it carries garbage.
+    tw_stime ping_send_ts;
+    // RTT computed when a PONG is received; stored in the message so the reverse event
+    // handler can subtract the exact same value on rollback (see handle_pong_rev_event)
+    tw_stime saved_rtt;
+};
+
+/* Sample structure filled in by svr_sample_fn() for the virtual-time (analysis LP) sampling
+ * mode of the ROSS instrumentation layer (--model-stats=3 or 4). All fields are 8 bytes wide
+ * so the struct has no padding holes -- the analysis LPs write these structs to
+ * ross-stats-analysis-lps.bin verbatim, so a well-defined layout keeps the file parseable. */
+struct svr_sample {
+    tw_lpid svr_id;     /* which server this sample belongs to */
+    int64_t pings_sent; /* all following counters are deltas since the previous sample */
+    int64_t pings_recvd;
+    int64_t pongs_sent;
+    int64_t pongs_recvd;
+    int64_t bytes_sent;
+    double rtt_sum;    /* sum (ns) of PING->PONG round trips completed in this interval */
+    int64_t rtt_count; /* mean RTT for the interval = rtt_sum / rtt_count */
+    tw_stime end_time; /* virtual time at which this sample was taken */
 };
 
 struct svr_state {
@@ -50,6 +77,29 @@ struct svr_state {
     tw_stime start_ts;        /* time that this LP started sending requests */
     tw_stime end_ts;          /* time that this LP ended sending requests */
     int payload_sum;          /* the running sum of all payloads received */
+
+    /* Shadow accumulators for the ROSS instrumentation layer (model-level stats).
+     *
+     * These record per-sampling-interval deltas: forward event handlers increment them,
+     * reverse event handlers decrement them (so they stay correct across rollbacks in
+     * optimistic mode), and the collection callbacks zero them after copying them out.
+     * Zeroing inside the GVT-mode callback is safe because GVT-time collection only ever
+     * runs on committed simulation time -- no event before the GVT can be rolled back.
+     *
+     * There are TWO independent accumulator sets, following the convention used by the
+     * dragonfly models: the scalars below feed the GVT/real-time sampling callback
+     * (svr_model_stat_collect, --model-stats=1/2) while vt_sample feeds the virtual-time
+     * analysis-LP callback (svr_sample_fn, --model-stats=3). Both paths zero their
+     * accumulators at each sample, so sharing one set would make the two modes steal
+     * deltas from each other when running with --model-stats=4 (all modes at once). */
+    uint32_t pings_sent_sample;
+    uint32_t pings_recvd_sample;
+    uint32_t pongs_sent_sample;
+    uint32_t pongs_recvd_sample;
+    int64_t bytes_sent_sample; /* payload bytes handed to model_net_event() */
+    double rtt_sum_sample;     /* sum (ns) of PING->PONG round trips completed */
+    uint32_t rtt_count_sample;
+    struct svr_sample vt_sample; /* accumulator twin for the virtual-time sampling mode */
 };
 
 /* declaration of functions */
@@ -65,6 +115,125 @@ tw_lptype svr_lp = {
     (init_f)svr_init, (pre_run_f)NULL,       (event_f)svr_event,   (revent_f)svr_rev_event,
     (commit_f)NULL,   (final_f)svr_finalize, (map_f)codes_mapping, sizeof(svr_state),
 };
+
+/* ---- ROSS instrumentation layer: model-level stats + event tracing -----------------------
+ *
+ * The callbacks below let the ROSS instrumentation layer collect model-defined data
+ * alongside its simulation-engine data. Nothing here runs unless instrumentation is
+ * requested on the command line, e.g.:
+ *
+ *   --model-stats=1              collect model data at GVT (every --num-gvt GVTs, default 10)
+ *   --model-stats=2              collect at real-time intervals (--rt-interval, ms)
+ *   --model-stats=3              collect at virtual-time intervals via analysis LPs
+ *                                (--vt-interval / --vt-samp-end). NOTE: pass an explicit
+ *                                --vt-samp-end for this model! It defaults to g_tw_ts_end,
+ *                                which main() sets to 24h of virtual time, so the analysis
+ *                                LPs would keep scheduling sample events long after the
+ *                                ping pong traffic ends.
+ *   --model-stats=4              all of the above
+ *   --event-trace=1              trace events (svr_event_collect below)
+ *   --stats-path=<dir>           output directory (default: stats-output)
+ *
+ * GVT/RT-mode records go to <stats-path>/ross-stats-model.bin, virtual-time samples to
+ * <stats-path>/ross-stats-analysis-lps.bin. See doc/model-stats-binary-format.md for the
+ * exact record layouts and a reference parser (scripts/parse-ross-model-stats.py). */
+
+/* Event-type collection for ROSS event tracing (--event-trace) */
+static void svr_event_collect(svr_msg* m, tw_lp* lp, char* buffer, int* collect_flag) {
+    (void)lp;
+    (void)collect_flag;
+    int type = (int)m->svr_event_type;
+    memcpy(buffer, &type, sizeof(type));
+}
+
+/* GVT- and real-time-mode collection callback (--model-stats=1 or 2). ROSS hands us a
+ * buffer sized to the mstat_sz we declare in svr_model_types below; we memcpy our shadow
+ * accumulators into it field by field (byte-serial, so the output has no padding holes)
+ * and zero each accumulator to start the next interval. */
+static void svr_model_stat_collect(svr_state* s, tw_lp* lp, char* buffer) {
+    (void)lp;
+    int index = 0;
+
+    memcpy(&buffer[index], &s->svr_id, sizeof(s->svr_id));
+    index += sizeof(s->svr_id);
+
+    memcpy(&buffer[index], &s->pings_sent_sample, sizeof(s->pings_sent_sample));
+    index += sizeof(s->pings_sent_sample);
+    s->pings_sent_sample = 0;
+
+    memcpy(&buffer[index], &s->pings_recvd_sample, sizeof(s->pings_recvd_sample));
+    index += sizeof(s->pings_recvd_sample);
+    s->pings_recvd_sample = 0;
+
+    memcpy(&buffer[index], &s->pongs_sent_sample, sizeof(s->pongs_sent_sample));
+    index += sizeof(s->pongs_sent_sample);
+    s->pongs_sent_sample = 0;
+
+    memcpy(&buffer[index], &s->pongs_recvd_sample, sizeof(s->pongs_recvd_sample));
+    index += sizeof(s->pongs_recvd_sample);
+    s->pongs_recvd_sample = 0;
+
+    memcpy(&buffer[index], &s->bytes_sent_sample, sizeof(s->bytes_sent_sample));
+    index += sizeof(s->bytes_sent_sample);
+    s->bytes_sent_sample = 0;
+
+    memcpy(&buffer[index], &s->rtt_sum_sample, sizeof(s->rtt_sum_sample));
+    index += sizeof(s->rtt_sum_sample);
+    s->rtt_sum_sample = 0;
+
+    memcpy(&buffer[index], &s->rtt_count_sample, sizeof(s->rtt_count_sample));
+    index += sizeof(s->rtt_count_sample);
+    s->rtt_count_sample = 0;
+}
+
+/* Size of the payload svr_model_stat_collect() writes: keep in sync with the fields above */
+#define SVR_MSTAT_SZ                                                                               \
+    (sizeof(tw_lpid) + 4 * sizeof(uint32_t) + sizeof(int64_t) + sizeof(double) + sizeof(uint32_t))
+
+/* Virtual-time-mode sampling callback (--model-stats=3): the analysis LP for this KP calls
+ * this at each --vt-interval with a sample buffer of sample_struct_sz bytes. We copy the
+ * vt_sample accumulator out and zero it. Unlike GVT collection this CAN be rolled back,
+ * which is why there is a reverse callback restoring the accumulator from the sample. */
+static void svr_sample_fn(svr_state* s, tw_bf* b, tw_lp* lp, struct svr_sample* sample) {
+    (void)b;
+    *sample = s->vt_sample;
+    sample->svr_id = s->svr_id;
+    sample->end_time = tw_now(lp);
+
+    memset(&s->vt_sample, 0, sizeof(s->vt_sample));
+}
+
+static void svr_sample_rc_fn(svr_state* s, tw_bf* b, tw_lp* lp, struct svr_sample* sample) {
+    (void)b;
+    (void)lp;
+    /* exact reversal: the accumulator was zeroed after the sample was taken, so adding the
+     * sampled values back restores it (any post-sample activity is already re-included by
+     * the reverse handlers of the rolled-back events themselves) */
+    s->vt_sample.pings_sent += sample->pings_sent;
+    s->vt_sample.pings_recvd += sample->pings_recvd;
+    s->vt_sample.pongs_sent += sample->pongs_sent;
+    s->vt_sample.pongs_recvd += sample->pongs_recvd;
+    s->vt_sample.bytes_sent += sample->bytes_sent;
+    s->vt_sample.rtt_sum += sample->rtt_sum;
+    s->vt_sample.rtt_count += sample->rtt_count;
+}
+
+st_model_types svr_model_types[] = {{(ev_trace_f)svr_event_collect, sizeof(int),
+                                     (model_stat_f)svr_model_stat_collect, SVR_MSTAT_SZ,
+                                     (sample_event_f)svr_sample_fn,
+                                     (sample_revent_f)svr_sample_rc_fn, sizeof(struct svr_sample)},
+                                    {NULL, 0, NULL, 0, NULL, NULL, 0}};
+
+static const st_model_types* svr_get_model_stat_types(void) {
+    return (&svr_model_types[0]);
+}
+
+/* Attach our instrumentation callbacks to the "nw-lp" LP type; codes_mapping_setup() then
+ * hands them to ROSS (st_model_settype) for every LP registered under that name */
+static void svr_register_model_types(void) {
+    st_model_type_register("nw-lp", svr_get_model_stat_types());
+}
+/* ---- end of ROSS instrumentation additions ---------------------------------------------- */
 
 const tw_optdef app_opt[] = {
     TWOPT_GROUP("Model net synthetic traffic "),
@@ -97,6 +266,16 @@ static void svr_init(svr_state* s, tw_lp* lp) {
     s->svr_id = codes_mapping_get_lp_relative_id(lp->gid, 0,
                                                  0); /* turns the LP Global ID into the server ID */
     s->payload_sum = 0;
+
+    /* zero the instrumentation shadow accumulators (both sampling paths) */
+    s->pings_sent_sample = 0;
+    s->pings_recvd_sample = 0;
+    s->pongs_sent_sample = 0;
+    s->pongs_recvd_sample = 0;
+    s->bytes_sent_sample = 0;
+    s->rtt_sum_sample = 0.0;
+    s->rtt_count_sample = 0;
+    memset(&s->vt_sample, 0, sizeof(s->vt_sample));
 
     //Now we create and send a self KICKOFF message - this is a PDES coordination event and thus doesn't need to be injected into the connected network
     //so we won't use model_net_event(), that's reserved for stuff we want to send across the network
@@ -143,6 +322,7 @@ static void handle_kickoff_event(svr_state* s, tw_bf* b, svr_msg* m, tw_lp* lp) 
     ping_msg.svr_event_type = PING; //set it to type PING
     ping_msg.payload_value =
         tw_rand_integer(lp->rng, 1, 10); //encode a random payload value to it from [1,10]
+    ping_msg.ping_send_ts = tw_now(lp);  //stamp the send time so the PONG can carry it back
 
     codes_mapping_get_lp_info(
         lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, NULL, &rep_id,
@@ -150,6 +330,12 @@ static void handle_kickoff_event(svr_state* s, tw_bf* b, svr_msg* m, tw_lp* lp) 
     global_dest =
         codes_mapping_get_lpid_from_relative(local_dest, group_name, lp_type_name, NULL, 0);
     s->ping_msg_sent_count++;
+    /* instrumentation deltas: every increment here has a matching decrement in the reverse
+     * handler below, keeping the accumulators correct across optimistic-mode rollbacks */
+    s->pings_sent_sample++;
+    s->bytes_sent_sample += PAYLOAD_SZ;
+    s->vt_sample.pings_sent++;
+    s->vt_sample.bytes_sent += PAYLOAD_SZ;
     m->event_rc = model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg),
                                   (const void*)&ping_msg, 0, NULL, lp);
 }
@@ -159,6 +345,10 @@ static void handle_kickoff_rev_event(svr_state* s, tw_bf* b, svr_msg* m, tw_lp* 
     model_net_event_rc2(lp,
                         &m->event_rc); //undo any model_net_event calls encoded into this message
     s->ping_msg_sent_count--; //undo the increment of the ping_msg_sent_count in the server state
+    s->pings_sent_sample--;   //undo the instrumentation deltas
+    s->bytes_sent_sample -= PAYLOAD_SZ;
+    s->vt_sample.pings_sent--;
+    s->vt_sample.bytes_sent -= PAYLOAD_SZ;
     tw_rand_reverse_unif(lp->rng); //reverse the rng call for creating a payload value;
     tw_rand_reverse_unif(lp->rng); //reverse the rng call for getting a local_dest
 }
@@ -166,6 +356,8 @@ static void handle_kickoff_rev_event(svr_state* s, tw_bf* b, svr_msg* m, tw_lp* 
 static void handle_ping_event(svr_state* s, tw_bf* b, svr_msg* m, tw_lp* lp) {
     (void)b;
     s->ping_msg_recvd_count++; //increment the counter for ping messages received
+    s->pings_recvd_sample++;   //instrumentation deltas (reversed in handle_ping_rev_event)
+    s->vt_sample.pings_recvd++;
 
     int original_sender = m->sender_id; //this is the server we need to send a PONG message back to
     s->payload_sum += m->payload_value; //increment our running sum of payload values received
@@ -173,6 +365,7 @@ static void handle_ping_event(svr_state* s, tw_bf* b, svr_msg* m, tw_lp* lp) {
     svr_msg pong_msg;
     pong_msg.sender_id = s->svr_id;
     pong_msg.svr_event_type = PONG;
+    pong_msg.ping_send_ts = m->ping_send_ts; //echo the PING's send time back to the sender
     // only ping messages contain a payload value - not every value in a message struct must be utilized by all messages!
 
     codes_mapping_get_lp_info(
@@ -181,6 +374,10 @@ static void handle_ping_event(svr_state* s, tw_bf* b, svr_msg* m, tw_lp* lp) {
     tw_lpid global_dest =
         codes_mapping_get_lpid_from_relative(original_sender, group_name, lp_type_name, NULL, 0);
     s->pong_msg_sent_count++;
+    s->pongs_sent_sample++;
+    s->bytes_sent_sample += PAYLOAD_SZ;
+    s->vt_sample.pongs_sent++;
+    s->vt_sample.bytes_sent += PAYLOAD_SZ;
     m->event_rc = model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg),
                                   (const void*)&pong_msg, 0, NULL, lp);
 }
@@ -192,10 +389,29 @@ static void handle_ping_rev_event(svr_state* s, tw_bf* b, svr_msg* m, tw_lp* lp)
     s->pong_msg_sent_count--;
     s->payload_sum -= m->payload_value; //undo the increment of the payload sum
     s->ping_msg_recvd_count--; //undo the increment of the counter for ping messages received
+    s->pings_recvd_sample--;   //undo the instrumentation deltas
+    s->pongs_sent_sample--;
+    s->bytes_sent_sample -= PAYLOAD_SZ;
+    s->vt_sample.pings_recvd--;
+    s->vt_sample.pongs_sent--;
+    s->vt_sample.bytes_sent -= PAYLOAD_SZ;
 }
 
 static void handle_pong_event(svr_state* s, tw_bf* b, svr_msg* m, tw_lp* lp) {
     s->pong_msg_recvd_count++; //increment the counter for ping messages received
+    s->pongs_recvd_sample++;
+    s->vt_sample.pongs_recvd++;
+
+    /* this PONG closes the loop on a PING we sent earlier: the PING's send time made the
+     * round trip with the message, so the RTT is simply now minus then. The computed value
+     * is stored in the message so the reverse handler can subtract exactly what was added.
+     * This happens before the early return below -- every PONG carries an RTT, even the
+     * last one. */
+    m->saved_rtt = tw_now(lp) - m->ping_send_ts;
+    s->rtt_sum_sample += m->saved_rtt;
+    s->rtt_count_sample++;
+    s->vt_sample.rtt_sum += m->saved_rtt;
+    s->vt_sample.rtt_count++;
 
     if (s->ping_msg_sent_count >=
         num_msgs) //if we've sent enough ping messages, then we stop and don't send any more
@@ -213,6 +429,7 @@ static void handle_pong_event(svr_state* s, tw_bf* b, svr_msg* m, tw_lp* lp) {
     ping_msg.sender_id = s->svr_id; //encode our server ID into the new ping message
     ping_msg.svr_event_type = PING; //set it to type PING
     ping_msg.payload_value = tw_rand_integer(lp->rng, 1, 10); //encode a random payload value to it
+    ping_msg.ping_send_ts = tw_now(lp); //stamp the send time so the PONG can carry it back
 
     codes_mapping_get_lp_info(
         lp->gid, group_name, &group_index, lp_type_name, &lp_type_index, NULL, &rep_id,
@@ -220,6 +437,10 @@ static void handle_pong_event(svr_state* s, tw_bf* b, svr_msg* m, tw_lp* lp) {
     tw_lpid global_dest =
         codes_mapping_get_lpid_from_relative(send_to, group_name, lp_type_name, NULL, 0);
     s->ping_msg_sent_count++;
+    s->pings_sent_sample++;
+    s->bytes_sent_sample += PAYLOAD_SZ;
+    s->vt_sample.pings_sent++;
+    s->vt_sample.bytes_sent += PAYLOAD_SZ;
     m->event_rc = model_net_event(net_id, "test", global_dest, PAYLOAD_SZ, 0.0, sizeof(svr_msg),
                                   (const void*)&ping_msg, 0, NULL, lp);
 }
@@ -229,12 +450,25 @@ static void handle_pong_rev_event(svr_state* s, tw_bf* b, svr_msg* m, tw_lp* lp)
         model_net_event_rc2(
             lp, &m->event_rc); //undo any model_net_event calls encoded into this message
         s->ping_msg_sent_count--;
+        s->pings_sent_sample--;
+        s->bytes_sent_sample -= PAYLOAD_SZ;
+        s->vt_sample.pings_sent--;
+        s->vt_sample.bytes_sent -= PAYLOAD_SZ;
         tw_rand_reverse_unif(lp->rng); //undo the rng for the new payload value
         tw_rand_reverse_unif(lp->rng); //undo the rng for the new server to send a ping to
         b->c1 = 0;
     }
 
     s->pong_msg_recvd_count--; //undo the increment of the counter for ping messages received
+    s->pongs_recvd_sample--;
+    s->vt_sample.pongs_recvd--;
+
+    /* undo the RTT recorded by the forward handler (unconditional -- it runs before the
+     * early-return branch above) using the exact value saved in the message */
+    s->rtt_sum_sample -= m->saved_rtt;
+    s->rtt_count_sample--;
+    s->vt_sample.rtt_sum -= m->saved_rtt;
+    s->vt_sample.rtt_count--;
 }
 
 static void svr_finalize(svr_state* s, tw_lp* lp) {
@@ -324,6 +558,12 @@ int main(int argc, char** argv) {
 
     model_net_register();
     svr_add_lp_type();
+
+    /* attach the ROSS instrumentation callbacks when any instrumentation mode was requested
+     * on the command line (--model-stats / --event-trace); must happen before
+     * codes_mapping_setup(), which is where the callbacks get handed to ROSS per LP */
+    if (g_st_ev_trace || g_st_model_stats || g_st_use_analysis_lps)
+        svr_register_model_types();
 
     codes_mapping_setup();
 

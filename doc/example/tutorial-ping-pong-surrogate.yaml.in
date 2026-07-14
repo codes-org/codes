@@ -50,7 +50,7 @@ topology:
 # scheduler options (alternative: round-robin)
     modelnet_scheduler: fcfs
 # ROSS message size
-    message_size: 440
+    message_size: 456
 # folder path to store packet latency from terminal to terminal, if no value is given it won't save anything
     save_packet_latency_path: "${PACKET_LATENCY_TRACE_PATH}"
 # folder path to store router-local timing rows for router queueing-delay training
