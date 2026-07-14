@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Pre-commit hook: reject commits whose staged C/C++ files fail clang-format.
+#
+# Enable once per clone:   git config core.hooksPath scripts/git-hooks
+# Bypass a single commit:  git commit --no-verify
+#
+# Mirrors CI (.github/workflows/format.yml): clang-format --dry-run --Werror
+# over *.c *.h *.cpp *.hpp *.cxx beneath src/ codes/ doc/ tests/. The staged
+# (index) content is checked, not the working tree, so partially staged files
+# are judged on exactly what would be committed.
+
+set -u
+
+files=()
+while IFS= read -r -d '' f; do
+    case "$f" in
+        src/* | codes/* | doc/* | tests/*) ;;
+        *) continue ;;
+    esac
+    case "$f" in
+        *.c | *.h | *.cpp | *.hpp | *.cxx) files+=("$f") ;;
+    esac
+done < <(git diff --cached --name-only --diff-filter=ACMR -z)
+
+[[ ${#files[@]} -eq 0 ]] && exit 0
+
+if ! command -v clang-format > /dev/null 2>&1; then
+    echo "pre-commit: clang-format not found, but these staged C/C++ files need checking:" >&2
+    printf '  %s\n' "${files[@]}" >&2
+    echo "pre-commit: install clang-format 20 (the version CI pins) or bypass once with --no-verify." >&2
+    exit 1
+fi
+
+version=$(clang-format --version)
+if [[ $version != *"version 20."* ]]; then
+    echo "pre-commit: warning: CI pins clang-format 20; you have: $version" >&2
+    echo "pre-commit: output can differ subtly between major versions, so CI may disagree." >&2
+fi
+
+bad=()
+for f in "${files[@]}"; do
+    if ! git show ":$f" | clang-format --dry-run --Werror --assume-filename="$f" > /dev/null 2>&1; then
+        bad+=("$f")
+    fi
+done
+
+if [[ ${#bad[@]} -ne 0 ]]; then
+    echo "pre-commit: staged files are not clang-format clean:" >&2
+    printf '  %s\n' "${bad[@]}" >&2
+    echo "pre-commit: fix with:  clang-format -i ${bad[*]}" >&2
+    echo "pre-commit: then re-stage (git add) and commit again. Bypass once with --no-verify." >&2
+    exit 1
+fi
+exit 0

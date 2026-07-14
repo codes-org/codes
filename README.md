@@ -268,6 +268,18 @@ This repo uses [clang-format](https://clang.llvm.org/docs/ClangFormat.html) to k
 To reformat a file manually: `clang-format -i path/to/file.c`. CI runs `clang-format --dry-run --Werror` on every PR and rejects any drift, so PRs with unformatted code don't merge.
 Note: The CI uses clang-format major release version 20, so you should format your files with that version.
 
+To catch drift at commit time instead of in CI, enable the repo's pre-commit hook
+(one-time, per clone):
+
+```bash
+git config core.hooksPath scripts/git-hooks
+```
+
+The hook runs the same `clang-format --dry-run --Werror` check CI does, on the *staged*
+content of C/C++ files under `src/`, `codes/`, `doc/`, and `tests/`, and rejects the
+commit with a fix-it command if anything drifts. Bypass a single commit with
+`git commit --no-verify`.
+
 ### Determinism
 
 Before contributing please run the full test suite. Some tests verify our determinism guarantees (every simulation should be reproducible), i.e, the number of net events processed between two runs in parallel mode should be the same. We want to keep our determinism guarantees forever. Non-deterministic simulations are often the result of faulty reverse handlers, which have caused serious bug failures and hundreds of hours of debugging.
