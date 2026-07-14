@@ -357,6 +357,11 @@ set(test-shell-files
     example-ping-pong-surrogate-1.sh
     example-ping-pong-surrogate-2.sh
     example-ping-pong-surrogate-3.sh
+    # ROSS instrumentation model-stats smoke tests: custom assertions on the
+    # binary stats output (file presence + reference-parser round trip), so
+    # they stay as scripts.
+    example-ping-pong-model-stats.sh
+    example-ping-pong-model-stats-modes.sh
     )
 
 configure_file(conf/union-milc-jacobi-workload/dfdally-72-par.conf.in conf/union-milc-jacobi-workload/dfdally-72-par.conf.in @ONLY)
