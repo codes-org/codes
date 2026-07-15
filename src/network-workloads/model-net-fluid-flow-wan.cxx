@@ -48,6 +48,7 @@ static constexpr int MAX_PORTS_PER_SWITCH = 128;
  * topology/workload.
  */
 static constexpr int MAX_RC_ALLOCATIONS = 256;
+static constexpr int MAX_PAUSE_INGRESS_LINKS = 128;
 static constexpr double EPS = 1e-9;
 
 static constexpr double PHASE_EARLY_SWITCH_EGRESS = 0.05;
@@ -117,7 +118,16 @@ struct queued_flowlet {
     int creation_interval;
     int enqueue_interval;
     int age_intervals;
+    int ingress_id;
     double remaining_mbit;
+};
+
+struct ingress_desc {
+    int is_terminal;
+    int peer_index;
+    double queued_mbit;
+    int pause_asserted;
+    int last_pause_frame_interval;
 };
 
 struct port_desc {
@@ -162,8 +172,8 @@ struct switch_state {
     int rr_next_queue_index[MAX_PORTS_PER_SWITCH];
     int output_link_paused_until_interval[MAX_PORTS_PER_SWITCH];
 
-    int pause_asserted;
-    int last_pause_frame_interval;
+    int num_ingress_links;
+    ingress_desc ingress_links[MAX_PAUSE_INGRESS_LINKS];
     double pause_high_watermark_mbit;
     double pause_low_watermark_mbit;
     unsigned long long pause_updates_sent;
@@ -226,11 +236,14 @@ struct fluid_msg {
     double rc_dropped_mbit;
     int rc_alloc_count;
     int rc_pause_state_changed;
-    int rc_pause_update_broadcast;
-    int rc_pause_update_asserted;
     int rc_prev_pause_until_interval;
-    int rc_prev_last_pause_frame_interval;
     int rc_pause_target_port;
+    int rc_ingress_id;
+    int rc_pause_change_count;
+    int rc_pause_ingress_id[MAX_PAUSE_INGRESS_LINKS];
+    int rc_pause_prev_asserted[MAX_PAUSE_INGRESS_LINKS];
+    int rc_pause_prev_last_interval[MAX_PAUSE_INGRESS_LINKS];
+    int rc_pause_sent_asserted[MAX_PAUSE_INGRESS_LINKS];
 
     int rc_egress_event_active;
     int rc_egress_request_created;
@@ -876,7 +889,8 @@ static double enqueue_flowlet(switch_state* ns, int port_id, const fluid_msg* m,
 
         if (qv[i].flowlet_id == m->flowlet_id && qv[i].source_terminal == m->source_terminal &&
             qv[i].destination_terminal == m->destination_terminal &&
-            qv[i].creation_interval == m->creation_interval) {
+            qv[i].creation_interval == m->creation_interval &&
+            qv[i].ingress_id == m->rc_ingress_id) {
             qv[i].remaining_mbit += accepted;
             qv[i].age_intervals = m->interval_id - m->creation_interval;
             ns->admitted_arrival_mbit += accepted;
@@ -907,6 +921,7 @@ static double enqueue_flowlet(switch_state* ns, int port_id, const fluid_msg* m,
     q.creation_interval = m->creation_interval;
     q.enqueue_interval = m->interval_id;
     q.age_intervals = m->interval_id - m->creation_interval;
+    q.ingress_id = m->rc_ingress_id;
     q.remaining_mbit = accepted;
 
     qv.push_back(q);
@@ -977,7 +992,8 @@ static int find_queue_index_for_flowlet(const switch_state* ns, int port_id,
         if (qv[i].flowlet_id == needle.flowlet_id &&
             qv[i].source_terminal == needle.source_terminal &&
             qv[i].destination_terminal == needle.destination_terminal &&
-            qv[i].creation_interval == needle.creation_interval) {
+            qv[i].creation_interval == needle.creation_interval &&
+            qv[i].ingress_id == needle.ingress_id) {
             return i;
         }
     }
@@ -999,7 +1015,8 @@ static int find_queue_index_for_msg(const switch_state* ns, int port_id, const f
 
         if (qv[i].flowlet_id == m->flowlet_id && qv[i].source_terminal == m->source_terminal &&
             qv[i].destination_terminal == m->destination_terminal &&
-            qv[i].creation_interval == m->creation_interval) {
+            qv[i].creation_interval == m->creation_interval &&
+            qv[i].ingress_id == m->rc_ingress_id) {
             return i;
         }
     }
@@ -1296,35 +1313,30 @@ static bool switch_has_directed_link_to(int src_switch, int dst_switch) {
     return false;
 }
 
-static void broadcast_pause_update(switch_state* ns, int interval_id, int pause_asserted,
-                                   tw_lp* lp) {
-    const switch_info& sw = switches[ns->switch_id];
-
-    for (int t = 0; t < sw.terminal_count; ++t) {
-        int terminal_id = sw.terminal_start + t;
-        schedule_pause_update(interval_id, get_terminal_gid(terminal_id), pause_asserted,
-                              ns->switch_id, lp);
-        ns->pause_updates_sent++;
-        if (pause_asserted) {
-            ns->pause_frames_sent++;
-        } else {
-            ns->resume_frames_sent++;
+static int find_ingress_link(const switch_state* ns, int is_terminal, int peer_index) {
+    for (int i = 0; i < ns->num_ingress_links; ++i) {
+        const ingress_desc& ingress = ns->ingress_links[i];
+        if (ingress.is_terminal == is_terminal && ingress.peer_index == peer_index) {
+            return i;
         }
     }
+    return -1;
+}
 
-    for (int upstream_switch = 0; upstream_switch < (int)switches.size(); ++upstream_switch) {
-        if (upstream_switch == ns->switch_id ||
-            !switch_has_directed_link_to(upstream_switch, ns->switch_id)) {
-            continue;
-        }
-        schedule_pause_update(interval_id, get_switch_gid(upstream_switch), pause_asserted,
-                              ns->switch_id, lp);
-        ns->pause_updates_sent++;
-        if (pause_asserted) {
-            ns->pause_frames_sent++;
-        } else {
-            ns->resume_frames_sent++;
-        }
+static void send_pause_update_for_ingress(switch_state* ns, int ingress_id, int interval_id,
+                                          int pause_asserted, tw_lp* lp) {
+    if (ingress_id < 0 || ingress_id >= ns->num_ingress_links) {
+        tw_error(TW_LOC, "invalid ingress id %d on switch %d", ingress_id, ns->switch_id);
+    }
+    const ingress_desc& ingress = ns->ingress_links[ingress_id];
+    tw_lpid dst_gid = ingress.is_terminal ? get_terminal_gid(ingress.peer_index)
+                                          : get_switch_gid(ingress.peer_index);
+    schedule_pause_update(interval_id, dst_gid, pause_asserted, ns->switch_id, lp);
+    ns->pause_updates_sent++;
+    if (pause_asserted) {
+        ns->pause_frames_sent++;
+    } else {
+        ns->resume_frames_sent++;
     }
 }
 
@@ -1343,47 +1355,108 @@ static void schedule_ethernet_pause_eval(int interval_id, tw_lp* lp) {
     tw_event_send(e);
 }
 
-static void handle_ethernet_pause_eval(switch_state* ns, fluid_msg* m, tw_lp* lp) {
-    m->rc_pause_state_changed = 0;
-    m->rc_pause_update_broadcast = 0;
-    m->rc_pause_update_asserted = 0;
-    m->rc_prev_pause_until_interval = ns->pause_asserted;
-    m->rc_prev_last_pause_frame_interval = ns->last_pause_frame_interval;
-
-    double occupied = queued_mbit_on_switch(ns);
-    if (!ns->pause_asserted && occupied + EPS >= ns->pause_high_watermark_mbit) {
-        ns->pause_asserted = 1;
-        ns->last_pause_frame_interval = m->interval_id;
-        m->rc_pause_state_changed = 1;
-        m->rc_pause_update_broadcast = 1;
-        m->rc_pause_update_asserted = 1;
-        broadcast_pause_update(ns, m->interval_id, 1, lp);
-    } else if (ns->pause_asserted &&
-               occupied <= ns->pause_low_watermark_mbit + EPS) {
-        ns->pause_asserted = 0;
-        ns->last_pause_frame_interval = -1;
-        m->rc_pause_state_changed = 1;
-        m->rc_pause_update_broadcast = 1;
-        m->rc_pause_update_asserted = 0;
-        broadcast_pause_update(ns, m->interval_id, 0, lp);
-    } else if (ns->pause_asserted &&
-               m->interval_id >=
-                   ns->last_pause_frame_interval + cfg.pause_duration_intervals) {
-        /*
-         * The previous PAUSE timer has expired at upstream senders. Refresh it
-         * only if this switch is still above the low watermark. This preserves
-         * hysteresis without broadcasting a PAUSE frame every interval.
-         */
-        ns->last_pause_frame_interval = m->interval_id;
-        m->rc_pause_update_broadcast = 1;
-        m->rc_pause_update_asserted = 1;
-        broadcast_pause_update(ns, m->interval_id, 1, lp);
+static void record_pause_change(fluid_msg* m, int ingress_id, const ingress_desc& ingress,
+                                int sent_asserted) {
+    if (m->rc_pause_change_count >= MAX_PAUSE_INGRESS_LINKS) {
+        tw_error(TW_LOC, "too many PAUSE ingress changes in one event");
     }
+    int i = m->rc_pause_change_count++;
+    m->rc_pause_ingress_id[i] = ingress_id;
+    m->rc_pause_prev_asserted[i] = ingress.pause_asserted;
+    m->rc_pause_prev_last_interval[i] = ingress.last_pause_frame_interval;
+    m->rc_pause_sent_asserted[i] = sent_asserted;
+}
+
+static void handle_ethernet_pause_eval(switch_state* ns, fluid_msg* m, tw_lp* lp) {
+    m->rc_pause_change_count = 0;
+
+    const double shared_occupancy_mbit = queued_mbit_on_switch(ns);
 
     /*
-     * One periodic end-of-interval evaluation owns PAUSE hysteresis. ROSS
-     * automatically cancels this child event if the current event rolls back.
+     * The physical buffer is shared. PAUSE decisions therefore use global
+     * high/low watermarks, while per-ingress queued_mbit is used only to choose
+     * which directly connected senders should be throttled.
+     *
+     * Hysteresis policy:
+     *   - at or below the low watermark, resume every paused ingress;
+     *   - at or above the high watermark, keep already-paused ingresses and
+     *     pause the largest unpaused contributors until their combined queued
+     *     traffic covers the occupancy above the high watermark;
+     *   - between the watermarks, preserve the current PAUSE set;
+     *   - refresh each asserted PAUSE only when its configured timer expires.
+     *
+     * Contributor ordering is deterministic: descending queued bytes, then
+     * ascending ingress id. This is required for sequential/optimistic parity.
      */
+    if (shared_occupancy_mbit <= ns->pause_low_watermark_mbit + EPS) {
+        for (int ingress_id = 0; ingress_id < ns->num_ingress_links; ++ingress_id) {
+            ingress_desc& ingress = ns->ingress_links[ingress_id];
+            if (!ingress.pause_asserted) {
+                continue;
+            }
+
+            record_pause_change(m, ingress_id, ingress, 0);
+            ingress.pause_asserted = 0;
+            ingress.last_pause_frame_interval = -1;
+            send_pause_update_for_ingress(ns, ingress_id, m->interval_id, 0, lp);
+        }
+    } else {
+        if (shared_occupancy_mbit + EPS >= ns->pause_high_watermark_mbit) {
+            double covered_mbit = 0.0;
+            bool has_paused_ingress = false;
+            std::vector<int> candidates;
+            candidates.reserve(ns->num_ingress_links);
+
+            for (int ingress_id = 0; ingress_id < ns->num_ingress_links; ++ingress_id) {
+                const ingress_desc& ingress = ns->ingress_links[ingress_id];
+                if (ingress.pause_asserted) {
+                    has_paused_ingress = true;
+                    covered_mbit += ingress.queued_mbit;
+                } else if (ingress.queued_mbit > EPS) {
+                    candidates.push_back(ingress_id);
+                }
+            }
+
+            std::sort(candidates.begin(), candidates.end(), [ns](int lhs, int rhs) {
+                const double lhs_mbit = ns->ingress_links[lhs].queued_mbit;
+                const double rhs_mbit = ns->ingress_links[rhs].queued_mbit;
+                if (std::fabs(lhs_mbit - rhs_mbit) > EPS) {
+                    return lhs_mbit > rhs_mbit;
+                }
+                return lhs < rhs;
+            });
+
+            const double excess_mbit =
+                shared_occupancy_mbit - ns->pause_high_watermark_mbit;
+            for (int ingress_id : candidates) {
+                if (has_paused_ingress && covered_mbit + EPS >= excess_mbit) {
+                    break;
+                }
+
+                ingress_desc& ingress = ns->ingress_links[ingress_id];
+                record_pause_change(m, ingress_id, ingress, 1);
+                ingress.pause_asserted = 1;
+                ingress.last_pause_frame_interval = m->interval_id;
+                has_paused_ingress = true;
+                covered_mbit += ingress.queued_mbit;
+                send_pause_update_for_ingress(ns, ingress_id, m->interval_id, 1, lp);
+            }
+        }
+
+        for (int ingress_id = 0; ingress_id < ns->num_ingress_links; ++ingress_id) {
+            ingress_desc& ingress = ns->ingress_links[ingress_id];
+            if (!ingress.pause_asserted ||
+                m->interval_id <
+                    ingress.last_pause_frame_interval + cfg.pause_duration_intervals) {
+                continue;
+            }
+
+            record_pause_change(m, ingress_id, ingress, 1);
+            ingress.last_pause_frame_interval = m->interval_id;
+            send_pause_update_for_ingress(ns, ingress_id, m->interval_id, 1, lp);
+        }
+    }
+
     schedule_ethernet_pause_eval(m->interval_id + 1, lp);
 }
 
@@ -1764,8 +1837,34 @@ static void switch_init(switch_state* ns, tw_lp* lp) {
     if (ns->shared_buffer_mbit < 0.0) {
         tw_error(TW_LOC, "negative shared switch buffer on switch %d", ns->switch_id);
     }
-    ns->pause_asserted = 0;
-    ns->last_pause_frame_interval = -1;
+    ns->num_ingress_links = 0;
+
+    for (int t = 0; t < sw.terminal_count; ++t) {
+        ingress_desc& ingress = ns->ingress_links[ns->num_ingress_links++];
+        ingress.is_terminal = 1;
+        ingress.peer_index = sw.terminal_start + t;
+        ingress.queued_mbit = 0.0;
+        ingress.pause_asserted = 0;
+        ingress.last_pause_frame_interval = -1;
+    }
+    for (int upstream = 0; upstream < (int)switches.size(); ++upstream) {
+        if (upstream == ns->switch_id ||
+            !switch_has_directed_link_to(upstream, ns->switch_id)) {
+            continue;
+        }
+        if (ns->num_ingress_links >= MAX_PAUSE_INGRESS_LINKS) {
+            tw_error(TW_LOC, "too many ingress links on switch %d", ns->switch_id);
+        }
+        ingress_desc& ingress = ns->ingress_links[ns->num_ingress_links++];
+        ingress.is_terminal = 0;
+        ingress.peer_index = upstream;
+        ingress.queued_mbit = 0.0;
+        ingress.pause_asserted = 0;
+        ingress.last_pause_frame_interval = -1;
+    }
+    if (ns->num_ingress_links <= 0) {
+        tw_error(TW_LOC, "switch %d has no ingress links", ns->switch_id);
+    }
     ns->pause_high_watermark_mbit =
         ns->shared_buffer_mbit * cfg.pause_high_watermark_fraction;
     ns->pause_low_watermark_mbit =
@@ -1810,6 +1909,19 @@ static void switch_init(switch_state* ns, tw_lp* lp) {
 static void handle_switch_arrival(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     m->rc_egress_request_created = 0;
     ns->received_fragments++;
+
+    int ingress_id = -1;
+    if (m->source_switch == ns->switch_id) {
+        ingress_id = find_ingress_link(ns, 1, m->source_terminal);
+    } else {
+        ingress_id = find_ingress_link(ns, 0, m->source_switch);
+    }
+    if (ingress_id < 0) {
+        tw_error(TW_LOC, "switch %d could not identify ingress for source terminal %d switch %d",
+                 ns->switch_id, m->source_terminal, m->source_switch);
+    }
+    m->rc_ingress_id = ingress_id;
+
     int dst_sw = terminals[m->destination_terminal].switch_id;
     int port_id = -1;
     if (dst_sw == ns->switch_id) {
@@ -1878,6 +1990,7 @@ static void handle_switch_arrival(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     m->rc_coalesced = coalesced;
     m->rc_accepted_mbit = accepted;
     m->rc_dropped_mbit = dropped;
+    ns->ingress_links[ingress_id].queued_mbit += accepted;
 
     double port_queued_after = queued_mbit_on_port(ns, port_id);
     int active_after = active_flowlet_count_on_port(ns, port_id);
@@ -1990,7 +2103,6 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     m->rc_log_active_before_entries = active_before;
     m->rc_log_active_after_entries = active_before;
     m->rc_pause_state_changed = 0;
-    m->rc_prev_pause_until_interval = ns->pause_asserted;
     m->rc_pause_target_port = -1;
 
     if (m->interval_id < ns->output_link_paused_until_interval[port_id]) {
@@ -2116,6 +2228,14 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
 
         send_flowlet_fragment(ns, port_id, &before, send, m->interval_id, lp);
         qv[i].remaining_mbit -= send;
+        if (before.ingress_id < 0 || before.ingress_id >= ns->num_ingress_links) {
+            tw_error(TW_LOC, "invalid ingress id %d on queued flowlet", before.ingress_id);
+        }
+        ns->ingress_links[before.ingress_id].queued_mbit -= send;
+        if (ns->ingress_links[before.ingress_id].queued_mbit < 0.0 &&
+            ns->ingress_links[before.ingress_id].queued_mbit > -EPS) {
+            ns->ingress_links[before.ingress_id].queued_mbit = 0.0;
+        }
         sent_total += send;
     }
 
@@ -2254,6 +2374,11 @@ static void rollback_switch_arrival(switch_state* ns, fluid_msg* m) {
     }
 
     ns->admitted_arrival_mbit -= m->rc_accepted_mbit;
+    ns->ingress_links[m->rc_ingress_id].queued_mbit -= m->rc_accepted_mbit;
+    if (ns->ingress_links[m->rc_ingress_id].queued_mbit < 0.0 &&
+        ns->ingress_links[m->rc_ingress_id].queued_mbit > -EPS) {
+        ns->ingress_links[m->rc_ingress_id].queued_mbit = 0.0;
+    }
 }
 
 static void rollback_switch_egress(switch_state* ns, fluid_msg* m) {
@@ -2319,6 +2444,7 @@ static void rollback_switch_egress(switch_state* ns, fluid_msg* m) {
             qv.insert(qv.begin() + insert_idx, rc->before);
         }
 
+        ns->ingress_links[rc->before.ingress_id].queued_mbit += rc->send_mbit;
         ns->sent_mbit -= rc->send_mbit;
         ns->sent_fragments--;
 
@@ -2343,24 +2469,18 @@ static void switch_rev_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp
         break;
 
     case ETHERNET_PAUSE_EVAL:
-        if (m->rc_pause_update_broadcast) {
-            const switch_info& sw = switches[ns->switch_id];
-            unsigned long long recipients = sw.terminal_count;
-            for (int upstream = 0; upstream < (int)switches.size(); ++upstream) {
-                if (upstream != ns->switch_id &&
-                    switch_has_directed_link_to(upstream, ns->switch_id)) {
-                    recipients++;
-                }
-            }
-            ns->pause_updates_sent -= recipients;
-            if (m->rc_pause_update_asserted) {
-                ns->pause_frames_sent -= recipients;
+        for (int i = m->rc_pause_change_count - 1; i >= 0; --i) {
+            int ingress_id = m->rc_pause_ingress_id[i];
+            ingress_desc& ingress = ns->ingress_links[ingress_id];
+            ingress.pause_asserted = m->rc_pause_prev_asserted[i];
+            ingress.last_pause_frame_interval = m->rc_pause_prev_last_interval[i];
+            ns->pause_updates_sent--;
+            if (m->rc_pause_sent_asserted[i]) {
+                ns->pause_frames_sent--;
             } else {
-                ns->resume_frames_sent -= recipients;
+                ns->resume_frames_sent--;
             }
         }
-        ns->pause_asserted = m->rc_prev_pause_until_interval;
-        ns->last_pause_frame_interval = m->rc_prev_last_pause_frame_interval;
         break;
 
     case ETHERNET_PAUSE_FRAME_UPDATE:
@@ -2408,6 +2528,10 @@ static void switch_commit_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp*
 
 static void switch_finalize(switch_state* ns, tw_lp* lp) {
     double queued = 0.0;
+    int any_pause_asserted = 0;
+    for (int i = 0; i < ns->num_ingress_links; ++i) {
+        any_pause_asserted |= ns->ingress_links[i].pause_asserted;
+    }
     for (int p = 0; p < ns->num_ports; ++p) {
         queued += queued_mbit_on_port(ns, p);
     }
@@ -2420,7 +2544,7 @@ static void switch_finalize(switch_state* ns, tw_lp* lp) {
            (unsigned long long)lp->gid, ns->switch_id, switches[ns->switch_id].name.c_str(),
            ns->num_ports, ns->shared_buffer_mbit, ns->received_fragments, ns->sent_fragments,
            ns->admitted_arrival_mbit, ns->sent_mbit, ns->delivered_local_mbit, ns->dropped_mbit,
-           queued, queued, ns->pause_asserted, ns->pause_updates_sent, ns->pause_frames_sent,
+           queued, queued, any_pause_asserted, ns->pause_updates_sent, ns->pause_frames_sent,
            ns->resume_frames_sent, ns->pause_updates_received, ns->pause_frames_received,
            ns->resume_frames_received, ns->paused_egress_intervals);
 
