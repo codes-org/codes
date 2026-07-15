@@ -849,9 +849,12 @@ the offending value.
 
 ## Command-line precedence for synthetic params
 
-The synthetic drivers already expose `traffic`, `num_messages`, `payload_size`,
-and `arrival_time` as ROSS command-line options. Configuring them here does not
-take that away — the precedence is:
+The synthetic drivers also expose these workload params as ROSS command-line
+options. The command-line spelling matches the config key — `traffic`,
+`num_messages`, `payload_size`, `arrival_time` — with one exception:
+`model-net-synthetic-dragonfly-all` spells its payload option `payload_sz` on
+the command line (the config key is always `payload_size`). Configuring them
+here does not take that away — the precedence is:
 
 ```
 command line  >  config (workload:/jobs:)  >  the model's built-in default
@@ -864,6 +867,23 @@ global is compared to its registered default, so a value equal to the default
 passed on the command line is indistinguishable from omitting it (the config wins
 there) — the same one edge case, per knob. A legacy `.conf` carries no `WORKLOAD`
 section, so every apply is a no-op and `.conf` behavior is unchanged.
+
+Not every driver consumes every key. Which of the four workload keys each
+synthetic driver applies from the config:
+
+| driver                              | `traffic` | `num_messages` | `payload_size` | `arrival_time` |
+| ----------------------------------- | :-------: | :------------: | :------------: | :------------: |
+| `model-net-synthetic`               |     ✓     |       ✓        |       ✓        |       ✓        |
+| `model-net-synthetic-dragonfly-all` |     ✓     |       ✓        |       ✓        |       ✓        |
+| `model-net-synthetic-slimfly`       |     ✓     |       ✓        |       ✓        |       ✓        |
+| `model-net-synthetic-fattree`       |     ✓     |       —        |       ✓        |       ✓        |
+
+The one gap is `num_messages` on `model-net-synthetic-fattree`: it is an
+open-loop generator (each send schedules the next; the run is bounded only by
+the end time, not by a message count), so it registers no `num_messages` option
+and a configured `num_messages` is currently ignored there. A cap is planned
+alongside future traffic-policy work; until then, bound a fat-tree run with an
+`end_time` instead.
 
 ## Multi-job execution status
 

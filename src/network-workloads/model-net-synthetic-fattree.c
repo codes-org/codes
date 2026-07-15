@@ -18,7 +18,7 @@
 #include "codes/lp-type-lookup.h"
 #include "codes/codes-workload-config.h"
 
-#define PAYLOAD_SZ 512
+static int PAYLOAD_SZ = 512;
 
 #define PARAMS_LOG 1
 
@@ -148,6 +148,8 @@ void ft_svr_register_model_stats() {
 
 const tw_optdef app_opt[] = {TWOPT_GROUP("Model net synthetic traffic "),
                              TWOPT_UINT("traffic", traffic, "UNIFORM RANDOM=1, BISECTION=2 "),
+                             TWOPT_UINT("payload_size", PAYLOAD_SZ,
+                                        "size of the message being sent "),
                              TWOPT_STIME("arrival_time", arrival_time, "INTER-ARRIVAL TIME"),
                              TWOPT_STIME("load", load,
                                          "percentage of terminal link bandiwdth to inject packets"),
@@ -356,6 +358,7 @@ int main(int argc, char** argv) {
     /* capture the option defaults before tw_init parses the command line, so the
      * config-vs-CLI helper can tell whether the command line overrode each. */
     int traffic_default = traffic;
+    int payload_sz_default = PAYLOAD_SZ;
     double arrival_time_default = arrival_time;
 
     tw_opt_add(app_opt);
@@ -392,6 +395,7 @@ int main(int argc, char** argv) {
          * command line still wins over the config for each. Inert for a legacy
          * .conf, which carries no WORKLOAD section. */
         codes_workload_config_apply_traffic(&traffic, traffic_default, traffic_names);
+        codes_workload_config_apply_int("payload_size", &PAYLOAD_SZ, payload_sz_default);
         codes_workload_config_apply_double("arrival_time", &arrival_time, arrival_time_default);
         codes_workload_config_check_unsupported_jobs("model-net-synthetic-fattree");
 

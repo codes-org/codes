@@ -7,6 +7,15 @@ schema_version: 1
 # line ("... sent_count 2 recvd_count ...") shows the config value took effect,
 # and passing --num_messages=1 shows the command line winning over the config.
 #
+# traffic is nearest_neighbor (not uniform) on purpose: uniform equals every
+# model's built-in default enum value 1, so it never proved the traffic-name
+# mapping actually worked; nearest_neighbor is a non-default enum. It is also
+# deterministic -- each server sends to (id+1)%N, so every server receives
+# exactly num_messages messages, which makes the finalize line's byte count
+# ("recvd <PAYLOAD_SZ*count> bytes") a reliable marker for payload_size: the
+# config sets 1KiB, so 2 messages -> "recvd 2048 bytes" (the built-in default
+# 2048 would print 4096), and --payload_size=2048 -> "recvd 4096 bytes".
+#
 # A small regular dragonfly (num_routers: 4 -> 72 compute nodes) keeps the run
 # cheap. The finite num_messages drains the event queue, so no end time is set.
 
@@ -15,8 +24,9 @@ components:
     model: nw-lp
     workload:
       type: synthetic
-      traffic: uniform
+      traffic: nearest_neighbor
       num_messages: 2
+      payload_size: "1KiB"
       arrival_time: "500ns"
 
 topology:

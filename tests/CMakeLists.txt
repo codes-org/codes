@@ -804,6 +804,28 @@ codes_add_run_test(
     ARGS   --sync=1 --num_messages=1 -- "${_tconf}/synthetic-workload-dragonfly.yaml"
     MARKER "sent_count 1 recvd_count")
 
+# payload_size from the config. The same config sets payload_size: 1KiB (1024
+# bytes); with the deterministic nearest_neighbor traffic every server receives
+# exactly num_messages (2) messages, so the finalize line reports
+# 1024 * 2 = 2048 bytes. The model's built-in default of 2048 would instead
+# print 4096, so "recvd 2048 bytes" proves the configured payload_size applied.
+codes_add_run_test(
+    NAME   modelnet-synthetic-config-payload-size
+    BINARY model-net-synthetic
+    ARGS   --sync=1 -- "${_tconf}/synthetic-workload-dragonfly.yaml"
+    MARKER "recvd 2048 bytes")
+# CLI precedence for payload_size: a command-line --payload_size beats the
+# config's 1KiB. We pass 4096 (not 2048): the precedence helper detects a
+# command-line override by comparing the option global against its registered
+# default, and 2048 *is* the built-in default, so passing 2048 is
+# indistinguishable from omitting it and the config would win (the documented
+# one edge case).
+codes_add_run_test(
+    NAME   modelnet-synthetic-cli-payload-size-overrides-config
+    BINARY model-net-synthetic
+    ARGS   --sync=1 --payload_size=4096 -- "${_tconf}/synthetic-workload-dragonfly.yaml"
+    MARKER "recvd 8192 bytes")
+
 # Multi-job guard: a jobs: block with more than one job compiles to a JOBS
 # section, which the synthetic mains cannot execute (one global traffic pattern,
 # no per-job destination dispatch). codes_workload_config_check_unsupported_jobs

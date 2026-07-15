@@ -18,7 +18,7 @@
 #include "codes/net/dragonfly.h"
 #include "codes/codes-workload-config.h"
 
-#define PAYLOAD_SZ 2048
+static int PAYLOAD_SZ = 2048;
 
 static int net_id = 0;
 static int traffic = 1;
@@ -132,6 +132,7 @@ const tw_optdef app_opt[] = {
     TWOPT_GROUP("Model net synthetic traffic "),
     TWOPT_UINT("traffic", traffic, "UNIFORM RANDOM=1, NEAREST NEIGHBOR=2 "),
     TWOPT_UINT("num_messages", num_msgs, "Number of messages to be generated per terminal "),
+    TWOPT_UINT("payload_size", PAYLOAD_SZ, "size of the message being sent "),
     TWOPT_STIME("sampling-interval", sampling_interval, "the sampling interval "),
     TWOPT_STIME("sampling-end-time", sampling_end_time, "sampling end time "),
     TWOPT_STIME("arrival_time", arrival_time, "INTER-ARRIVAL TIME"),
@@ -330,6 +331,7 @@ int main(int argc, char** argv) {
      * config-vs-CLI helper can tell whether the command line overrode each. */
     int traffic_default = traffic;
     int num_msgs_default = num_msgs;
+    int payload_sz_default = PAYLOAD_SZ;
     double arrival_time_default = arrival_time;
 
     tw_opt_add(app_opt);
@@ -363,6 +365,7 @@ int main(int argc, char** argv) {
          * .conf, which carries no WORKLOAD section. */
         codes_workload_config_apply_traffic(&traffic, traffic_default, traffic_names);
         codes_workload_config_apply_int("num_messages", &num_msgs, num_msgs_default);
+        codes_workload_config_apply_int("payload_size", &PAYLOAD_SZ, payload_sz_default);
         codes_workload_config_apply_double("arrival_time", &arrival_time, arrival_time_default);
         codes_workload_config_check_unsupported_jobs("model-net-synthetic");
 
