@@ -53,8 +53,9 @@ static constexpr double EPS = 1e-9;
 static constexpr double PHASE_EARLY_SWITCH_EGRESS = 0.05;
 static constexpr double PHASE_GENERATE = 0.10;
 static constexpr double PHASE_ARRIVAL = 0.20;
-static constexpr double PHASE_PAUSE_UPDATE = 0.30;
 static constexpr double PHASE_LATE_SWITCH_EGRESS = 0.60;
+static constexpr double PHASE_ETHERNET_PAUSE_EVAL = 0.70;
+static constexpr double PHASE_ETHERNET_PAUSE_FRAME_UPDATE = 0.75;
 
 struct link_info {
     int dst_switch;
@@ -162,6 +163,7 @@ struct switch_state {
     int output_link_paused_until_interval[MAX_PORTS_PER_SWITCH];
 
     int pause_asserted;
+    int last_pause_frame_interval;
     double pause_high_watermark_mbit;
     double pause_low_watermark_mbit;
     unsigned long long pause_updates_sent;
@@ -184,8 +186,9 @@ enum fluid_event_type {
     WORKLOAD_GENERATE = 1,
     FLOWLET_ARRIVAL = 2,
     SWITCH_EGRESS_EARLY = 3,
-    ETHERNET_PAUSE_FRAME_UPDATE = 4,
+    ETHERNET_PAUSE_EVAL = 4,
     SWITCH_EGRESS_LATE = 5,
+    ETHERNET_PAUSE_FRAME_UPDATE = 6,
 };
 
 struct rc_alloc_record {
@@ -223,7 +226,10 @@ struct fluid_msg {
     double rc_dropped_mbit;
     int rc_alloc_count;
     int rc_pause_state_changed;
+    int rc_pause_update_broadcast;
+    int rc_pause_update_asserted;
     int rc_prev_pause_until_interval;
+    int rc_prev_last_pause_frame_interval;
     int rc_pause_target_port;
 
     int rc_egress_event_active;
@@ -1269,8 +1275,8 @@ static void request_switch_egress(switch_state* ns, int event_type, int interval
 
 static void schedule_pause_update(int interval_id, tw_lpid dst_gid, int pause_asserted,
                                   int pause_source_switch, tw_lp* lp) {
-    tw_event* e =
-        tw_event_new(dst_gid, delay_until_ns(interval_id, PHASE_PAUSE_UPDATE, lp), lp);
+    tw_event* e = tw_event_new(
+        dst_gid, delay_until_ns(interval_id, PHASE_ETHERNET_PAUSE_FRAME_UPDATE, lp), lp);
     fluid_msg* m = (fluid_msg*)tw_event_data(e);
     memset(m, 0, sizeof(*m));
     m->event_type = ETHERNET_PAUSE_FRAME_UPDATE;
@@ -1322,26 +1328,63 @@ static void broadcast_pause_update(switch_state* ns, int interval_id, int pause_
     }
 }
 
-static void maybe_update_pause_state(switch_state* ns, int interval_id, tw_lp* lp,
-                                     fluid_msg* cause_msg) {
-    double occupied = queued_mbit_on_switch(ns);
-    int desired = ns->pause_asserted;
-
-    if (!ns->pause_asserted && occupied + EPS >= ns->pause_high_watermark_mbit) {
-        desired = 1;
-    } else if (ns->pause_asserted && occupied <= ns->pause_low_watermark_mbit + EPS) {
-        desired = 0;
-    }
-
-    cause_msg->rc_pause_state_changed = 0;
-    cause_msg->rc_prev_pause_until_interval = ns->pause_asserted;
-    if (desired == ns->pause_asserted) {
+static void schedule_ethernet_pause_eval(int interval_id, tw_lp* lp) {
+    int total_intervals = cfg.num_send_intervals + cfg.num_drain_intervals;
+    if (interval_id < 0 || interval_id >= total_intervals) {
         return;
     }
 
-    ns->pause_asserted = desired;
-    cause_msg->rc_pause_state_changed = 1;
-    broadcast_pause_update(ns, interval_id, desired, lp);
+    tw_event* e = tw_event_new(
+        lp->gid, delay_until_ns(interval_id, PHASE_ETHERNET_PAUSE_EVAL, lp), lp);
+    fluid_msg* m = (fluid_msg*)tw_event_data(e);
+    memset(m, 0, sizeof(*m));
+    m->event_type = ETHERNET_PAUSE_EVAL;
+    m->interval_id = interval_id;
+    tw_event_send(e);
+}
+
+static void handle_ethernet_pause_eval(switch_state* ns, fluid_msg* m, tw_lp* lp) {
+    m->rc_pause_state_changed = 0;
+    m->rc_pause_update_broadcast = 0;
+    m->rc_pause_update_asserted = 0;
+    m->rc_prev_pause_until_interval = ns->pause_asserted;
+    m->rc_prev_last_pause_frame_interval = ns->last_pause_frame_interval;
+
+    double occupied = queued_mbit_on_switch(ns);
+    if (!ns->pause_asserted && occupied + EPS >= ns->pause_high_watermark_mbit) {
+        ns->pause_asserted = 1;
+        ns->last_pause_frame_interval = m->interval_id;
+        m->rc_pause_state_changed = 1;
+        m->rc_pause_update_broadcast = 1;
+        m->rc_pause_update_asserted = 1;
+        broadcast_pause_update(ns, m->interval_id, 1, lp);
+    } else if (ns->pause_asserted &&
+               occupied <= ns->pause_low_watermark_mbit + EPS) {
+        ns->pause_asserted = 0;
+        ns->last_pause_frame_interval = -1;
+        m->rc_pause_state_changed = 1;
+        m->rc_pause_update_broadcast = 1;
+        m->rc_pause_update_asserted = 0;
+        broadcast_pause_update(ns, m->interval_id, 0, lp);
+    } else if (ns->pause_asserted &&
+               m->interval_id >=
+                   ns->last_pause_frame_interval + cfg.pause_duration_intervals) {
+        /*
+         * The previous PAUSE timer has expired at upstream senders. Refresh it
+         * only if this switch is still above the low watermark. This preserves
+         * hysteresis without broadcasting a PAUSE frame every interval.
+         */
+        ns->last_pause_frame_interval = m->interval_id;
+        m->rc_pause_update_broadcast = 1;
+        m->rc_pause_update_asserted = 1;
+        broadcast_pause_update(ns, m->interval_id, 1, lp);
+    }
+
+    /*
+     * One periodic end-of-interval evaluation owns PAUSE hysteresis. ROSS
+     * automatically cancels this child event if the current event rolls back.
+     */
+    schedule_ethernet_pause_eval(m->interval_id + 1, lp);
 }
 
 static void schedule_arrival(int interval_id, tw_lpid dst_gid, const fluid_msg* src_msg,
@@ -1588,7 +1631,7 @@ static void terminal_event(terminal_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp
         if (m->pause_asserted) {
             ns->link_paused_until_interval =
                 std::max(ns->link_paused_until_interval,
-                         m->interval_id + cfg.pause_duration_intervals);
+                         m->interval_id + cfg.pause_duration_intervals + 1);
         } else {
             ns->link_paused_until_interval = m->interval_id;
         }
@@ -1721,6 +1764,8 @@ static void switch_init(switch_state* ns, tw_lp* lp) {
     if (ns->shared_buffer_mbit < 0.0) {
         tw_error(TW_LOC, "negative shared switch buffer on switch %d", ns->switch_id);
     }
+    ns->pause_asserted = 0;
+    ns->last_pause_frame_interval = -1;
     ns->pause_high_watermark_mbit =
         ns->shared_buffer_mbit * cfg.pause_high_watermark_fraction;
     ns->pause_low_watermark_mbit =
@@ -1754,7 +1799,11 @@ static void switch_init(switch_state* ns, tw_lp* lp) {
      * egress events for every port.  Arrivals schedule the first egress, and
      * egress events reschedule themselves only while residual queued bytes
      * remain.
+     *
+     * PAUSE hysteresis is evaluated exactly once per switch and interval by a
+     * periodic ETHERNET_PAUSE_EVAL event.
      */
+    schedule_ethernet_pause_eval(0, lp);
 }
 
 
@@ -1841,7 +1890,6 @@ static void handle_switch_arrival(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     m->rc_log_active_after_entries = active_after;
 
     log_switch_arrival_event(ns, m);
-    maybe_update_pause_state(ns, m->interval_id, lp, m);
 
     if (port_queued_after > EPS) {
         request_switch_egress(ns, SWITCH_EGRESS_LATE, m->interval_id, port_id, lp, m);
@@ -2102,7 +2150,6 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     m->rc_log_active_after_entries = active_after;
 
     log_switch_egress_event(ns, m);
-    maybe_update_pause_state(ns, m->interval_id, lp, m);
 
     if (queued_after > EPS) {
         request_switch_egress(ns, SWITCH_EGRESS_EARLY, m->interval_id + 1, port_id, lp, m);
@@ -2123,7 +2170,7 @@ static void handle_switch_pause_update(switch_state* ns, fluid_msg* m) {
     if (m->pause_asserted) {
         ns->output_link_paused_until_interval[port_id] =
             std::max(ns->output_link_paused_until_interval[port_id],
-                     m->interval_id + cfg.pause_duration_intervals);
+                     m->interval_id + cfg.pause_duration_intervals + 1);
     } else {
         ns->output_link_paused_until_interval[port_id] = m->interval_id;
     }
@@ -2151,28 +2198,15 @@ static void switch_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp) {
     case ETHERNET_PAUSE_FRAME_UPDATE:
         handle_switch_pause_update(ns, m);
         break;
+    case ETHERNET_PAUSE_EVAL:
+        handle_ethernet_pause_eval(ns, m, lp);
+        break;
     default:
         tw_error(TW_LOC, "switch received unknown event type %d", m->event_type);
     }
 }
 
 static void rollback_switch_arrival(switch_state* ns, fluid_msg* m) {
-    if (m->rc_pause_state_changed) {
-        const switch_info& sw = switches[ns->switch_id];
-        unsigned long long recipients = sw.terminal_count;
-        for (int upstream = 0; upstream < (int)switches.size(); ++upstream) {
-            if (upstream != ns->switch_id && switch_has_directed_link_to(upstream, ns->switch_id)) {
-                recipients++;
-            }
-        }
-        ns->pause_updates_sent -= recipients;
-        if (ns->pause_asserted) {
-            ns->pause_frames_sent -= recipients;
-        } else {
-            ns->resume_frames_sent -= recipients;
-        }
-        ns->pause_asserted = m->rc_prev_pause_until_interval;
-    }
     ns->received_fragments--;
 
     undo_requested_switch_egress(ns, m);
@@ -2253,22 +2287,6 @@ static void rollback_switch_egress(switch_state* ns, fluid_msg* m) {
         return;
     }
 
-    if (m->rc_pause_state_changed) {
-        const switch_info& sw = switches[ns->switch_id];
-        unsigned long long recipients = sw.terminal_count;
-        for (int upstream = 0; upstream < (int)switches.size(); ++upstream) {
-            if (upstream != ns->switch_id && switch_has_directed_link_to(upstream, ns->switch_id)) {
-                recipients++;
-            }
-        }
-        ns->pause_updates_sent -= recipients;
-        if (ns->pause_asserted) {
-            ns->pause_frames_sent -= recipients;
-        } else {
-            ns->resume_frames_sent -= recipients;
-        }
-        ns->pause_asserted = m->rc_prev_pause_until_interval;
-    }
 
     std::vector<queued_flowlet>& qv = *ns->queues[port_id];
     const port_desc* p = &ns->ports[port_id];
@@ -2322,6 +2340,27 @@ static void switch_rev_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp
     case SWITCH_EGRESS_EARLY:
     case SWITCH_EGRESS_LATE:
         rollback_switch_egress(ns, m);
+        break;
+
+    case ETHERNET_PAUSE_EVAL:
+        if (m->rc_pause_update_broadcast) {
+            const switch_info& sw = switches[ns->switch_id];
+            unsigned long long recipients = sw.terminal_count;
+            for (int upstream = 0; upstream < (int)switches.size(); ++upstream) {
+                if (upstream != ns->switch_id &&
+                    switch_has_directed_link_to(upstream, ns->switch_id)) {
+                    recipients++;
+                }
+            }
+            ns->pause_updates_sent -= recipients;
+            if (m->rc_pause_update_asserted) {
+                ns->pause_frames_sent -= recipients;
+            } else {
+                ns->resume_frames_sent -= recipients;
+            }
+        }
+        ns->pause_asserted = m->rc_prev_pause_until_interval;
+        ns->last_pause_frame_interval = m->rc_prev_last_pause_frame_interval;
         break;
 
     case ETHERNET_PAUSE_FRAME_UPDATE:
