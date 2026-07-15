@@ -38,6 +38,13 @@ FLUID_FLOW_WAN
     round_robin_max_entries_per_egress="8";
     round_robin_quantum_mbit="0";
 
+    # Basic link-wide Ethernet PAUSE hysteresis.  A congested switch broadcasts
+    # PAUSE/RESUME updates to every attached terminal and every neighboring
+    # switch with a directed link into it.
+    pause_high_watermark_fraction="0.80";
+    pause_low_watermark_fraction="0.50";
+    pause_duration_intervals="2";
+
     terminal_log_path="../../zmqml_artifacts/fluid-flow-wan/terminal-events.csv";
     switch_log_path="../../zmqml_artifacts/fluid-flow-wan/switch-events.csv";
     flowlet_log_path="../../zmqml_artifacts/fluid-flow-wan/flowlet-events.csv";

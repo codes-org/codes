@@ -50,9 +50,11 @@ static constexpr int MAX_PORTS_PER_SWITCH = 128;
 static constexpr int MAX_RC_ALLOCATIONS = 256;
 static constexpr double EPS = 1e-9;
 
+static constexpr double PHASE_EARLY_SWITCH_EGRESS = 0.05;
 static constexpr double PHASE_GENERATE = 0.10;
 static constexpr double PHASE_ARRIVAL = 0.20;
-static constexpr double PHASE_SWITCH_EGRESS = 0.60;
+static constexpr double PHASE_PAUSE_UPDATE = 0.30;
+static constexpr double PHASE_LATE_SWITCH_EGRESS = 0.60;
 
 struct link_info {
     int dst_switch;
@@ -93,6 +95,9 @@ struct sim_config {
     char switch_scheduler[64] = "round_robin";
     int round_robin_max_entries_per_egress = 32;
     double round_robin_quantum_mbit = 0.0;
+    double pause_high_watermark_fraction = 0.80;
+    double pause_low_watermark_fraction = 0.50;
+    int pause_duration_intervals = 2;
 };
 
 static sim_config cfg;
@@ -128,6 +133,11 @@ struct terminal_state {
     double generated_mbit;
     double sent_to_switch_mbit;
     double received_mbit;
+    int link_paused_until_interval;
+    unsigned long long pause_updates_received;
+    unsigned long long pause_frames_received;
+    unsigned long long resume_frames_received;
+    unsigned long long link_paused_intervals;
     int generated_flowlets;
     int received_fragments;
 };
@@ -140,14 +150,29 @@ struct switch_state {
     std::vector<queued_flowlet>* queues[MAX_PORTS_PER_SWITCH];
 
     /*
-     * Demand-driven egress scheduling.  Each port may have at most one
-     * outstanding SWITCH_EGRESS event.  -1 means no egress event is currently
-     * outstanding for that port.
+     * Rollback-safe demand-driven egress scheduling.  Early and late egress
+     * events are tracked independently for every port and interval so Time
+     * Warp may have multiple future intervals outstanding at once.
      */
-    int scheduled_egress_interval[MAX_PORTS_PER_SWITCH];
+    std::vector<unsigned char>* scheduled_early_egress[MAX_PORTS_PER_SWITCH];
+    std::vector<unsigned char>* scheduled_late_egress[MAX_PORTS_PER_SWITCH];
+    int capacity_accounting_interval[MAX_PORTS_PER_SWITCH];
+    double capacity_used_mbit[MAX_PORTS_PER_SWITCH];
     int rr_next_queue_index[MAX_PORTS_PER_SWITCH];
+    int output_link_paused_until_interval[MAX_PORTS_PER_SWITCH];
 
-    double enqueued_mbit;
+    int pause_asserted;
+    double pause_high_watermark_mbit;
+    double pause_low_watermark_mbit;
+    unsigned long long pause_updates_sent;
+    unsigned long long pause_frames_sent;
+    unsigned long long resume_frames_sent;
+    unsigned long long pause_updates_received;
+    unsigned long long pause_frames_received;
+    unsigned long long resume_frames_received;
+    unsigned long long paused_egress_intervals;
+
+    double admitted_arrival_mbit;
     double sent_mbit;
     double delivered_local_mbit;
     double dropped_mbit;
@@ -158,7 +183,9 @@ struct switch_state {
 enum fluid_event_type {
     WORKLOAD_GENERATE = 1,
     FLOWLET_ARRIVAL = 2,
-    SWITCH_EGRESS = 3,
+    SWITCH_EGRESS_EARLY = 3,
+    ETHERNET_PAUSE_FRAME_UPDATE = 4,
+    SWITCH_EGRESS_LATE = 5,
 };
 
 struct rc_alloc_record {
@@ -179,6 +206,8 @@ struct fluid_msg {
     int creation_interval;
     unsigned long long flowlet_id;
     double mbit;
+    int pause_asserted;
+    int pause_source_switch;
 
     /*
      * Reverse-computation metadata. These fields are written by the forward
@@ -193,9 +222,18 @@ struct fluid_msg {
     double rc_accepted_mbit;
     double rc_dropped_mbit;
     int rc_alloc_count;
+    int rc_pause_state_changed;
+    int rc_prev_pause_until_interval;
+    int rc_pause_target_port;
 
-    int rc_prev_scheduled_egress_interval;
+    int rc_egress_event_active;
+    int rc_egress_request_created;
+    int rc_egress_request_event_type;
+    int rc_egress_request_interval;
+    int rc_egress_request_port;
     int rc_prev_rr_next_queue_index;
+    int rc_prev_capacity_accounting_interval;
+    double rc_prev_capacity_used_mbit;
 
     int rc_log_target_is_terminal;
     int rc_log_target_index;
@@ -636,6 +674,12 @@ static void load_config(void) {
     read_int_param("FLUID_FLOW_WAN", "round_robin_max_entries_per_egress",
                    &cfg.round_robin_max_entries_per_egress);
     read_double_param("FLUID_FLOW_WAN", "round_robin_quantum_mbit", &cfg.round_robin_quantum_mbit);
+    read_double_param("FLUID_FLOW_WAN", "pause_high_watermark_fraction",
+                      &cfg.pause_high_watermark_fraction);
+    read_double_param("FLUID_FLOW_WAN", "pause_low_watermark_fraction",
+                      &cfg.pause_low_watermark_fraction);
+    read_int_param("FLUID_FLOW_WAN", "pause_duration_intervals",
+                   &cfg.pause_duration_intervals);
     read_double_param("FLUID_FLOW_WAN", "interval_seconds", &cfg.interval_seconds);
     read_int_param("FLUID_FLOW_WAN", "num_send_intervals", &cfg.num_send_intervals);
     read_int_param("FLUID_FLOW_WAN", "num_drain_intervals", &cfg.num_drain_intervals);
@@ -672,6 +716,19 @@ static void load_config(void) {
     if (cfg.round_robin_quantum_mbit < 0.0) {
         tw_error(TW_LOC, "FLUID_FLOW_WAN.round_robin_quantum_mbit must be nonnegative; got %.12f",
                  cfg.round_robin_quantum_mbit);
+    }
+
+    if (cfg.pause_duration_intervals <= 0) {
+        tw_error(TW_LOC, "pause_duration_intervals must be positive, got %d",
+                 cfg.pause_duration_intervals);
+    }
+
+    if (!(cfg.pause_low_watermark_fraction >= 0.0 &&
+          cfg.pause_low_watermark_fraction < cfg.pause_high_watermark_fraction &&
+          cfg.pause_high_watermark_fraction <= 1.0)) {
+        tw_error(TW_LOC,
+                 "PAUSE watermarks must satisfy 0 <= low < high <= 1; got low=%.6f high=%.6f",
+                 cfg.pause_low_watermark_fraction, cfg.pause_high_watermark_fraction);
     }
 
     if (cfg.topology_yaml_file[0] == '\0') {
@@ -816,7 +873,7 @@ static double enqueue_flowlet(switch_state* ns, int port_id, const fluid_msg* m,
             qv[i].creation_interval == m->creation_interval) {
             qv[i].remaining_mbit += accepted;
             qv[i].age_intervals = m->interval_id - m->creation_interval;
-            ns->enqueued_mbit += accepted;
+            ns->admitted_arrival_mbit += accepted;
 
             if (flowlet_remaining_after_out != NULL) {
                 *flowlet_remaining_after_out = qv[i].remaining_mbit;
@@ -850,7 +907,7 @@ static double enqueue_flowlet(switch_state* ns, int port_id, const fluid_msg* m,
     if (queue_index_out != NULL) {
         *queue_index_out = (int)qv.size() - 1;
     }
-    ns->enqueued_mbit += accepted;
+    ns->admitted_arrival_mbit += accepted;
 
     if (flowlet_remaining_after_out != NULL) {
         *flowlet_remaining_after_out = accepted;
@@ -1116,60 +1173,175 @@ static void schedule_workload_generate(terminal_state* ns, int interval_id, tw_l
     tw_event_send(e);
 }
 
-static void schedule_switch_egress(int interval_id, int port_id, tw_lp* lp) {
+static void schedule_switch_egress(int event_type, int interval_id, int port_id, tw_lp* lp) {
     if (interval_id >= cfg.num_send_intervals + cfg.num_drain_intervals) {
         return;
     }
-    tw_event* e = tw_event_new(lp->gid, delay_until_ns(interval_id, PHASE_SWITCH_EGRESS, lp), lp);
+
+    double phase = 0.0;
+    if (event_type == SWITCH_EGRESS_EARLY) {
+        phase = PHASE_EARLY_SWITCH_EGRESS;
+    } else if (event_type == SWITCH_EGRESS_LATE) {
+        phase = PHASE_LATE_SWITCH_EGRESS;
+    } else {
+        tw_error(TW_LOC, "invalid switch egress event type %d", event_type);
+    }
+
+    tw_event* e = tw_event_new(lp->gid, delay_until_ns(interval_id, phase, lp), lp);
     fluid_msg* m = (fluid_msg*)tw_event_data(e);
     memset(m, 0, sizeof(*m));
-    m->event_type = SWITCH_EGRESS;
+    m->event_type = event_type;
     m->interval_id = interval_id;
     m->port_id = port_id;
     tw_event_send(e);
 }
 
-static void request_switch_egress(switch_state* ns, int interval_id, int port_id, tw_lp* lp,
-                                  fluid_msg* cause_msg) {
+static std::vector<unsigned char>* scheduled_egress_flags(switch_state* ns,
+                                                          int event_type,
+                                                          int port_id) {
+    if (event_type == SWITCH_EGRESS_EARLY) {
+        return ns->scheduled_early_egress[port_id];
+    }
+    if (event_type == SWITCH_EGRESS_LATE) {
+        return ns->scheduled_late_egress[port_id];
+    }
+    tw_error(TW_LOC, "invalid switch egress event type %d", event_type);
+    return NULL;
+}
+
+static void undo_requested_switch_egress(switch_state* ns, fluid_msg* m) {
+    if (!m->rc_egress_request_created) {
+        return;
+    }
+
+    std::vector<unsigned char>* flags = scheduled_egress_flags(
+        ns, m->rc_egress_request_event_type, m->rc_egress_request_port);
+    int interval_id = m->rc_egress_request_interval;
+    if (flags == NULL || interval_id < 0 || interval_id >= (int)flags->size()) {
+        tw_error(TW_LOC, "invalid rollback egress request: switch %d port %d interval %d",
+                 ns->switch_id, m->rc_egress_request_port, interval_id);
+    }
+    if (!(*flags)[interval_id]) {
+        tw_error(TW_LOC,
+                 "rollback expected scheduled egress flag: switch %d port %d interval %d",
+                 ns->switch_id, m->rc_egress_request_port, interval_id);
+    }
+    (*flags)[interval_id] = 0;
+}
+
+static void request_switch_egress(switch_state* ns, int event_type, int interval_id,
+                                  int port_id, tw_lp* lp, fluid_msg* cause_msg) {
     if (port_id < 0 || port_id >= ns->num_ports) {
         tw_error(TW_LOC, "invalid request_switch_egress port %d on switch %d", port_id,
                  ns->switch_id);
     }
 
-    int prev = ns->scheduled_egress_interval[port_id];
-
-    if (cause_msg != NULL) {
-        cause_msg->rc_prev_scheduled_egress_interval = prev;
-    }
-
-    if (interval_id >= cfg.num_send_intervals + cfg.num_drain_intervals) {
+    int total_intervals = cfg.num_send_intervals + cfg.num_drain_intervals;
+    if (interval_id < 0 || interval_id >= total_intervals) {
         return;
     }
 
-    if (prev == interval_id) {
+    std::vector<unsigned char>* flags = scheduled_egress_flags(ns, event_type, port_id);
+    if (flags == NULL || interval_id >= (int)flags->size()) {
+        tw_error(TW_LOC, "egress scheduling interval %d out of range on switch %d port %d",
+                 interval_id, ns->switch_id, port_id);
+    }
+    if ((*flags)[interval_id]) {
         return;
     }
 
-    if (prev >= 0 && prev < interval_id) {
-        /*
-         * An earlier egress is already outstanding.  Let that earlier event
-         * decide whether residual bytes require a later egress.
-         */
-        return;
-    }
-
-    if (prev >= 0 && prev > interval_id) {
+    if (cause_msg != NULL && cause_msg->rc_egress_request_created) {
         tw_error(TW_LOC,
-                 "switch %d port %d has future egress interval %d while trying "
-                 "to schedule earlier interval %d",
-                 ns->switch_id, port_id, prev, interval_id);
+                 "event attempted to create more than one egress request on switch %d",
+                 ns->switch_id);
     }
 
-    schedule_switch_egress(interval_id, port_id, lp);
-    ns->scheduled_egress_interval[port_id] = interval_id;
+    (*flags)[interval_id] = 1;
+    schedule_switch_egress(event_type, interval_id, port_id, lp);
 
     if (cause_msg != NULL) {
+        cause_msg->rc_egress_request_created = 1;
+        cause_msg->rc_egress_request_event_type = event_type;
+        cause_msg->rc_egress_request_interval = interval_id;
+        cause_msg->rc_egress_request_port = port_id;
     }
+}
+
+static void schedule_pause_update(int interval_id, tw_lpid dst_gid, int pause_asserted,
+                                  int pause_source_switch, tw_lp* lp) {
+    tw_event* e =
+        tw_event_new(dst_gid, delay_until_ns(interval_id, PHASE_PAUSE_UPDATE, lp), lp);
+    fluid_msg* m = (fluid_msg*)tw_event_data(e);
+    memset(m, 0, sizeof(*m));
+    m->event_type = ETHERNET_PAUSE_FRAME_UPDATE;
+    m->interval_id = interval_id;
+    m->pause_asserted = pause_asserted;
+    m->pause_source_switch = pause_source_switch;
+    tw_event_send(e);
+}
+
+static bool switch_has_directed_link_to(int src_switch, int dst_switch) {
+    const switch_info& sw = switches[src_switch];
+    for (size_t i = 0; i < sw.links.size(); ++i) {
+        if (sw.links[i].dst_switch == dst_switch) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void broadcast_pause_update(switch_state* ns, int interval_id, int pause_asserted,
+                                   tw_lp* lp) {
+    const switch_info& sw = switches[ns->switch_id];
+
+    for (int t = 0; t < sw.terminal_count; ++t) {
+        int terminal_id = sw.terminal_start + t;
+        schedule_pause_update(interval_id, get_terminal_gid(terminal_id), pause_asserted,
+                              ns->switch_id, lp);
+        ns->pause_updates_sent++;
+        if (pause_asserted) {
+            ns->pause_frames_sent++;
+        } else {
+            ns->resume_frames_sent++;
+        }
+    }
+
+    for (int upstream_switch = 0; upstream_switch < (int)switches.size(); ++upstream_switch) {
+        if (upstream_switch == ns->switch_id ||
+            !switch_has_directed_link_to(upstream_switch, ns->switch_id)) {
+            continue;
+        }
+        schedule_pause_update(interval_id, get_switch_gid(upstream_switch), pause_asserted,
+                              ns->switch_id, lp);
+        ns->pause_updates_sent++;
+        if (pause_asserted) {
+            ns->pause_frames_sent++;
+        } else {
+            ns->resume_frames_sent++;
+        }
+    }
+}
+
+static void maybe_update_pause_state(switch_state* ns, int interval_id, tw_lp* lp,
+                                     fluid_msg* cause_msg) {
+    double occupied = queued_mbit_on_switch(ns);
+    int desired = ns->pause_asserted;
+
+    if (!ns->pause_asserted && occupied + EPS >= ns->pause_high_watermark_mbit) {
+        desired = 1;
+    } else if (ns->pause_asserted && occupied <= ns->pause_low_watermark_mbit + EPS) {
+        desired = 0;
+    }
+
+    cause_msg->rc_pause_state_changed = 0;
+    cause_msg->rc_prev_pause_until_interval = ns->pause_asserted;
+    if (desired == ns->pause_asserted) {
+        return;
+    }
+
+    ns->pause_asserted = desired;
+    cause_msg->rc_pause_state_changed = 1;
+    broadcast_pause_update(ns, interval_id, desired, lp);
 }
 
 static void schedule_arrival(int interval_id, tw_lpid dst_gid, const fluid_msg* src_msg,
@@ -1198,6 +1370,7 @@ static void terminal_init(terminal_state* ns, tw_lp* lp) {
     ns->attached_switch = terminals[ns->terminal_id].switch_id;
     ns->local_terminal_id = terminals[ns->terminal_id].local_id;
     ns->next_flowlet_seq = 0;
+    ns->link_paused_until_interval = -1;
     schedule_workload_generate(ns, first_terminal_generate_interval(), lp);
 }
 
@@ -1339,6 +1512,13 @@ static void handle_workload_generate(terminal_state* ns, fluid_msg* m, tw_lp* lp
     m->destination_terminal = -1;
     m->flowlet_id = 0;
 
+    if (interval < ns->link_paused_until_interval) {
+        ns->link_paused_intervals++;
+        m->rc_pause_target_port = -2;
+        schedule_workload_generate(ns, next_terminal_generate_interval_after(interval), lp);
+        return;
+    }
+
     double p = tw_rand_unif(lp->rng);
     m->rc_rng_count++;
 
@@ -1403,6 +1583,24 @@ static void terminal_event(terminal_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp
     case FLOWLET_ARRIVAL:
         handle_terminal_arrival(ns, m);
         break;
+    case ETHERNET_PAUSE_FRAME_UPDATE:
+        m->rc_prev_pause_until_interval = ns->link_paused_until_interval;
+        if (m->pause_asserted) {
+            ns->link_paused_until_interval =
+                std::max(ns->link_paused_until_interval,
+                         m->interval_id + cfg.pause_duration_intervals);
+        } else {
+            ns->link_paused_until_interval = m->interval_id;
+        }
+        m->rc_pause_state_changed =
+            (ns->link_paused_until_interval != m->rc_prev_pause_until_interval);
+        ns->pause_updates_received++;
+        if (m->pause_asserted) {
+            ns->pause_frames_received++;
+        } else {
+            ns->resume_frames_received++;
+        }
+        break;
     default:
         tw_error(TW_LOC, "terminal received unknown event type %d", m->event_type);
     }
@@ -1413,6 +1611,9 @@ static void terminal_rev_event(terminal_state* ns, tw_bf* b, fluid_msg* m, tw_lp
 
     switch (m->event_type) {
     case WORKLOAD_GENERATE:
+        if (m->rc_pause_target_port == -2) {
+            ns->link_paused_intervals--;
+        }
         if (m->rc_generated) {
             ns->generated_mbit -= m->mbit;
             ns->sent_to_switch_mbit -= m->mbit;
@@ -1435,6 +1636,16 @@ static void terminal_rev_event(terminal_state* ns, tw_bf* b, fluid_msg* m, tw_lp
     case FLOWLET_ARRIVAL:
         ns->received_mbit -= m->mbit;
         ns->received_fragments--;
+        break;
+
+    case ETHERNET_PAUSE_FRAME_UPDATE:
+        ns->link_paused_until_interval = m->rc_prev_pause_until_interval;
+        ns->pause_updates_received--;
+        if (m->pause_asserted) {
+            ns->pause_frames_received--;
+        } else {
+            ns->resume_frames_received--;
+        }
         break;
 
     default:
@@ -1471,9 +1682,13 @@ static void terminal_commit_event(terminal_state* ns, tw_bf* b, fluid_msg* m, tw
 static void terminal_finalize(terminal_state* ns, tw_lp* lp) {
     printf(
         "fluid-flow-wan-terminal gid=%llu terminal=%d switch=%d generated_mbit=%.6f sent_mbit=%.6f "
-        "received_mbit=%.6f generated_flowlets=%d received_fragments=%d\n",
+        "received_mbit=%.6f pause_updates_received=%llu pause_frames_received=%llu "
+        "resume_frames_received=%llu link_paused_intervals=%llu generated_flowlets=%d "
+        "received_fragments=%d\n",
         (unsigned long long)lp->gid, ns->terminal_id, ns->attached_switch, ns->generated_mbit,
-        ns->sent_to_switch_mbit, ns->received_mbit, ns->generated_flowlets, ns->received_fragments);
+        ns->sent_to_switch_mbit, ns->received_mbit, ns->pause_updates_received,
+        ns->pause_frames_received, ns->resume_frames_received, ns->link_paused_intervals,
+        ns->generated_flowlets, ns->received_fragments);
 }
 
 static void switch_init(switch_state* ns, tw_lp* lp) {
@@ -1483,9 +1698,16 @@ static void switch_init(switch_state* ns, tw_lp* lp) {
         tw_error(TW_LOC, "switch LP relative id %d out of range", ns->switch_id);
     }
 
+    int total_intervals = cfg.num_send_intervals + cfg.num_drain_intervals;
     for (int p = 0; p < MAX_PORTS_PER_SWITCH; ++p) {
-        ns->scheduled_egress_interval[p] = -1;
+        ns->scheduled_early_egress[p] =
+            new std::vector<unsigned char>(total_intervals, 0);
+        ns->scheduled_late_egress[p] =
+            new std::vector<unsigned char>(total_intervals, 0);
+        ns->capacity_accounting_interval[p] = -1;
+        ns->capacity_used_mbit[p] = 0.0;
         ns->rr_next_queue_index[p] = 0;
+        ns->output_link_paused_until_interval[p] = -1;
     }
 
     const switch_info& sw = switches[ns->switch_id];
@@ -1499,6 +1721,10 @@ static void switch_init(switch_state* ns, tw_lp* lp) {
     if (ns->shared_buffer_mbit < 0.0) {
         tw_error(TW_LOC, "negative shared switch buffer on switch %d", ns->switch_id);
     }
+    ns->pause_high_watermark_mbit =
+        ns->shared_buffer_mbit * cfg.pause_high_watermark_fraction;
+    ns->pause_low_watermark_mbit =
+        ns->shared_buffer_mbit * cfg.pause_low_watermark_fraction;
 
     for (size_t i = 0; i < sw.links.size(); ++i) {
         if (ns->num_ports >= MAX_PORTS_PER_SWITCH) {
@@ -1533,6 +1759,7 @@ static void switch_init(switch_state* ns, tw_lp* lp) {
 
 
 static void handle_switch_arrival(switch_state* ns, fluid_msg* m, tw_lp* lp) {
+    m->rc_egress_request_created = 0;
     ns->received_fragments++;
     int dst_sw = terminals[m->destination_terminal].switch_id;
     int port_id = -1;
@@ -1551,7 +1778,6 @@ static void handle_switch_arrival(switch_state* ns, fluid_msg* m, tw_lp* lp) {
         m->rc_port_id = -1;
         m->rc_accepted_mbit = 0.0;
         m->rc_dropped_mbit = m->mbit;
-        m->rc_prev_scheduled_egress_interval = -1;
         m->rc_log_target_is_terminal = 0;
         m->rc_log_target_index = -1;
         m->rc_log_capacity_mbit = 0.0;
@@ -1583,7 +1809,6 @@ static void handle_switch_arrival(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     m->rc_coalesced = 0;
     m->rc_accepted_mbit = 0.0;
     m->rc_dropped_mbit = 0.0;
-    m->rc_prev_scheduled_egress_interval = ns->scheduled_egress_interval[port_id];
     m->rc_log_target_is_terminal = p->is_terminal;
     m->rc_log_target_index = p->target_index;
     m->rc_log_capacity_mbit = p->capacity_mbit_per_interval;
@@ -1616,9 +1841,10 @@ static void handle_switch_arrival(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     m->rc_log_active_after_entries = active_after;
 
     log_switch_arrival_event(ns, m);
+    maybe_update_pause_state(ns, m->interval_id, lp, m);
 
     if (port_queued_after > EPS) {
-        request_switch_egress(ns, m->interval_id, port_id, lp, m);
+        request_switch_egress(ns, SWITCH_EGRESS_LATE, m->interval_id, port_id, lp, m);
     }
 }
 
@@ -1655,27 +1881,48 @@ static void send_flowlet_fragment(switch_state* ns, int port_id, const queued_fl
 }
 
 static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
+    m->rc_egress_request_created = 0;
     int port_id = m->port_id;
     if (port_id < 0 || port_id >= ns->num_ports) {
         tw_error(TW_LOC, "invalid switch egress port %d", port_id);
     }
+
+    std::vector<unsigned char>* scheduled =
+        scheduled_egress_flags(ns, m->event_type, port_id);
+    m->rc_egress_event_active =
+        scheduled != NULL && m->interval_id >= 0 &&
+        m->interval_id < (int)scheduled->size() && (*scheduled)[m->interval_id];
+
+    /* A duplicate or canceled event is a forward and reverse no-op. */
+    if (!m->rc_egress_event_active) {
+        return;
+    }
+
+    (*scheduled)[m->interval_id] = 0;
+
     if (ns->queues[port_id] == NULL) {
-        m->rc_prev_scheduled_egress_interval = -1;
         m->rc_prev_rr_next_queue_index = 0;
+        m->rc_prev_capacity_accounting_interval =
+            ns->capacity_accounting_interval[port_id];
+        m->rc_prev_capacity_used_mbit = ns->capacity_used_mbit[port_id];
         return;
     }
 
     port_desc* p = &ns->ports[port_id];
     std::vector<queued_flowlet>& qv = *ns->queues[port_id];
 
-    m->rc_prev_scheduled_egress_interval = ns->scheduled_egress_interval[port_id];
     m->rc_prev_rr_next_queue_index = ns->rr_next_queue_index[port_id];
-    if (ns->scheduled_egress_interval[port_id] == m->interval_id) {
-        ns->scheduled_egress_interval[port_id] = -1;
+    m->rc_prev_capacity_accounting_interval = ns->capacity_accounting_interval[port_id];
+    m->rc_prev_capacity_used_mbit = ns->capacity_used_mbit[port_id];
+
+    if (ns->capacity_accounting_interval[port_id] != m->interval_id) {
+        ns->capacity_accounting_interval[port_id] = m->interval_id;
+        ns->capacity_used_mbit[port_id] = 0.0;
     }
 
     double capacity = p->capacity_mbit_per_interval;
-    double remaining_capacity = capacity;
+    double remaining_capacity =
+        std::max(0.0, capacity - ns->capacity_used_mbit[port_id]);
     double sent_total = 0.0;
     double queued_before = queued_mbit_on_port(ns, port_id);
     double shared_queued_before = queued_mbit_on_switch(ns);
@@ -1694,6 +1941,19 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     m->rc_log_sent_total_mbit = 0.0;
     m->rc_log_active_before_entries = active_before;
     m->rc_log_active_after_entries = active_before;
+    m->rc_pause_state_changed = 0;
+    m->rc_prev_pause_until_interval = ns->pause_asserted;
+    m->rc_pause_target_port = -1;
+
+    if (m->interval_id < ns->output_link_paused_until_interval[port_id]) {
+        ns->paused_egress_intervals++;
+        m->rc_pause_target_port = port_id;
+        log_switch_egress_event(ns, m);
+        if (queued_before > EPS) {
+            request_switch_egress(ns, SWITCH_EGRESS_EARLY, m->interval_id + 1, port_id, lp, m);
+        }
+        return;
+    }
 
     auto add_to_plan = [&](int idx, double requested_send) -> double {
         if (idx < 0 || idx >= (int)send_plan.size() || requested_send <= EPS) {
@@ -1811,6 +2071,13 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
         sent_total += send;
     }
 
+    ns->capacity_used_mbit[port_id] += sent_total;
+    if (ns->capacity_used_mbit[port_id] > capacity + EPS) {
+        tw_error(TW_LOC,
+                 "switch %d port %d exceeded interval capacity: used %.12f capacity %.12f",
+                 ns->switch_id, port_id, ns->capacity_used_mbit[port_id], capacity);
+    }
+
     compact_port_queue(ns, port_id);
 
     /*
@@ -1835,17 +2102,41 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     m->rc_log_active_after_entries = active_after;
 
     log_switch_egress_event(ns, m);
+    maybe_update_pause_state(ns, m->interval_id, lp, m);
 
     if (queued_after > EPS) {
-        /*
-         * This event's reverse handler restores scheduled_egress_interval from
-         * rc_prev_scheduled_egress_interval.  Pass NULL here so the next-event
-         * scheduling does not overwrite this event's saved pre-state.
-         */
-        request_switch_egress(ns, m->interval_id + 1, port_id, lp, NULL);
+        request_switch_egress(ns, SWITCH_EGRESS_EARLY, m->interval_id + 1, port_id, lp, m);
     }
 }
 
+
+static void handle_switch_pause_update(switch_state* ns, fluid_msg* m) {
+    int port_id = find_switch_link_port(ns, m->pause_source_switch);
+    if (port_id < 0) {
+        tw_error(TW_LOC,
+                 "switch %d received PAUSE update from switch %d but has no output link to it",
+                 ns->switch_id, m->pause_source_switch);
+    }
+
+    m->rc_pause_target_port = port_id;
+    m->rc_prev_pause_until_interval = ns->output_link_paused_until_interval[port_id];
+    if (m->pause_asserted) {
+        ns->output_link_paused_until_interval[port_id] =
+            std::max(ns->output_link_paused_until_interval[port_id],
+                     m->interval_id + cfg.pause_duration_intervals);
+    } else {
+        ns->output_link_paused_until_interval[port_id] = m->interval_id;
+    }
+    m->rc_pause_state_changed =
+        (ns->output_link_paused_until_interval[port_id] !=
+         m->rc_prev_pause_until_interval);
+    ns->pause_updates_received++;
+    if (m->pause_asserted) {
+        ns->pause_frames_received++;
+    } else {
+        ns->resume_frames_received++;
+    }
+}
 
 static void switch_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp) {
     (void)b;
@@ -1853,8 +2144,12 @@ static void switch_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp) {
     case FLOWLET_ARRIVAL:
         handle_switch_arrival(ns, m, lp);
         break;
-    case SWITCH_EGRESS:
+    case SWITCH_EGRESS_EARLY:
+    case SWITCH_EGRESS_LATE:
         handle_switch_egress(ns, m, lp);
+        break;
+    case ETHERNET_PAUSE_FRAME_UPDATE:
+        handle_switch_pause_update(ns, m);
         break;
     default:
         tw_error(TW_LOC, "switch received unknown event type %d", m->event_type);
@@ -1862,11 +2157,25 @@ static void switch_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp) {
 }
 
 static void rollback_switch_arrival(switch_state* ns, fluid_msg* m) {
+    if (m->rc_pause_state_changed) {
+        const switch_info& sw = switches[ns->switch_id];
+        unsigned long long recipients = sw.terminal_count;
+        for (int upstream = 0; upstream < (int)switches.size(); ++upstream) {
+            if (upstream != ns->switch_id && switch_has_directed_link_to(upstream, ns->switch_id)) {
+                recipients++;
+            }
+        }
+        ns->pause_updates_sent -= recipients;
+        if (ns->pause_asserted) {
+            ns->pause_frames_sent -= recipients;
+        } else {
+            ns->resume_frames_sent -= recipients;
+        }
+        ns->pause_asserted = m->rc_prev_pause_until_interval;
+    }
     ns->received_fragments--;
 
-    if (!m->rc_no_route && m->rc_port_id >= 0 && m->rc_port_id < ns->num_ports) {
-        ns->scheduled_egress_interval[m->rc_port_id] = m->rc_prev_scheduled_egress_interval;
-    }
+    undo_requested_switch_egress(ns, m);
 
     if (m->rc_no_route) {
         ns->dropped_mbit -= m->rc_dropped_mbit;
@@ -1910,18 +2219,56 @@ static void rollback_switch_arrival(switch_state* ns, fluid_msg* m) {
         qv.erase(qv.begin() + idx);
     }
 
-    ns->enqueued_mbit -= m->rc_accepted_mbit;
+    ns->admitted_arrival_mbit -= m->rc_accepted_mbit;
 }
 
 static void rollback_switch_egress(switch_state* ns, fluid_msg* m) {
+    if (!m->rc_egress_event_active) {
+        return;
+    }
+
     int port_id = m->port_id;
 
     if (port_id < 0 || port_id >= ns->num_ports || ns->queues[port_id] == NULL) {
         tw_error(TW_LOC, "invalid rollback egress port %d on switch %d", port_id, ns->switch_id);
     }
 
-    ns->scheduled_egress_interval[port_id] = m->rc_prev_scheduled_egress_interval;
+    undo_requested_switch_egress(ns, m);
+
+    std::vector<unsigned char>* scheduled =
+        scheduled_egress_flags(ns, m->event_type, port_id);
+    if (scheduled == NULL || m->interval_id < 0 ||
+        m->interval_id >= (int)scheduled->size()) {
+        tw_error(TW_LOC, "invalid rollback egress interval %d on switch %d port %d",
+                 m->interval_id, ns->switch_id, port_id);
+    }
+    (*scheduled)[m->interval_id] = 1;
     ns->rr_next_queue_index[port_id] = m->rc_prev_rr_next_queue_index;
+    ns->capacity_accounting_interval[port_id] =
+        m->rc_prev_capacity_accounting_interval;
+    ns->capacity_used_mbit[port_id] = m->rc_prev_capacity_used_mbit;
+
+    if (m->rc_pause_target_port == port_id && m->rc_alloc_count == 0) {
+        ns->paused_egress_intervals--;
+        return;
+    }
+
+    if (m->rc_pause_state_changed) {
+        const switch_info& sw = switches[ns->switch_id];
+        unsigned long long recipients = sw.terminal_count;
+        for (int upstream = 0; upstream < (int)switches.size(); ++upstream) {
+            if (upstream != ns->switch_id && switch_has_directed_link_to(upstream, ns->switch_id)) {
+                recipients++;
+            }
+        }
+        ns->pause_updates_sent -= recipients;
+        if (ns->pause_asserted) {
+            ns->pause_frames_sent -= recipients;
+        } else {
+            ns->resume_frames_sent -= recipients;
+        }
+        ns->pause_asserted = m->rc_prev_pause_until_interval;
+    }
 
     std::vector<queued_flowlet>& qv = *ns->queues[port_id];
     const port_desc* p = &ns->ports[port_id];
@@ -1972,8 +2319,20 @@ static void switch_rev_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp
         rollback_switch_arrival(ns, m);
         break;
 
-    case SWITCH_EGRESS:
+    case SWITCH_EGRESS_EARLY:
+    case SWITCH_EGRESS_LATE:
         rollback_switch_egress(ns, m);
+        break;
+
+    case ETHERNET_PAUSE_FRAME_UPDATE:
+        ns->output_link_paused_until_interval[m->rc_pause_target_port] =
+            m->rc_prev_pause_until_interval;
+        ns->pause_updates_received--;
+        if (m->pause_asserted) {
+            ns->pause_frames_received--;
+        } else {
+            ns->resume_frames_received--;
+        }
         break;
 
     default:
@@ -1996,7 +2355,8 @@ static void switch_commit_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp*
         log_switch_arrival_event(ns, m);
         break;
 
-    case SWITCH_EGRESS:
+    case SWITCH_EGRESS_EARLY:
+    case SWITCH_EGRESS_LATE:
         log_switch_egress_event(ns, m);
         break;
 
@@ -2013,15 +2373,27 @@ static void switch_finalize(switch_state* ns, tw_lp* lp) {
         queued += queued_mbit_on_port(ns, p);
     }
     printf("fluid-flow-wan gid=%llu switch=%d name=%s ports=%d shared_buffer_mbit=%.6f "
-           "received_fragments=%d sent_fragments=%d enqueued_mbit=%.6f sent_mbit=%.6f "
-           "local_delivery_mbit=%.6f dropped_mbit=%.6f queued_mbit=%.6f\n",
+           "received_fragments=%d sent_fragments=%d admitted_arrival_mbit=%.6f sent_mbit=%.6f "
+           "local_delivery_mbit=%.6f dropped_mbit=%.6f ready_queue_mbit=%.6f "
+           "shared_buffer_occupied_mbit=%.6f pause_asserted=%d pause_updates_sent=%llu "
+           "pause_frames_sent=%llu resume_frames_sent=%llu pause_updates_received=%llu "
+           "pause_frames_received=%llu resume_frames_received=%llu paused_egress_intervals=%llu\n",
            (unsigned long long)lp->gid, ns->switch_id, switches[ns->switch_id].name.c_str(),
            ns->num_ports, ns->shared_buffer_mbit, ns->received_fragments, ns->sent_fragments,
-           ns->enqueued_mbit, ns->sent_mbit, ns->delivered_local_mbit, ns->dropped_mbit, queued);
+           ns->admitted_arrival_mbit, ns->sent_mbit, ns->delivered_local_mbit, ns->dropped_mbit,
+           queued, queued, ns->pause_asserted, ns->pause_updates_sent, ns->pause_frames_sent,
+           ns->resume_frames_sent, ns->pause_updates_received, ns->pause_frames_received,
+           ns->resume_frames_received, ns->paused_egress_intervals);
 
     for (int p = 0; p < ns->num_ports; ++p) {
         delete ns->queues[p];
         ns->queues[p] = NULL;
+    }
+    for (int p = 0; p < MAX_PORTS_PER_SWITCH; ++p) {
+        delete ns->scheduled_early_egress[p];
+        delete ns->scheduled_late_egress[p];
+        ns->scheduled_early_egress[p] = NULL;
+        ns->scheduled_late_egress[p] = NULL;
     }
 }
 
