@@ -14,6 +14,7 @@
 #include <cerrno>
 #include <climits> /* LONG_MAX: guard dimension-product overflow */
 #include <cstdlib>
+#include <iterator>  /* std::size */
 #include <strings.h> /* strcasecmp: section names are case-insensitive */
 #include <string>
 #include <utility>
@@ -325,11 +326,6 @@ const param_unit simplenet_units[] = {
     {"net_bw_mbps", quantity::bandwidth, BW_MIB_S},
 };
 
-/* count of a param_unit table declared as a C array */
-template <class T, size_t N> constexpr size_t array_len(const T (&)[N]) {
-    return N;
-}
-
 /* Find the unit metadata for a PARAMS key: the model's own table first, then the
  * shared common table; nullptr if the key is not a known dimensioned param. */
 const param_unit* find_param_unit(const param_unit* model_units, size_t n_model,
@@ -549,24 +545,24 @@ layout derive_dragonfly_custom(const kv_list& shape) {
 
 const fabric_model fabric_models[] = {
     {"dragonfly", "modelnet_dragonfly", "modelnet_dragonfly_router", "dragonfly",
-     "dragonfly_router", derive_dragonfly, dragonfly_units, array_len(dragonfly_units)},
+     "dragonfly_router", derive_dragonfly, dragonfly_units, std::size(dragonfly_units)},
     {"dragonfly-dally", "modelnet_dragonfly_dally", "modelnet_dragonfly_dally_router",
      "dragonfly_dally", "dragonfly_dally_router", derive_dragonfly_dally, dragonfly_dally_units,
-     array_len(dragonfly_dally_units)},
+     std::size(dragonfly_dally_units)},
     {"fattree", "modelnet_fattree", "fattree_switch", "fattree", nullptr, derive_fattree,
-     fattree_units, array_len(fattree_units)},
+     fattree_units, std::size(fattree_units)},
     {"torus", "modelnet_torus", nullptr, "torus", nullptr, derive_torus, torus_units,
-     array_len(torus_units)},
+     std::size(torus_units)},
     {"express-mesh", "modelnet_express_mesh", "modelnet_express_mesh_router", "express_mesh",
-     "express_mesh_router", derive_express_mesh, express_mesh_units, array_len(express_mesh_units)},
+     "express_mesh_router", derive_express_mesh, express_mesh_units, std::size(express_mesh_units)},
     {"slimfly", "modelnet_slimfly", "modelnet_slimfly_router", "slimfly", "slimfly_router",
-     derive_slimfly, slimfly_units, array_len(slimfly_units)},
+     derive_slimfly, slimfly_units, std::size(slimfly_units)},
     {"dragonfly-plus", "modelnet_dragonfly_plus", "modelnet_dragonfly_plus_router",
      "dragonfly_plus", "dragonfly_plus_router", derive_dragonfly_plus, dragonfly_plus_units,
-     array_len(dragonfly_plus_units)},
+     std::size(dragonfly_plus_units)},
     {"dragonfly-custom", "modelnet_dragonfly_custom", "modelnet_dragonfly_custom_router",
      "dragonfly_custom", "dragonfly_custom_router", derive_dragonfly_custom, dragonfly_custom_units,
-     array_len(dragonfly_custom_units)},
+     std::size(dragonfly_custom_units)},
 };
 
 const fabric_model* find_fabric_model(const std::string& name) {
@@ -588,7 +584,7 @@ struct network_model {
 };
 
 const network_model network_models[] = {
-    {"simplenet", "modelnet_simplenet", "simplenet", simplenet_units, array_len(simplenet_units)},
+    {"simplenet", "modelnet_simplenet", "simplenet", simplenet_units, std::size(simplenet_units)},
     /* simplep2p and loggp read their rates from files (paths pass through as
      * non-numeric values), so they declare no scalar dimensioned param here. */
     {"simplep2p", "modelnet_simplep2p", "simplep2p", nullptr, 0},

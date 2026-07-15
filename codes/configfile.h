@@ -7,6 +7,16 @@
 #ifndef SRC_COMMON_MODELCONFIG_CONFIGFILE_H
 #define SRC_COMMON_MODELCONFIG_CONFIGFILE_H
 
+/**
+ * @file configfile.h
+ *
+ * The C API for the in-memory config store: a tree of (possibly nested)
+ * sections holding keys and multikeys, with operations to look them up, iterate
+ * a section's entries, dump the store, and compare two stores structurally
+ * (cf_equal/cf_equal_report). Both config front-ends (legacy `.conf` and the
+ * YAML compiler) populate this same representation.
+ */
+
 #include <stddef.h> /* size_t */
 #include <stdio.h>  /* FILE (cf_equal_report) */
 #include <stdlib.h>
