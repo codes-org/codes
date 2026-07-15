@@ -33,14 +33,9 @@ FLUID_FLOW_WAN
     terminal_max_send_fraction_of_link_capacity="1.0";
 
     debug_prints="0";
-    # This can be either round_robin or fifo.
-    switch_scheduler="round_robin";
-    round_robin_max_entries_per_egress="8";
-    round_robin_quantum_mbit="0";
 
-    # Basic link-wide Ethernet PAUSE hysteresis.  A congested switch broadcasts
-    # PAUSE/RESUME updates to every attached terminal and every neighboring
-    # switch with a directed link into it.
+    # Per-ingress Ethernet PAUSE hysteresis using the shared switch buffer.
+    # Congested switches pause the largest ingress contributors first.
     pause_high_watermark_fraction="0.80";
     pause_low_watermark_fraction="0.50";
     pause_duration_intervals="2";
