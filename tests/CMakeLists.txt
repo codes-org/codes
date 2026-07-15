@@ -803,3 +803,18 @@ codes_add_run_test(
     BINARY model-net-synthetic
     ARGS   --sync=1 --num_messages=1 -- "${_tconf}/synthetic-workload-dragonfly.yaml"
     MARKER "sent_count 1 recvd_count")
+
+# Multi-job guard: a jobs: block with more than one job compiles to a JOBS
+# section, which the synthetic mains cannot execute (one global traffic pattern,
+# no per-job destination dispatch). codes_workload_config_check_unsupported_jobs
+# must abort the run with its diagnostic rather than silently running global
+# traffic over the placement. Gate on the diagnostic text with
+# PASS_REGULAR_EXPRESSION (a match passes and the abort's non-zero exit is
+# ignored) instead of the clean-exit helpers; the guard fires before tw_run, so
+# the aborted run leaves no output files behind.
+add_test(NAME modelnet-synthetic-rejects-multi-job-config
+    COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS}
+            $<TARGET_FILE:model-net-synthetic> --sync=1
+            ${MPIEXEC_POSTFLAGS} -- "${_tconf}/multi-job-dragonfly.yaml")
+set_tests_properties(modelnet-synthetic-rejects-multi-job-config PROPERTIES
+    PASS_REGULAR_EXPRESSION "places 2 jobs.*cannot execute per-job placement")
