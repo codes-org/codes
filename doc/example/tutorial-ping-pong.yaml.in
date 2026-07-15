@@ -9,6 +9,11 @@ schema_version: 1
 # as in the .conf. The compiler derives repetitions = num_groups * num_routers and
 # lays out the [workload, terminal, router] LPs, so nw-lp / modelnet_dragonfly_dally*
 # are emitted for you.
+#
+# To also collect model-level stats through the ROSS instrumentation layer, add e.g.
+#   --model-stats=1 --num-gvt=8 --stats-path=model-stats-out
+# to the run command (see doc/model-stats-binary-format.md for all modes and the
+# output format; scripts/parse-ross-model-stats.py parses the result).
 
 components:
   compute_host:
@@ -49,7 +54,7 @@ topology:
 # scheduler options (alternative: round-robin)
     modelnet_scheduler: fcfs
 # ROSS message size
-    message_size: 440
+    message_size: 456
 # router buffer occupancy snapshots
     router_buffer_snapshots: [ ${BUFFER_SNAPSHOTS} ]
 # folder path to store packet latency from terminal to terminal, if no value is given it won't save anything
