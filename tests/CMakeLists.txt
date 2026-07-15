@@ -12,9 +12,13 @@ option(CODES_ENABLE_ZMQML_HYBRID_TESTS
 # is ROSS-free by design, so it compiles straight into the test with ryml -- no
 # codes/ROSS/MPI link -- and the tests assert on the returned compiled_config.
 # Unit tests run serially (no MPI), distinct from the mpiexec-launched model
-# tests below.
+# tests below. The suite is split across three per-area translation units that
+# GoogleTest links into this one binary (core compiler, unit conversion, and
+# simulation/workload/jobs), sharing fixtures via config-compiler-test-util.h.
 add_executable(codes-config-compiler-test
     codes-config-compiler-test.cxx
+    codes-unit-convert-test.cxx
+    codes-config-workload-test.cxx
     ${CMAKE_SOURCE_DIR}/src/modelconfig/config_compiler.cxx
     ${CMAKE_SOURCE_DIR}/src/modelconfig/unit_convert.cxx
     ${CODES_RYML_IMPL_TU})
