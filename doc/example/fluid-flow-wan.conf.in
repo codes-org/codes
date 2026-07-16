@@ -40,8 +40,8 @@ FLUID_FLOW_WAN
     pause_low_watermark_fraction="0.50";
     pause_duration_intervals="2";
 
-    terminal_log_path="../../zmqml_artifacts/fluid-flow-wan/terminal-events.csv";
-    switch_log_path="../../zmqml_artifacts/fluid-flow-wan/switch-events.csv";
-    flowlet_log_path="../../zmqml_artifacts/fluid-flow-wan/flowlet-events.csv";
-    switch_training_log_path="../../zmqml_artifacts/fluid-flow-wan/switch-training.csv";
+    terminal_log_path="logs/terminal-events.csv";
+    switch_log_path="logs/switch-events.csv";
+    flowlet_log_path="logs/flowlet-events.csv";
+    switch_training_log_path="logs/switch-training.csv";
 }
