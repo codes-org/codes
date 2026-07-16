@@ -15,7 +15,6 @@ configure_file(kb.dfdally-72-zeromq-director.conf.in kb.dfdally-72-zeromq-direct
 configure_file(kb.dfdally-72-event-time-director.conf.in kb.dfdally-72-event-time-director.template.conf.in @ONLY)
 configure_file(kb.dfdally-72-milc-small.workload.conf.in kb.dfdally-72-milc-small.workload.template.conf.in @ONLY)
 configure_file(fluid-flow-wan.conf.in fluid-flow-wan.template.conf.in @ONLY)
-configure_file(kb.dfdally-72-zeromq-director.conf.in kb.dfdally-72-zeromq-director.template.conf.in @ONLY)
 
 set(single_quote "'")
 set(double_quote "\"")
@@ -47,4 +46,3 @@ configure_file(fluid-flow-wan.conf.in fluid-flow-wan.conf)
 configure_file(kb.dfdally-72-milc-small.json kb.dfdally-72-milc-small.json COPYONLY)
 configure_file(kb.dfdally-72-milc-small.alloc.conf kb.dfdally-72-milc-small.alloc.conf COPYONLY)
 configure_file(fluid-flow-wan-topology.yaml fluid-flow-wan-topology.yaml COPYONLY)
-configure_file(kb.dfdally-72-zeromq-director.conf.in kb.dfdally-72-zeromq-director.conf)

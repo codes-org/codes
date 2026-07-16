@@ -38,8 +38,8 @@ FLUID_FLOW_WAN
     round_robin_max_entries_per_egress="8";
     round_robin_quantum_mbit="0";
 
-    terminal_log_path="../../zmqml_artifacts/fluid-flow-wan/terminal-events.csv";
-    switch_log_path="../../zmqml_artifacts/fluid-flow-wan/switch-events.csv";
-    flowlet_log_path="../../zmqml_artifacts/fluid-flow-wan/flowlet-events.csv";
-    switch_training_log_path="../../zmqml_artifacts/fluid-flow-wan/switch-training.csv";
+    terminal_log_path="logs/terminal-events.csv";
+    switch_log_path="logs/switch-events.csv";
+    flowlet_log_path="logs/flowlet-events.csv";
+    switch_training_log_path="logs/switch-training.csv";
 }
