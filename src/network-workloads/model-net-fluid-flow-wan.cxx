@@ -3,8 +3,8 @@
  * Standalone interval-fluid switch/terminal workload model.
  *
  * Terminal LPs generate stochastic bounded workload flowlets. Switch LPs route
- * flowlets, queue them per output link, enforce a shared switch-wide buffer,
- * and send per-flowlet fragments subject to interval link capacity.
+ * and stage current-interval arrivals, transmit them subject to interval link
+ * capacity, and place only unsent residual bytes in the shared switch buffer.
  *
  * Supports sequential validation and optimistic execution. Optimistic mode uses
  * event-local reverse metadata to undo terminal generation, switch arrivals,
@@ -156,6 +156,12 @@ struct switch_state {
     double shared_buffer_mbit;
     port_desc ports[MAX_PORTS_PER_SWITCH];
     std::vector<queued_flowlet>* queues[MAX_PORTS_PER_SWITCH];
+    /*
+     * Current-interval arrivals wait here without consuming physical buffer
+     * space. SWITCH_EGRESS_LATE transmits them with capacity left after the
+     * early residual-queue pass and buffers only their unsent remainder.
+     */
+    std::vector<queued_flowlet>* staged_arrivals[MAX_PORTS_PER_SWITCH];
 
     /*
      * Rollback-safe demand-driven egress scheduling.  Early and late egress
@@ -180,7 +186,7 @@ struct switch_state {
     unsigned long long resume_frames_received;
     unsigned long long paused_egress_intervals;
 
-    double admitted_arrival_mbit;
+    double buffered_residual_mbit;
     double sent_mbit;
     double delivered_local_mbit;
     double dropped_mbit;
@@ -199,9 +205,14 @@ enum fluid_event_type {
 
 struct rc_alloc_record {
     int valid;
+    int source_is_staged;
     int queue_index;
     queued_flowlet before;
     double send_mbit;
+    double buffered_mbit;
+    double dropped_mbit;
+    int residual_queue_index;
+    int residual_coalesced;
 };
 
 struct fluid_msg {
@@ -248,6 +259,7 @@ struct fluid_msg {
     int rc_egress_request_port;
     int rc_prev_capacity_accounting_interval;
     double rc_prev_capacity_used_mbit;
+    int rc_paused_interval_counted;
 
     int rc_log_target_is_terminal;
     int rc_log_target_index;
@@ -850,7 +862,7 @@ static double enqueue_flowlet(switch_state* ns, int port_id, const fluid_msg* m,
             qv[i].ingress_id == m->rc_ingress_id) {
             qv[i].remaining_mbit += accepted;
             qv[i].age_intervals = m->interval_id - m->creation_interval;
-            ns->admitted_arrival_mbit += accepted;
+            ns->buffered_residual_mbit += accepted;
 
             if (flowlet_remaining_after_out != NULL) {
                 *flowlet_remaining_after_out = qv[i].remaining_mbit;
@@ -885,7 +897,7 @@ static double enqueue_flowlet(switch_state* ns, int port_id, const fluid_msg* m,
     if (queue_index_out != NULL) {
         *queue_index_out = (int)qv.size() - 1;
     }
-    ns->admitted_arrival_mbit += accepted;
+    ns->buffered_residual_mbit += accepted;
 
     if (flowlet_remaining_after_out != NULL) {
         *flowlet_remaining_after_out = accepted;
@@ -895,6 +907,73 @@ static double enqueue_flowlet(switch_state* ns, int port_id, const fluid_msg* m,
     }
 
     return accepted;
+}
+
+static double stage_flowlet_arrival(switch_state* ns, int port_id, const fluid_msg* m,
+                                    int* coalesced_out, int* queue_index_out,
+                                    double* staged_remaining_after_out) {
+    if (coalesced_out != NULL) {
+        *coalesced_out = 0;
+    }
+    if (queue_index_out != NULL) {
+        *queue_index_out = -1;
+    }
+    if (staged_remaining_after_out != NULL) {
+        *staged_remaining_after_out = 0.0;
+    }
+
+    if (port_id < 0 || port_id >= ns->num_ports ||
+        ns->staged_arrivals[port_id] == NULL) {
+        return 0.0;
+    }
+
+    std::vector<queued_flowlet>& staged = *ns->staged_arrivals[port_id];
+    for (size_t i = 0; i < staged.size(); ++i) {
+        queued_flowlet& q = staged[i];
+        if (!q.valid) {
+            continue;
+        }
+        if (q.enqueue_interval == m->interval_id &&
+            q.flowlet_id == m->flowlet_id &&
+            q.source_terminal == m->source_terminal &&
+            q.destination_terminal == m->destination_terminal &&
+            q.creation_interval == m->creation_interval &&
+            q.ingress_id == m->rc_ingress_id) {
+            q.remaining_mbit += m->mbit;
+            q.age_intervals = m->interval_id - m->creation_interval;
+            if (coalesced_out != NULL) {
+                *coalesced_out = 1;
+            }
+            if (queue_index_out != NULL) {
+                *queue_index_out = (int)i;
+            }
+            if (staged_remaining_after_out != NULL) {
+                *staged_remaining_after_out = q.remaining_mbit;
+            }
+            return m->mbit;
+        }
+    }
+
+    queued_flowlet q;
+    memset(&q, 0, sizeof(q));
+    q.valid = 1;
+    q.flowlet_id = m->flowlet_id;
+    q.source_terminal = m->source_terminal;
+    q.destination_terminal = m->destination_terminal;
+    q.creation_interval = m->creation_interval;
+    q.enqueue_interval = m->interval_id;
+    q.age_intervals = m->interval_id - m->creation_interval;
+    q.ingress_id = m->rc_ingress_id;
+    q.remaining_mbit = m->mbit;
+    staged.push_back(q);
+
+    if (queue_index_out != NULL) {
+        *queue_index_out = (int)staged.size() - 1;
+    }
+    if (staged_remaining_after_out != NULL) {
+        *staged_remaining_after_out = m->mbit;
+    }
+    return m->mbit;
 }
 
 
@@ -958,27 +1037,41 @@ static int find_queue_index_for_flowlet(const switch_state* ns, int port_id,
     return -1;
 }
 
-static int find_queue_index_for_msg(const switch_state* ns, int port_id, const fluid_msg* m) {
-    if (port_id < 0 || port_id >= ns->num_ports || ns->queues[port_id] == NULL) {
+static int find_staged_index_for_msg(const switch_state* ns, int port_id,
+                                     const fluid_msg* m) {
+    if (port_id < 0 || port_id >= ns->num_ports ||
+        ns->staged_arrivals[port_id] == NULL) {
         return -1;
     }
 
-    const std::vector<queued_flowlet>& qv = *ns->queues[port_id];
-
-    for (int i = 0; i < (int)qv.size(); ++i) {
-        if (!qv[i].valid) {
+    const std::vector<queued_flowlet>& staged = *ns->staged_arrivals[port_id];
+    for (int i = 0; i < (int)staged.size(); ++i) {
+        if (!staged[i].valid) {
             continue;
         }
-
-        if (qv[i].flowlet_id == m->flowlet_id && qv[i].source_terminal == m->source_terminal &&
-            qv[i].destination_terminal == m->destination_terminal &&
-            qv[i].creation_interval == m->creation_interval &&
-            qv[i].ingress_id == m->rc_ingress_id) {
+        if (staged[i].enqueue_interval == m->interval_id &&
+            staged[i].flowlet_id == m->flowlet_id &&
+            staged[i].source_terminal == m->source_terminal &&
+            staged[i].destination_terminal == m->destination_terminal &&
+            staged[i].creation_interval == m->creation_interval &&
+            staged[i].ingress_id == m->rc_ingress_id) {
             return i;
         }
     }
-
     return -1;
+}
+
+static void compact_staged_arrivals(switch_state* ns, int port_id) {
+    if (port_id < 0 || port_id >= ns->num_ports ||
+        ns->staged_arrivals[port_id] == NULL) {
+        return;
+    }
+    std::vector<queued_flowlet>& staged = *ns->staged_arrivals[port_id];
+    staged.erase(std::remove_if(staged.begin(), staged.end(),
+                                [](const queued_flowlet& q) {
+                                    return !q.valid || q.remaining_mbit <= EPS;
+                                }),
+                 staged.end());
 }
 
 static void compact_port_queue(switch_state* ns, int port_id) {
@@ -1513,7 +1606,8 @@ static void log_switch_arrival_event(const switch_state* ns, const fluid_msg* m)
     }
 
     if (m->rc_accepted_mbit > EPS) {
-        append_flowlet_log(m->interval_id, m->rc_coalesced ? "enqueue_coalesce" : "enqueue",
+        append_flowlet_log(m->interval_id,
+                           m->rc_coalesced ? "stage_arrival_coalesce" : "stage_arrival",
                            ns->switch_id, m->rc_port_id, m->rc_log_target_is_terminal,
                            m->rc_log_target_index, m->flowlet_id, m->source_terminal,
                            m->destination_terminal, m->creation_interval, m->rc_log_capacity_mbit,
@@ -1521,28 +1615,13 @@ static void log_switch_arrival_event(const switch_state* ns, const fluid_msg* m)
                            m->rc_log_flowlet_remaining_after_mbit, 0.0);
     }
 
-    if (m->rc_dropped_mbit > EPS) {
-        append_switch_log(m->interval_id, "drop_shared_buffer_overflow", ns->switch_id,
-                          m->rc_port_id, m->rc_log_target_is_terminal, m->rc_log_target_index,
-                          m->rc_log_capacity_mbit, m->rc_log_port_queued_before_mbit, 0.0,
-                          m->rc_log_port_queued_after_mbit, m->rc_log_shared_queued_before_mbit,
-                          m->rc_log_shared_queued_after_mbit, ns->shared_buffer_mbit,
-                          m->rc_dropped_mbit, m->rc_log_active_after_entries);
-
-        append_flowlet_log(m->interval_id, "drop_shared_buffer_overflow", ns->switch_id,
-                           m->rc_port_id, m->rc_log_target_is_terminal, m->rc_log_target_index,
-                           m->flowlet_id, m->source_terminal, m->destination_terminal,
-                           m->creation_interval, m->rc_log_capacity_mbit,
-                           m->rc_log_port_queued_before_mbit, 0.0,
-                           m->rc_log_flowlet_remaining_after_mbit, m->rc_dropped_mbit);
-    }
 }
 
 static void log_switch_egress_event(const switch_state* ns, const fluid_msg* m) {
     for (int i = 0; i < m->rc_alloc_count; ++i) {
         const rc_alloc_record* rc = &m->rc_allocs[i];
 
-        if (!rc->valid || rc->send_mbit <= EPS) {
+        if (!rc->valid) {
             continue;
         }
 
@@ -1551,19 +1630,43 @@ static void log_switch_egress_event(const switch_state* ns, const fluid_msg* m) 
             remaining_after = 0.0;
         }
 
-        append_flowlet_log(m->interval_id, "allocate_send", ns->switch_id, m->port_id,
-                           m->rc_log_target_is_terminal, m->rc_log_target_index,
-                           rc->before.flowlet_id, rc->before.source_terminal,
-                           rc->before.destination_terminal, rc->before.creation_interval,
-                           m->rc_log_capacity_mbit, m->rc_log_port_queued_before_mbit,
-                           rc->send_mbit, remaining_after, 0.0);
+        if (rc->send_mbit > EPS) {
+            append_flowlet_log(m->interval_id,
+                               rc->source_is_staged ? "allocate_send_arrival"
+                                                    : "allocate_send_buffered",
+                               ns->switch_id, m->port_id, m->rc_log_target_is_terminal,
+                               m->rc_log_target_index, rc->before.flowlet_id,
+                               rc->before.source_terminal, rc->before.destination_terminal,
+                               rc->before.creation_interval, m->rc_log_capacity_mbit,
+                               m->rc_log_port_queued_before_mbit, rc->send_mbit,
+                               remaining_after, 0.0);
+        }
+        if (rc->buffered_mbit > EPS) {
+            append_flowlet_log(m->interval_id, "enqueue_residual", ns->switch_id,
+                               m->port_id, m->rc_log_target_is_terminal,
+                               m->rc_log_target_index, rc->before.flowlet_id,
+                               rc->before.source_terminal, rc->before.destination_terminal,
+                               rc->before.creation_interval, m->rc_log_capacity_mbit,
+                               m->rc_log_port_queued_before_mbit, 0.0,
+                               rc->buffered_mbit, 0.0);
+        }
+        if (rc->dropped_mbit > EPS) {
+            append_flowlet_log(m->interval_id, "drop_shared_buffer_overflow",
+                               ns->switch_id, m->port_id, m->rc_log_target_is_terminal,
+                               m->rc_log_target_index, rc->before.flowlet_id,
+                               rc->before.source_terminal, rc->before.destination_terminal,
+                               rc->before.creation_interval, m->rc_log_capacity_mbit,
+                               m->rc_log_port_queued_before_mbit, 0.0, 0.0,
+                               rc->dropped_mbit);
+        }
     }
 
     append_switch_log(m->interval_id, "egress", ns->switch_id, m->port_id,
                       m->rc_log_target_is_terminal, m->rc_log_target_index, m->rc_log_capacity_mbit,
                       m->rc_log_port_queued_before_mbit, m->rc_log_sent_total_mbit,
                       m->rc_log_port_queued_after_mbit, m->rc_log_shared_queued_before_mbit,
-                      m->rc_log_shared_queued_after_mbit, ns->shared_buffer_mbit, 0.0,
+                      m->rc_log_shared_queued_after_mbit, ns->shared_buffer_mbit,
+                      m->rc_dropped_mbit,
                       m->rc_log_active_after_entries);
 
     std::vector<std::string> allocations;
@@ -1571,7 +1674,8 @@ static void log_switch_egress_event(const switch_state* ns, const fluid_msg* m) 
     append_switch_training_log(m->interval_id, ns->switch_id, m->port_id,
                                m->rc_log_target_is_terminal, m->rc_log_target_index,
                                m->rc_log_capacity_mbit, m->rc_log_port_queued_before_mbit,
-                               m->rc_log_sent_total_mbit, m->rc_log_port_queued_after_mbit, 0.0,
+                               m->rc_log_sent_total_mbit, m->rc_log_port_queued_after_mbit,
+                               m->rc_dropped_mbit,
                                m->rc_log_active_before_entries, m->rc_log_active_after_entries,
                                allocations);
 }
@@ -1836,6 +1940,7 @@ static void switch_init(switch_state* ns, tw_lp* lp) {
         p->target_index = sw.links[i].dst_switch;
         p->capacity_mbit_per_interval = sw.links[i].bandwidth_mbps * cfg.interval_seconds;
         ns->queues[ns->num_ports - 1] = new std::vector<queued_flowlet>();
+        ns->staged_arrivals[ns->num_ports - 1] = new std::vector<queued_flowlet>();
     }
     for (int t = 0; t < sw.terminal_count; ++t) {
         if (ns->num_ports >= MAX_PORTS_PER_SWITCH) {
@@ -1847,13 +1952,14 @@ static void switch_init(switch_state* ns, tw_lp* lp) {
         p->target_index = sw.terminal_start + t;
         p->capacity_mbit_per_interval = sw.terminal_bandwidth_mbps * cfg.interval_seconds;
         ns->queues[ns->num_ports - 1] = new std::vector<queued_flowlet>();
+        ns->staged_arrivals[ns->num_ports - 1] = new std::vector<queued_flowlet>();
     }
 
     /*
      * Egress is demand-driven.  We no longer pre-schedule periodic empty
-     * egress events for every port.  Arrivals schedule the first egress, and
-     * egress events reschedule themselves only while residual queued bytes
-     * remain.
+     * egress events for every port. Arrivals schedule late egress in their
+     * arrival interval. Any residual bytes admitted to the physical buffer
+     * schedule early egress in the following interval.
      *
      * PAUSE hysteresis is evaluated exactly once per switch and interval by a
      * periodic ETHERNET_PAUSE_EVAL event.
@@ -1912,11 +2018,9 @@ static void handle_switch_arrival(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     }
 
     port_desc* p = &ns->ports[port_id];
-    double port_queued_before = 0.0;
-    double shared_queued_before = 0.0;
-    double shared_queued_after = 0.0;
-    double dropped = 0.0;
-    double flowlet_remaining_after = 0.0;
+    const double port_queued_before = queued_mbit_on_port(ns, port_id);
+    const double shared_queued_before = queued_mbit_on_switch(ns);
+    double staged_remaining_after = 0.0;
     int coalesced = 0;
     int queue_index = -1;
 
@@ -1938,29 +2042,25 @@ static void handle_switch_arrival(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     m->rc_log_active_before_entries = 0;
     m->rc_log_active_after_entries = 0;
 
-    double accepted = enqueue_flowlet(ns, port_id, m, &port_queued_before, &shared_queued_before,
-                                      &shared_queued_after, &dropped, &flowlet_remaining_after,
-                                      &coalesced, &queue_index);
+    double staged_mbit = stage_flowlet_arrival(ns, port_id, m, &coalesced, &queue_index,
+                                               &staged_remaining_after);
 
     m->rc_queue_index = queue_index;
     m->rc_coalesced = coalesced;
-    m->rc_accepted_mbit = accepted;
-    m->rc_dropped_mbit = dropped;
-    ns->ingress_links[ingress_id].queued_mbit += accepted;
-
-    double port_queued_after = queued_mbit_on_port(ns, port_id);
-    int active_after = active_flowlet_count_on_port(ns, port_id);
+    m->rc_accepted_mbit = staged_mbit;
+    m->rc_dropped_mbit = 0.0;
 
     m->rc_log_port_queued_before_mbit = port_queued_before;
-    m->rc_log_port_queued_after_mbit = port_queued_after;
+    m->rc_log_port_queued_after_mbit = port_queued_before;
     m->rc_log_shared_queued_before_mbit = shared_queued_before;
-    m->rc_log_shared_queued_after_mbit = shared_queued_after;
-    m->rc_log_flowlet_remaining_after_mbit = flowlet_remaining_after;
-    m->rc_log_active_after_entries = active_after;
+    m->rc_log_shared_queued_after_mbit = shared_queued_before;
+    m->rc_log_flowlet_remaining_after_mbit = staged_remaining_after;
+    m->rc_log_active_after_entries =
+        (int)ns->staged_arrivals[port_id]->size();
 
     log_switch_arrival_event(ns, m);
 
-    if (port_queued_after > EPS) {
+    if (staged_mbit > EPS) {
         request_switch_egress(ns, SWITCH_EGRESS_LATE, m->interval_id, port_id, lp, m);
     }
 }
@@ -1999,6 +2099,10 @@ static void send_flowlet_fragment(switch_state* ns, int port_id, const queued_fl
 
 static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     m->rc_egress_request_created = 0;
+    m->rc_paused_interval_counted = 0;
+    m->rc_accepted_mbit = 0.0;
+    m->rc_dropped_mbit = 0.0;
+
     int port_id = m->port_id;
     if (port_id < 0 || port_id >= ns->num_ports) {
         tw_error(TW_LOC, "invalid switch egress port %d", port_id);
@@ -2014,36 +2118,44 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     if (!m->rc_egress_event_active) {
         return;
     }
-
     (*scheduled)[m->interval_id] = 0;
 
-    if (ns->queues[port_id] == NULL) {
-        m->rc_prev_capacity_accounting_interval =
-            ns->capacity_accounting_interval[port_id];
-        m->rc_prev_capacity_used_mbit = ns->capacity_used_mbit[port_id];
-        return;
+    if (ns->queues[port_id] == NULL || ns->staged_arrivals[port_id] == NULL) {
+        tw_error(TW_LOC, "missing egress state on switch %d port %d", ns->switch_id, port_id);
     }
 
     port_desc* p = &ns->ports[port_id];
     std::vector<queued_flowlet>& qv = *ns->queues[port_id];
+    std::vector<queued_flowlet>& staged = *ns->staged_arrivals[port_id];
+    const bool service_staged = (m->event_type == SWITCH_EGRESS_LATE);
+    std::vector<queued_flowlet>& source = service_staged ? staged : qv;
 
     m->rc_prev_capacity_accounting_interval = ns->capacity_accounting_interval[port_id];
     m->rc_prev_capacity_used_mbit = ns->capacity_used_mbit[port_id];
-
     if (ns->capacity_accounting_interval[port_id] != m->interval_id) {
         ns->capacity_accounting_interval[port_id] = m->interval_id;
         ns->capacity_used_mbit[port_id] = 0.0;
     }
 
-    double capacity = p->capacity_mbit_per_interval;
+    const double capacity = p->capacity_mbit_per_interval;
     double remaining_capacity =
         std::max(0.0, capacity - ns->capacity_used_mbit[port_id]);
-    double sent_total = 0.0;
-    double queued_before = queued_mbit_on_port(ns, port_id);
-    double shared_queued_before = queued_mbit_on_switch(ns);
-    int active_before = active_flowlet_count_on_port(ns, port_id);
+    const double queued_before = queued_mbit_on_port(ns, port_id);
+    const double shared_queued_before = queued_mbit_on_switch(ns);
 
-    std::vector<double> send_plan(qv.size(), 0.0);
+    int active_before = 0;
+    for (const queued_flowlet& q : source) {
+        if (q.valid && q.remaining_mbit > EPS) {
+            ++active_before;
+        }
+    }
+    if (active_before > MAX_RC_ALLOCATIONS) {
+        tw_error(TW_LOC,
+                 "switch %d port %d egress has %d active flowlets, exceeding "
+                 "MAX_RC_ALLOCATIONS=%d",
+                 ns->switch_id, port_id, active_before, MAX_RC_ALLOCATIONS);
+    }
+
     m->rc_alloc_count = 0;
     m->rc_log_target_is_terminal = p->is_terminal;
     m->rc_log_target_index = p->target_index;
@@ -2055,125 +2167,142 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     m->rc_log_flowlet_remaining_after_mbit = 0.0;
     m->rc_log_sent_total_mbit = 0.0;
     m->rc_log_active_before_entries = active_before;
-    m->rc_log_active_after_entries = active_before;
+    m->rc_log_active_after_entries = active_flowlet_count_on_port(ns, port_id);
     m->rc_pause_state_changed = 0;
     m->rc_pause_target_port = -1;
 
     if (m->interval_id < ns->output_link_paused_until_interval[port_id]) {
-        ns->paused_egress_intervals++;
-        m->rc_pause_target_port = port_id;
-        log_switch_egress_event(ns, m);
-        if (queued_before > EPS) {
-            request_switch_egress(ns, SWITCH_EGRESS_EARLY, m->interval_id + 1, port_id, lp, m);
+        if (active_before > 0) {
+            ns->paused_egress_intervals++;
+            m->rc_paused_interval_counted = 1;
         }
-        return;
+        remaining_capacity = 0.0;
     }
 
-    auto add_to_plan = [&](int idx, double requested_send) -> double {
-        if (idx < 0 || idx >= (int)send_plan.size() || requested_send <= EPS) {
-            return 0.0;
-        }
-
-        double still_available_for_flowlet = qv[idx].remaining_mbit - send_plan[idx];
-        if (still_available_for_flowlet <= EPS) {
-            return 0.0;
-        }
-
-        double actual_send = std::min(requested_send, still_available_for_flowlet);
-        send_plan[idx] += actual_send;
-        return actual_send;
-    };
-
-    /*
-     * Deterministic max-min fair sharing. Every active flowlet on an
-     * unpaused output link receives an equal share of the interval capacity.
-     * If a flowlet needs less than its share, the unused capacity is
-     * redistributed among the remaining flowlets.
-     */
-    if (active_before > MAX_RC_ALLOCATIONS) {
-        tw_error(TW_LOC,
-                 "fair-share egress on switch %d port %d has %d active flowlets, "
-                 "exceeding MAX_RC_ALLOCATIONS=%d",
-                 ns->switch_id, port_id, active_before, MAX_RC_ALLOCATIONS);
-    }
-
+    std::vector<double> send_plan(source.size(), 0.0);
     while (remaining_capacity > EPS) {
         int unsatisfied_count = 0;
-        for (int i = 0; i < (int)qv.size(); ++i) {
-            if (qv[i].valid && qv[i].remaining_mbit - send_plan[i] > EPS) {
-                unsatisfied_count++;
+        for (int i = 0; i < (int)source.size(); ++i) {
+            if (source[i].valid && source[i].remaining_mbit - send_plan[i] > EPS) {
+                ++unsatisfied_count;
             }
         }
-
         if (unsatisfied_count == 0) {
             break;
         }
 
         const double equal_share = remaining_capacity / unsatisfied_count;
         double allocated_this_round = 0.0;
-
-        for (int i = 0; i < (int)qv.size(); ++i) {
-            if (!qv[i].valid || qv[i].remaining_mbit - send_plan[i] <= EPS) {
+        for (int i = 0; i < (int)source.size(); ++i) {
+            if (!source[i].valid || source[i].remaining_mbit - send_plan[i] <= EPS) {
                 continue;
             }
-
-            const double planned_send = add_to_plan(i, equal_share);
-            allocated_this_round += planned_send;
+            const double available_for_flowlet = source[i].remaining_mbit - send_plan[i];
+            const double send = std::min(equal_share, available_for_flowlet);
+            send_plan[i] += send;
+            allocated_this_round += send;
         }
-
         if (allocated_this_round <= EPS) {
             break;
         }
-
         remaining_capacity -= allocated_this_round;
         if (remaining_capacity < 0.0 && remaining_capacity > -EPS) {
             remaining_capacity = 0.0;
         }
     }
 
-    for (int i = 0; i < (int)qv.size(); ++i) {
-        double send = send_plan[i];
+    double sent_total = 0.0;
+    if (!service_staged) {
+        /* Early egress: previously buffered residuals have strict priority. */
+        for (int i = 0; i < (int)qv.size(); ++i) {
+            if (!qv[i].valid || send_plan[i] <= EPS) {
+                continue;
+            }
 
-        if (!qv[i].valid || send <= EPS) {
-            continue;
+            queued_flowlet before = qv[i];
+            double send = std::min(send_plan[i], before.remaining_mbit);
+            rc_alloc_record* rc = &m->rc_allocs[m->rc_alloc_count++];
+            memset(rc, 0, sizeof(*rc));
+            rc->valid = 1;
+            rc->source_is_staged = 0;
+            rc->queue_index = i;
+            rc->before = before;
+            rc->send_mbit = send;
+
+            send_flowlet_fragment(ns, port_id, &before, send, m->interval_id, lp);
+            qv[i].remaining_mbit -= send;
+            ns->ingress_links[before.ingress_id].queued_mbit -= send;
+            if (ns->ingress_links[before.ingress_id].queued_mbit < 0.0 &&
+                ns->ingress_links[before.ingress_id].queued_mbit > -EPS) {
+                ns->ingress_links[before.ingress_id].queued_mbit = 0.0;
+            }
+            sent_total += send;
         }
+        compact_port_queue(ns, port_id);
+    } else {
+        /*
+         * Late egress: use only capacity left by the early residual pass.
+         * Bytes sent here bypass the physical buffer. Only unsent residuals
+         * are admitted to the shared buffer, and overflow is dropped here.
+         */
+        for (int i = 0; i < (int)staged.size(); ++i) {
+            if (!staged[i].valid || staged[i].remaining_mbit <= EPS) {
+                continue;
+            }
 
-        if (send > qv[i].remaining_mbit + EPS) {
-            tw_error(TW_LOC,
-                     "computed send %.12f exceeds remaining %.12f for flowlet %llu "
-                     "on switch %d port %d",
-                     send, qv[i].remaining_mbit, (unsigned long long)qv[i].flowlet_id,
-                     ns->switch_id, port_id);
+            queued_flowlet before = staged[i];
+            double send = std::min(send_plan[i], before.remaining_mbit);
+            double residual = std::max(0.0, before.remaining_mbit - send);
+
+            rc_alloc_record* rc = &m->rc_allocs[m->rc_alloc_count++];
+            memset(rc, 0, sizeof(*rc));
+            rc->valid = 1;
+            rc->source_is_staged = 1;
+            rc->queue_index = i;
+            rc->before = before;
+            rc->send_mbit = send;
+            rc->residual_queue_index = -1;
+
+            if (send > EPS) {
+                send_flowlet_fragment(ns, port_id, &before, send, m->interval_id, lp);
+                sent_total += send;
+            }
+
+            if (residual > EPS) {
+                fluid_msg residual_msg;
+                memset(&residual_msg, 0, sizeof(residual_msg));
+                residual_msg.interval_id = m->interval_id;
+                residual_msg.source_terminal = before.source_terminal;
+                residual_msg.destination_terminal = before.destination_terminal;
+                residual_msg.creation_interval = before.creation_interval;
+                residual_msg.flowlet_id = before.flowlet_id;
+                residual_msg.mbit = residual;
+                residual_msg.rc_ingress_id = before.ingress_id;
+
+                double ignored_port_before = 0.0;
+                double ignored_shared_before = 0.0;
+                double ignored_shared_after = 0.0;
+                double dropped = 0.0;
+                double ignored_remaining_after = 0.0;
+                int coalesced = 0;
+                int residual_queue_index = -1;
+                double buffered = enqueue_flowlet(
+                    ns, port_id, &residual_msg, &ignored_port_before,
+                    &ignored_shared_before, &ignored_shared_after, &dropped,
+                    &ignored_remaining_after, &coalesced, &residual_queue_index);
+
+                rc->buffered_mbit = buffered;
+                rc->dropped_mbit = dropped;
+                rc->residual_queue_index = residual_queue_index;
+                rc->residual_coalesced = coalesced;
+                m->rc_accepted_mbit += buffered;
+                m->rc_dropped_mbit += dropped;
+                ns->ingress_links[before.ingress_id].queued_mbit += buffered;
+            }
+
+            staged[i].remaining_mbit = 0.0;
         }
-
-        queued_flowlet before = qv[i];
-        send = std::min(send, qv[i].remaining_mbit);
-
-        if (m->rc_alloc_count >= MAX_RC_ALLOCATIONS) {
-            tw_error(TW_LOC,
-                     "too many egress allocations for reverse metadata: switch %d port %d "
-                     "interval %d count %d max %d",
-                     ns->switch_id, port_id, m->interval_id, m->rc_alloc_count, MAX_RC_ALLOCATIONS);
-        }
-
-        rc_alloc_record* rc = &m->rc_allocs[m->rc_alloc_count++];
-        memset(rc, 0, sizeof(*rc));
-        rc->valid = 1;
-        rc->queue_index = i;
-        rc->before = before;
-        rc->send_mbit = send;
-
-        send_flowlet_fragment(ns, port_id, &before, send, m->interval_id, lp);
-        qv[i].remaining_mbit -= send;
-        if (before.ingress_id < 0 || before.ingress_id >= ns->num_ingress_links) {
-            tw_error(TW_LOC, "invalid ingress id %d on queued flowlet", before.ingress_id);
-        }
-        ns->ingress_links[before.ingress_id].queued_mbit -= send;
-        if (ns->ingress_links[before.ingress_id].queued_mbit < 0.0 &&
-            ns->ingress_links[before.ingress_id].queued_mbit > -EPS) {
-            ns->ingress_links[before.ingress_id].queued_mbit = 0.0;
-        }
-        sent_total += send;
+        compact_staged_arrivals(ns, port_id);
     }
 
     ns->capacity_used_mbit[port_id] += sent_total;
@@ -2183,13 +2312,9 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
                  ns->switch_id, port_id, ns->capacity_used_mbit[port_id], capacity);
     }
 
-    compact_port_queue(ns, port_id);
-
-
-    double queued_after = queued_mbit_on_port(ns, port_id);
-    double shared_queued_after = queued_mbit_on_switch(ns);
-    int active_after = active_flowlet_count_on_port(ns, port_id);
-
+    const double queued_after = queued_mbit_on_port(ns, port_id);
+    const double shared_queued_after = queued_mbit_on_switch(ns);
+    const int active_after = active_flowlet_count_on_port(ns, port_id);
     m->rc_log_port_queued_after_mbit = queued_after;
     m->rc_log_shared_queued_after_mbit = shared_queued_after;
     m->rc_log_sent_total_mbit = sent_total;
@@ -2201,7 +2326,6 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
         request_switch_egress(ns, SWITCH_EGRESS_EARLY, m->interval_id + 1, port_id, lp, m);
     }
 }
-
 
 static void handle_switch_pause_update(switch_state* ns, fluid_msg* m) {
     int port_id = find_switch_link_port(ns, m->pause_source_switch);
@@ -2264,21 +2388,21 @@ static void rollback_switch_arrival(switch_state* ns, fluid_msg* m) {
 
     int port_id = m->rc_port_id;
 
-    if (port_id < 0 || port_id >= ns->num_ports || ns->queues[port_id] == NULL) {
+    if (port_id < 0 || port_id >= ns->num_ports ||
+        ns->staged_arrivals[port_id] == NULL) {
         tw_error(TW_LOC, "invalid rollback arrival port %d on switch %d", port_id, ns->switch_id);
     }
-
-    ns->dropped_mbit -= m->rc_dropped_mbit;
 
     if (m->rc_accepted_mbit <= EPS) {
         return;
     }
 
-    std::vector<queued_flowlet>& qv = *ns->queues[port_id];
+    std::vector<queued_flowlet>& staged = *ns->staged_arrivals[port_id];
 
     int idx = m->rc_queue_index;
-    if (idx < 0 || idx >= (int)qv.size() || qv[idx].flowlet_id != m->flowlet_id) {
-        idx = find_queue_index_for_msg(ns, port_id, m);
+    if (idx < 0 || idx >= (int)staged.size() ||
+        staged[idx].flowlet_id != m->flowlet_id) {
+        idx = find_staged_index_for_msg(ns, port_id, m);
     }
 
     if (idx < 0) {
@@ -2287,23 +2411,16 @@ static void rollback_switch_arrival(switch_state* ns, fluid_msg* m) {
     }
 
     if (m->rc_coalesced) {
-        qv[idx].remaining_mbit -= m->rc_accepted_mbit;
+        staged[idx].remaining_mbit -= m->rc_accepted_mbit;
 
-        if (qv[idx].remaining_mbit <= EPS) {
+        if (staged[idx].remaining_mbit <= EPS) {
             tw_error(
                 TW_LOC,
                 "coalesced flowlet %llu became empty during arrival rollback on switch %d port %d",
                 (unsigned long long)m->flowlet_id, ns->switch_id, port_id);
         }
     } else {
-        qv.erase(qv.begin() + idx);
-    }
-
-    ns->admitted_arrival_mbit -= m->rc_accepted_mbit;
-    ns->ingress_links[m->rc_ingress_id].queued_mbit -= m->rc_accepted_mbit;
-    if (ns->ingress_links[m->rc_ingress_id].queued_mbit < 0.0 &&
-        ns->ingress_links[m->rc_ingress_id].queued_mbit > -EPS) {
-        ns->ingress_links[m->rc_ingress_id].queued_mbit = 0.0;
+        staged.erase(staged.begin() + idx);
     }
 }
 
@@ -2313,9 +2430,10 @@ static void rollback_switch_egress(switch_state* ns, fluid_msg* m) {
     }
 
     int port_id = m->port_id;
-
-    if (port_id < 0 || port_id >= ns->num_ports || ns->queues[port_id] == NULL) {
-        tw_error(TW_LOC, "invalid rollback egress port %d on switch %d", port_id, ns->switch_id);
+    if (port_id < 0 || port_id >= ns->num_ports || ns->queues[port_id] == NULL ||
+        ns->staged_arrivals[port_id] == NULL) {
+        tw_error(TW_LOC, "invalid rollback egress port %d on switch %d", port_id,
+                 ns->switch_id);
     }
 
     undo_requested_switch_egress(ns, m);
@@ -2332,50 +2450,109 @@ static void rollback_switch_egress(switch_state* ns, fluid_msg* m) {
         m->rc_prev_capacity_accounting_interval;
     ns->capacity_used_mbit[port_id] = m->rc_prev_capacity_used_mbit;
 
-    if (m->rc_pause_target_port == port_id && m->rc_alloc_count == 0) {
+    if (m->rc_paused_interval_counted) {
         ns->paused_egress_intervals--;
-        return;
     }
 
-
     std::vector<queued_flowlet>& qv = *ns->queues[port_id];
+    std::vector<queued_flowlet>& staged = *ns->staged_arrivals[port_id];
     const port_desc* p = &ns->ports[port_id];
 
+    /*
+     * Undo late-egress residual admissions in reverse insertion order. This
+     * restores the physical queue to its post-early-egress state.
+     */
     for (int r = m->rc_alloc_count - 1; r >= 0; --r) {
         rc_alloc_record* rc = &m->rc_allocs[r];
+        if (!rc->valid || !rc->source_is_staged) {
+            continue;
+        }
 
-        if (!rc->valid || rc->send_mbit <= EPS) {
+        if (rc->buffered_mbit > EPS) {
+            int idx = rc->residual_queue_index;
+            if (idx < 0 || idx >= (int)qv.size() ||
+                qv[idx].flowlet_id != rc->before.flowlet_id) {
+                idx = find_queue_index_for_flowlet(ns, port_id, rc->before);
+            }
+            if (idx < 0) {
+                tw_error(TW_LOC,
+                         "could not find residual flowlet %llu on switch %d port %d "
+                         "during egress rollback",
+                         (unsigned long long)rc->before.flowlet_id, ns->switch_id,
+                         port_id);
+            }
+
+            if (rc->residual_coalesced) {
+                qv[idx].remaining_mbit -= rc->buffered_mbit;
+                if (qv[idx].remaining_mbit <= EPS) {
+                    tw_error(TW_LOC,
+                             "coalesced residual flowlet %llu became empty during "
+                             "egress rollback on switch %d port %d",
+                             (unsigned long long)rc->before.flowlet_id,
+                             ns->switch_id, port_id);
+                }
+            } else {
+                qv.erase(qv.begin() + idx);
+            }
+
+            ns->buffered_residual_mbit -= rc->buffered_mbit;
+            ns->ingress_links[rc->before.ingress_id].queued_mbit -=
+                rc->buffered_mbit;
+            if (ns->ingress_links[rc->before.ingress_id].queued_mbit < 0.0 &&
+                ns->ingress_links[rc->before.ingress_id].queued_mbit > -EPS) {
+                ns->ingress_links[rc->before.ingress_id].queued_mbit = 0.0;
+            }
+        }
+        ns->dropped_mbit -= rc->dropped_mbit;
+
+        if (rc->send_mbit > EPS) {
+            ns->sent_mbit -= rc->send_mbit;
+            ns->sent_fragments--;
+            if (p->is_terminal) {
+                ns->delivered_local_mbit -= rc->send_mbit;
+            }
+        }
+    }
+
+    /*
+     * Restore early-egress queue entries in ascending original-index order.
+     * Ascending insertion preserves the exact pre-event vector order when
+     * several fully drained entries were compacted away.
+     */
+    for (int r = 0; r < m->rc_alloc_count; ++r) {
+        rc_alloc_record* rc = &m->rc_allocs[r];
+        if (!rc->valid || rc->source_is_staged || rc->send_mbit <= EPS) {
             continue;
         }
 
         int idx = rc->queue_index;
-
-        if (idx < 0 || idx >= (int)qv.size() || qv[idx].flowlet_id != rc->before.flowlet_id) {
+        if (idx < 0 || idx >= (int)qv.size() ||
+            qv[idx].flowlet_id != rc->before.flowlet_id) {
             idx = find_queue_index_for_flowlet(ns, port_id, rc->before);
         }
-
         if (idx >= 0) {
             qv[idx] = rc->before;
         } else {
-            int insert_idx = rc->queue_index;
-
-            if (insert_idx < 0) {
-                insert_idx = 0;
-            }
-            if (insert_idx > (int)qv.size()) {
-                insert_idx = (int)qv.size();
-            }
-
+            int insert_idx = std::max(0, std::min(rc->queue_index, (int)qv.size()));
             qv.insert(qv.begin() + insert_idx, rc->before);
         }
 
         ns->ingress_links[rc->before.ingress_id].queued_mbit += rc->send_mbit;
         ns->sent_mbit -= rc->send_mbit;
         ns->sent_fragments--;
-
         if (p->is_terminal) {
             ns->delivered_local_mbit -= rc->send_mbit;
         }
+    }
+
+    /* Late egress removes every staged entry; rebuild the original order. */
+    for (int r = 0; r < m->rc_alloc_count; ++r) {
+        rc_alloc_record* rc = &m->rc_allocs[r];
+        if (!rc->valid || !rc->source_is_staged) {
+            continue;
+        }
+        int insert_idx = std::max(0, std::min(rc->queue_index, (int)staged.size()));
+        staged.insert(staged.begin() + insert_idx, rc->before);
     }
 }
 
@@ -2461,21 +2638,23 @@ static void switch_finalize(switch_state* ns, tw_lp* lp) {
         queued += queued_mbit_on_port(ns, p);
     }
     printf("fluid-flow-wan gid=%llu switch=%d name=%s ports=%d shared_buffer_mbit=%.6f "
-           "received_fragments=%d sent_fragments=%d admitted_arrival_mbit=%.6f sent_mbit=%.6f "
+           "received_fragments=%d sent_fragments=%d buffered_residual_mbit=%.6f sent_mbit=%.6f "
            "local_delivery_mbit=%.6f dropped_mbit=%.6f ready_queue_mbit=%.6f "
            "shared_buffer_occupied_mbit=%.6f pause_asserted=%d pause_updates_sent=%llu "
            "pause_frames_sent=%llu resume_frames_sent=%llu pause_updates_received=%llu "
            "pause_frames_received=%llu resume_frames_received=%llu paused_egress_intervals=%llu\n",
            (unsigned long long)lp->gid, ns->switch_id, switches[ns->switch_id].name.c_str(),
            ns->num_ports, ns->shared_buffer_mbit, ns->received_fragments, ns->sent_fragments,
-           ns->admitted_arrival_mbit, ns->sent_mbit, ns->delivered_local_mbit, ns->dropped_mbit,
+           ns->buffered_residual_mbit, ns->sent_mbit, ns->delivered_local_mbit, ns->dropped_mbit,
            queued, queued, any_pause_asserted, ns->pause_updates_sent, ns->pause_frames_sent,
            ns->resume_frames_sent, ns->pause_updates_received, ns->pause_frames_received,
            ns->resume_frames_received, ns->paused_egress_intervals);
 
     for (int p = 0; p < ns->num_ports; ++p) {
         delete ns->queues[p];
+        delete ns->staged_arrivals[p];
         ns->queues[p] = NULL;
+        ns->staged_arrivals[p] = NULL;
     }
     for (int p = 0; p < MAX_PORTS_PER_SWITCH; ++p) {
         delete ns->scheduled_early_egress[p];
