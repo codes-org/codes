@@ -432,6 +432,18 @@ foreach(_ffw_mode sequential optimistic)
     set_tests_properties(${_ffw_test} PROPERTIES TIMEOUT 120)
 endforeach()
 
+# Cross-mode equivalence: the optimistic run must exercise rollback and still
+# commit exactly the same switch, terminal, and event-count state as sequential.
+add_test(NAME fluid-flow-wan-seq-opt-equivalence
+    COMMAND "${CMAKE_CURRENT_BINARY_DIR}/run-test.sh"
+            "${CMAKE_CURRENT_SOURCE_DIR}/fluid-flow-wan-equivalence.sh"
+            "fluid-flow-wan-seq-opt-equivalence"
+            "${MPIEXEC_EXECUTABLE}"
+            "${MPIEXEC_NUMPROC_FLAG}"
+    WORKING_DIRECTORY "${CODES_BINARY_DIR}")
+set_tests_properties(fluid-flow-wan-seq-opt-equivalence
+    PROPERTIES TIMEOUT 240 PROCESSORS 2)
+
 # Equivalence / determinism tests (replacing per-scenario shell scripts).
 # example-ping-pong-determinism.sh: run the optimistic sim twice, compare
 # committed-event counts (reproducibility).
