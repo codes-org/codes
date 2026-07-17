@@ -59,7 +59,8 @@ int mcs_getvaluemultiple(const mcs_entry* e, char** buf, unsigned int* maxcount)
  * value.  */
 int mcs_getvaluesingle(const mcs_entry* e, char* buf, unsigned int bufsize);
 
-/* Lookup the named subsection in section */
+/* Lookup the named subsection in section; the name match is case-insensitive
+ * (keys, looked up by mcs_findkey, stay case-sensitive). */
 mcs_entry* mcs_findsubsection(const mcs_entry* e, const char* name);
 
 /* Lookup the named key in section */

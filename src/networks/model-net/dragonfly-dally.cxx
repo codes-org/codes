@@ -470,6 +470,49 @@ struct dfly_cn_sample {
     long rev_events;
 };
 
+/* Sample structs for the ROSS instrumentation virtual-time (analysis LP) sampling mode
+ * (--model-stats=3/4). These are deliberately separate from dfly_cn_sample and
+ * dfly_router_sample above: those also define the on-disk format of the CODES-native
+ * sampling files (*-cn-sampling*.bin), so extending them would silently change that
+ * format too. Doubling as (a) the accumulator held in LP state (ross_sample /
+ * ross_rsample; array members heap-allocated, snapshot members unused/NULL) and (b) the
+ * record written to ross-stats-analysis-lps.bin (array members point directly after the
+ * struct in the analysis-LP buffer). All scalar members are 8 bytes so there are no
+ * padding holes; pointer members sit at the end of the struct and are meaningless on
+ * disk (parsers skip them). See doc/model-stats-binary-format.md. */
+struct dfly_cn_ross_sample {
+    tw_lpid terminal_id;
+    long fin_chunks_sample;
+    long data_size_sample;
+    double fin_hops_sample;
+    tw_stime fin_chunks_time;
+    int64_t packets_gen_sample;
+    int64_t packets_fin_sample;
+    int64_t min_fin_sample;    /* chunks that finished having taken a minimal path */
+    int64_t nonmin_fin_sample; /* chunks that finished having taken a non-minimal path */
+    tw_stime end_time;
+    long fwd_events;
+    long rev_events;
+    /* appended after the struct in the analysis-LP buffer, in this order: */
+    tw_stime* busy_time_sample;      /* [num_rails] */
+    uint64_t* stalled_chunks_sample; /* [num_rails] */
+    int* vc_occupancy;               /* [num_rails * num_qos_levels] snapshot */
+    int* terminal_length;            /* [num_rails * num_qos_levels] snapshot */
+};
+
+struct dfly_router_ross_sample {
+    tw_lpid router_id;
+    tw_stime end_time;
+    long fwd_events;
+    long rev_events;
+    /* appended after the struct in the analysis-LP buffer, in this order: */
+    tw_stime* busy_time;             /* [radix] */
+    int64_t* link_traffic_sample;    /* [radix] */
+    uint64_t* stalled_chunks_sample; /* [radix] */
+    int* vc_occupancy_sum;           /* [radix] snapshot, summed over VCs */
+    int* queued_count;               /* [radix] snapshot, bytes in overflow queues */
+};
+
 struct dfly_qhash_entry {
     struct dfly_hash_key key;
     char* remote_event_data;
@@ -744,7 +787,12 @@ struct terminal_state {
     long fin_hops_ross_sample;
     tw_stime fin_chunks_time_ross_sample;
     tw_stime* busy_time_ross_sample;
-    struct dfly_cn_sample ross_sample;
+    int64_t packets_gen_ross_sample;
+    int64_t packets_fin_ross_sample;
+    int64_t min_fin_ross_sample;
+    int64_t nonmin_fin_ross_sample;
+    uint64_t* stalled_chunks_ross_sample; //[rail_id]
+    struct dfly_cn_ross_sample ross_sample;
 
     // Variables to recover latency of packets sent to other terminals
     // Sent packets (to be populated at by commit handler of packet sender)
@@ -834,7 +882,8 @@ struct router_state {
     /* following used for ROSS model-level stats collection */
     tw_stime* busy_time_ross_sample;
     int64_t* link_traffic_ross_sample;
-    struct dfly_router_sample ross_rsample;
+    uint64_t* stalled_chunks_ross_sample; //[port]
+    struct dfly_router_ross_sample ross_rsample;
     tw_stime last_time;
 };
 
@@ -845,20 +894,21 @@ void custom_dally_dragonfly_event_collect(terminal_dally_message* m, tw_lp* lp, 
 void custom_dally_dragonfly_model_stat_collect(terminal_state* s, tw_lp* lp, char* buffer);
 void custom_dally_dfly_router_model_stat_collect(router_state* s, tw_lp* lp, char* buffer);
 static void ross_dally_dragonfly_rsample_fn(router_state* s, tw_bf* bf, tw_lp* lp,
-                                            struct dfly_router_sample* sample);
+                                            struct dfly_router_ross_sample* sample);
 static void ross_dally_dragonfly_rsample_rc_fn(router_state* s, tw_bf* bf, tw_lp* lp,
-                                               struct dfly_router_sample* sample);
+                                               struct dfly_router_ross_sample* sample);
 static void ross_dally_dragonfly_sample_fn(terminal_state* s, tw_bf* bf, tw_lp* lp,
-                                           struct dfly_cn_sample* sample);
+                                           struct dfly_cn_ross_sample* sample);
 static void ross_dally_dragonfly_sample_rc_fn(terminal_state* s, tw_bf* bf, tw_lp* lp,
-                                              struct dfly_cn_sample* sample);
+                                              struct dfly_cn_ross_sample* sample);
 
 st_model_types custom_dally_dragonfly_model_types[] = {
     {(ev_trace_f)custom_dally_dragonfly_event_collect, sizeof(int),
      (model_stat_f)custom_dally_dragonfly_model_stat_collect,
-     sizeof(tw_lpid) + sizeof(long) * 2 + sizeof(double) + sizeof(tw_stime) * 2,
+     0, //updated in terminal_dally_init() since it's based on num_rails/num_qos_levels
      (sample_event_f)ross_dally_dragonfly_sample_fn,
-     (sample_revent_f)ross_dally_dragonfly_sample_rc_fn, sizeof(struct dfly_cn_sample)},
+     (sample_revent_f)ross_dally_dragonfly_sample_rc_fn,
+     0}, //updated in terminal_dally_init() since it's based on num_rails/num_qos_levels
     {(ev_trace_f)custom_dally_dragonfly_event_collect, sizeof(int),
      (model_stat_f)custom_dally_dfly_router_model_stat_collect,
      0, //updated in router_dally_init() since it's based on the radix
@@ -881,10 +931,20 @@ void custom_dally_dragonfly_event_collect(terminal_dally_message* m, tw_lp* lp, 
 void custom_dally_dragonfly_model_stat_collect(terminal_state* s, tw_lp* lp, char* buffer) {
     (void)lp;
 
+    const dragonfly_param* p = s->params;
+    int const num_qos_levels = p->num_qos_levels;
     int index = 0;
     tw_lpid id = 0;
     long tmp = 0;
     tw_stime tmp2 = 0;
+    int64_t tmp3 = 0;
+    uint64_t tmp4 = 0;
+    int tmp5 = 0;
+
+    /* NOTE on NULL guards: while a terminal is frozen in surrogate mode its state is
+     * memset and only select members are carried over (see
+     * dragonfly_dally_terminal_highdef_to_surrogate), so pointer members here may be NULL
+     * mid-run; emit zeros for those fields rather than crashing GVT/RT collection. */
 
     id = s->terminal_id;
     memcpy(&buffer[index], &id, sizeof(id));
@@ -910,11 +970,56 @@ void custom_dally_dragonfly_model_stat_collect(terminal_state* s, tw_lp* lp, cha
     index += sizeof(tmp2);
     s->fin_chunks_time_ross_sample = 0;
 
-    for (int i = 0; i < s->params->num_rails; i++) {
-        tmp2 = s->busy_time_ross_sample[i];
+    for (int i = 0; i < p->num_rails; i++) {
+        tmp2 = s->busy_time_ross_sample ? s->busy_time_ross_sample[i] : 0;
         memcpy(&buffer[index], &tmp2, sizeof(tmp2));
         index += sizeof(tmp2);
-        s->busy_time_ross_sample[i] = 0;
+        if (s->busy_time_ross_sample)
+            s->busy_time_ross_sample[i] = 0;
+    }
+
+    tmp3 = s->packets_gen_ross_sample;
+    memcpy(&buffer[index], &tmp3, sizeof(tmp3));
+    index += sizeof(tmp3);
+    s->packets_gen_ross_sample = 0;
+
+    tmp3 = s->packets_fin_ross_sample;
+    memcpy(&buffer[index], &tmp3, sizeof(tmp3));
+    index += sizeof(tmp3);
+    s->packets_fin_ross_sample = 0;
+
+    tmp3 = s->min_fin_ross_sample;
+    memcpy(&buffer[index], &tmp3, sizeof(tmp3));
+    index += sizeof(tmp3);
+    s->min_fin_ross_sample = 0;
+
+    tmp3 = s->nonmin_fin_ross_sample;
+    memcpy(&buffer[index], &tmp3, sizeof(tmp3));
+    index += sizeof(tmp3);
+    s->nonmin_fin_ross_sample = 0;
+
+    for (int i = 0; i < p->num_rails; i++) {
+        tmp4 = s->stalled_chunks_ross_sample ? s->stalled_chunks_ross_sample[i] : 0;
+        memcpy(&buffer[index], &tmp4, sizeof(tmp4));
+        index += sizeof(tmp4);
+        if (s->stalled_chunks_ross_sample)
+            s->stalled_chunks_ross_sample[i] = 0;
+    }
+
+    /* instantaneous occupancy/backlog snapshots (not deltas, so nothing is zeroed) */
+    for (int i = 0; i < p->num_rails; i++) {
+        for (int j = 0; j < num_qos_levels; j++) {
+            tmp5 = s->vc_occupancy ? s->vc_occupancy[i][j] : 0;
+            memcpy(&buffer[index], &tmp5, sizeof(tmp5));
+            index += sizeof(tmp5);
+        }
+    }
+    for (int i = 0; i < p->num_rails; i++) {
+        for (int j = 0; j < num_qos_levels; j++) {
+            tmp5 = s->terminal_length ? s->terminal_length[i][j] : 0;
+            memcpy(&buffer[index], &tmp5, sizeof(tmp5));
+            index += sizeof(tmp5);
+        }
     }
 
     return;
@@ -929,6 +1034,8 @@ void custom_dally_dfly_router_model_stat_collect(router_state* s, tw_lp* lp, cha
     tw_lpid id = 0;
     tw_stime tmp = 0;
     int64_t tmp2 = 0;
+    uint64_t tmp3 = 0;
+    int tmp4 = 0;
 
     id = s->router_id;
     memcpy(&buffer[index], &id, sizeof(id));
@@ -944,6 +1051,27 @@ void custom_dally_dfly_router_model_stat_collect(router_state* s, tw_lp* lp, cha
         memcpy(&buffer[index], &tmp2, sizeof(tmp2));
         index += sizeof(tmp2);
         s->link_traffic_ross_sample[i] = 0;
+    }
+
+    for (i = 0; i < p->radix; i++) {
+        tmp3 = s->stalled_chunks_ross_sample[i];
+        memcpy(&buffer[index], &tmp3, sizeof(tmp3));
+        index += sizeof(tmp3);
+        s->stalled_chunks_ross_sample[i] = 0;
+    }
+
+    /* instantaneous per-port snapshots (not deltas, so nothing is zeroed) */
+    for (i = 0; i < p->radix; i++) {
+        tmp4 = 0;
+        for (int j = 0; j < p->num_vcs; j++)
+            tmp4 += s->vc_occupancy[i][j];
+        memcpy(&buffer[index], &tmp4, sizeof(tmp4));
+        index += sizeof(tmp4);
+    }
+    for (i = 0; i < p->radix; i++) {
+        tmp4 = s->queued_count[i];
+        memcpy(&buffer[index], &tmp4, sizeof(tmp4));
+        index += sizeof(tmp4);
     }
     return;
 }
@@ -966,7 +1094,7 @@ static void custom_dally_router_register_model_types(st_model_types* base_type) 
 /*** END of ROSS event tracing additions */
 
 static void ross_dally_dragonfly_rsample_fn(router_state* s, tw_bf* bf, tw_lp* lp,
-                                            struct dfly_router_sample* sample) {
+                                            struct dfly_router_ross_sample* sample) {
     (void)lp;
     (void)bf;
 
@@ -977,12 +1105,22 @@ static void ross_dally_dragonfly_rsample_fn(router_state* s, tw_bf* bf, tw_lp* l
     sample->end_time = tw_now(lp);
     sample->fwd_events = s->ross_rsample.fwd_events;
     sample->rev_events = s->ross_rsample.rev_events;
-    sample->busy_time = (tw_stime*)((&sample->rev_events) + 1);
-    sample->link_traffic_sample = (int64_t*)((&sample->busy_time[0]) + p->radix);
+    /* variable-length arrays live directly after the struct in the analysis-LP buffer */
+    sample->busy_time = (tw_stime*)(sample + 1);
+    sample->link_traffic_sample = (int64_t*)(sample->busy_time + p->radix);
+    sample->stalled_chunks_sample = (uint64_t*)(sample->link_traffic_sample + p->radix);
+    sample->vc_occupancy_sum = (int*)(sample->stalled_chunks_sample + p->radix);
+    sample->queued_count = sample->vc_occupancy_sum + p->radix;
 
     for (; i < p->radix; i++) {
         sample->busy_time[i] = s->ross_rsample.busy_time[i];
         sample->link_traffic_sample[i] = s->ross_rsample.link_traffic_sample[i];
+        sample->stalled_chunks_sample[i] = s->ross_rsample.stalled_chunks_sample[i];
+        /* instantaneous per-port snapshots read straight from live state */
+        sample->vc_occupancy_sum[i] = 0;
+        for (int j = 0; j < p->num_vcs; j++)
+            sample->vc_occupancy_sum[i] += s->vc_occupancy[i][j];
+        sample->queued_count[i] = s->queued_count[i];
     }
 
     /* clear up the current router stats */
@@ -992,20 +1130,24 @@ static void ross_dally_dragonfly_rsample_fn(router_state* s, tw_bf* bf, tw_lp* l
     for (i = 0; i < p->radix; i++) {
         s->ross_rsample.busy_time[i] = 0;
         s->ross_rsample.link_traffic_sample[i] = 0;
+        s->ross_rsample.stalled_chunks_sample[i] = 0;
     }
 }
 
 static void ross_dally_dragonfly_rsample_rc_fn(router_state* s, tw_bf* bf, tw_lp* lp,
-                                               struct dfly_router_sample* sample) {
+                                               struct dfly_router_ross_sample* sample) {
     (void)lp;
     (void)bf;
 
     const dragonfly_param* p = s->params;
     int i = 0;
 
+    /* the snapshot arrays (vc_occupancy_sum, queued_count) touched no LP state, so there
+     * is nothing to restore for them */
     for (; i < p->radix; i++) {
         s->ross_rsample.busy_time[i] = sample->busy_time[i];
         s->ross_rsample.link_traffic_sample[i] = sample->link_traffic_sample[i];
+        s->ross_rsample.stalled_chunks_sample[i] = sample->stalled_chunks_sample[i];
     }
 
     s->ross_rsample.fwd_events = sample->fwd_events;
@@ -1013,43 +1155,88 @@ static void ross_dally_dragonfly_rsample_rc_fn(router_state* s, tw_bf* bf, tw_lp
 }
 
 static void ross_dally_dragonfly_sample_fn(terminal_state* s, tw_bf* bf, tw_lp* lp,
-                                           struct dfly_cn_sample* sample) {
+                                           struct dfly_cn_ross_sample* sample) {
     (void)lp;
     (void)bf;
+
+    const dragonfly_param* p = s->params;
+    int const num_qos_levels = p->num_qos_levels;
+
+    /* NULL guards: a terminal frozen in surrogate mode has most pointer members unset
+     * (see dragonfly_dally_terminal_highdef_to_surrogate); emit zeros for those fields */
 
     sample->terminal_id = s->terminal_id;
     sample->fin_chunks_sample = s->ross_sample.fin_chunks_sample;
     sample->data_size_sample = s->ross_sample.data_size_sample;
     sample->fin_hops_sample = s->ross_sample.fin_hops_sample;
     sample->fin_chunks_time = s->ross_sample.fin_chunks_time;
-    sample->busy_time_sample = (tw_stime*)((&sample->busy_time_sample[0] + s->params->num_rails));
-    for (int i = 0; i < s->params->num_rails; i++)
-        sample->busy_time_sample[i] = s->ross_sample.busy_time_sample[i];
+    sample->packets_gen_sample = s->ross_sample.packets_gen_sample;
+    sample->packets_fin_sample = s->ross_sample.packets_fin_sample;
+    sample->min_fin_sample = s->ross_sample.min_fin_sample;
+    sample->nonmin_fin_sample = s->ross_sample.nonmin_fin_sample;
     sample->end_time = tw_now(lp);
     sample->fwd_events = s->ross_sample.fwd_events;
     sample->rev_events = s->ross_sample.rev_events;
 
+    /* variable-length arrays live directly after the struct in the analysis-LP buffer */
+    sample->busy_time_sample = (tw_stime*)(sample + 1);
+    sample->stalled_chunks_sample = (uint64_t*)(sample->busy_time_sample + p->num_rails);
+    sample->vc_occupancy = (int*)(sample->stalled_chunks_sample + p->num_rails);
+    sample->terminal_length = sample->vc_occupancy + p->num_rails * num_qos_levels;
+
+    for (int i = 0; i < p->num_rails; i++) {
+        sample->busy_time_sample[i] =
+            s->ross_sample.busy_time_sample ? s->ross_sample.busy_time_sample[i] : 0;
+        sample->stalled_chunks_sample[i] =
+            s->ross_sample.stalled_chunks_sample ? s->ross_sample.stalled_chunks_sample[i] : 0;
+        /* instantaneous snapshots read straight from live state */
+        for (int j = 0; j < num_qos_levels; j++) {
+            sample->vc_occupancy[i * num_qos_levels + j] =
+                s->vc_occupancy ? s->vc_occupancy[i][j] : 0;
+            sample->terminal_length[i * num_qos_levels + j] =
+                s->terminal_length ? s->terminal_length[i][j] : 0;
+        }
+    }
+
     s->ross_sample.fin_chunks_sample = 0;
     s->ross_sample.data_size_sample = 0;
     s->ross_sample.fin_hops_sample = 0;
+    s->ross_sample.packets_gen_sample = 0;
+    s->ross_sample.packets_fin_sample = 0;
+    s->ross_sample.min_fin_sample = 0;
+    s->ross_sample.nonmin_fin_sample = 0;
     s->ross_sample.fwd_events = 0;
     s->ross_sample.rev_events = 0;
     s->ross_sample.fin_chunks_time = 0;
-    for (int i = 0; i < s->params->num_rails; i++)
-        s->ross_sample.busy_time_sample[i] = 0;
+    for (int i = 0; i < p->num_rails; i++) {
+        if (s->ross_sample.busy_time_sample)
+            s->ross_sample.busy_time_sample[i] = 0;
+        if (s->ross_sample.stalled_chunks_sample)
+            s->ross_sample.stalled_chunks_sample[i] = 0;
+    }
 }
 
 static void ross_dally_dragonfly_sample_rc_fn(terminal_state* s, tw_bf* bf, tw_lp* lp,
-                                              struct dfly_cn_sample* sample) {
+                                              struct dfly_cn_ross_sample* sample) {
     (void)lp;
     (void)bf;
 
-    for (int i = 0; i < s->params->num_rails; i++)
-        s->ross_sample.busy_time_sample[i] = sample->busy_time_sample[i];
+    /* the snapshot arrays (vc_occupancy, terminal_length) touched no LP state, so there
+     * is nothing to restore for them */
+    for (int i = 0; i < s->params->num_rails; i++) {
+        if (s->ross_sample.busy_time_sample)
+            s->ross_sample.busy_time_sample[i] = sample->busy_time_sample[i];
+        if (s->ross_sample.stalled_chunks_sample)
+            s->ross_sample.stalled_chunks_sample[i] = sample->stalled_chunks_sample[i];
+    }
     s->ross_sample.fin_chunks_time = sample->fin_chunks_time;
     s->ross_sample.fin_hops_sample = sample->fin_hops_sample;
     s->ross_sample.data_size_sample = sample->data_size_sample;
     s->ross_sample.fin_chunks_sample = sample->fin_chunks_sample;
+    s->ross_sample.packets_gen_sample = sample->packets_gen_sample;
+    s->ross_sample.packets_fin_sample = sample->packets_fin_sample;
+    s->ross_sample.min_fin_sample = sample->min_fin_sample;
+    s->ross_sample.nonmin_fin_sample = sample->nonmin_fin_sample;
     s->ross_sample.fwd_events = sample->fwd_events;
     s->ross_sample.rev_events = sample->rev_events;
 }
@@ -4038,6 +4225,23 @@ static void dragonfly_dally_terminal_highdef_to_surrogate(terminal_state* s, tw_
     s->data_size_sample = frozen_state->data_size_sample;
     s->ross_sample.data_size_sample = frozen_state->ross_sample.data_size_sample;
     s->data_size_ross_sample = frozen_state->data_size_ross_sample;
+    s->packets_gen_ross_sample = frozen_state->packets_gen_ross_sample;
+    s->packets_fin_ross_sample = frozen_state->packets_fin_ross_sample;
+    s->min_fin_ross_sample = frozen_state->min_fin_ross_sample;
+    s->nonmin_fin_ross_sample = frozen_state->nonmin_fin_ross_sample;
+    s->ross_sample.packets_gen_sample = frozen_state->ross_sample.packets_gen_sample;
+    s->ross_sample.packets_fin_sample = frozen_state->ross_sample.packets_fin_sample;
+    s->ross_sample.min_fin_sample = frozen_state->ross_sample.min_fin_sample;
+    s->ross_sample.nonmin_fin_sample = frozen_state->ross_sample.nonmin_fin_sample;
+    /* keep the instrumentation delta buffers alive while frozen so ROSS model-stats
+     * collection (--model-stats) can run without dereferencing NULL; the hidden network
+     * state (vc_occupancy, terminal_length, ...) is intentionally left unset and
+     * collection emits zeros for it (see the NULL guards in
+     * custom_dally_dragonfly_model_stat_collect / ross_dally_dragonfly_sample_fn) */
+    s->busy_time_ross_sample = frozen_state->busy_time_ross_sample;
+    s->stalled_chunks_ross_sample = frozen_state->stalled_chunks_ross_sample;
+    s->ross_sample.busy_time_sample = frozen_state->ross_sample.busy_time_sample;
+    s->ross_sample.stalled_chunks_sample = frozen_state->ross_sample.stalled_chunks_sample;
     s->total_msg_size = frozen_state->total_msg_size;
     s->finished_msgs = frozen_state->finished_msgs;
     s->rank_tbl_pop = frozen_state->rank_tbl_pop;
@@ -4083,6 +4287,14 @@ static void dragonfly_dally_terminal_surrogate_to_highdef(terminal_state* s, tw_
     frozen_state->data_size_sample = s->data_size_sample;
     frozen_state->ross_sample.data_size_sample = s->ross_sample.data_size_sample;
     frozen_state->data_size_ross_sample = s->data_size_ross_sample;
+    frozen_state->packets_gen_ross_sample = s->packets_gen_ross_sample;
+    frozen_state->packets_fin_ross_sample = s->packets_fin_ross_sample;
+    frozen_state->min_fin_ross_sample = s->min_fin_ross_sample;
+    frozen_state->nonmin_fin_ross_sample = s->nonmin_fin_ross_sample;
+    frozen_state->ross_sample.packets_gen_sample = s->ross_sample.packets_gen_sample;
+    frozen_state->ross_sample.packets_fin_sample = s->ross_sample.packets_fin_sample;
+    frozen_state->ross_sample.min_fin_sample = s->ross_sample.min_fin_sample;
+    frozen_state->ross_sample.nonmin_fin_sample = s->ross_sample.nonmin_fin_sample;
     frozen_state->total_msg_size = s->total_msg_size;
     frozen_state->finished_msgs = s->finished_msgs;
     frozen_state->rank_tbl_pop = s->rank_tbl_pop;
@@ -4622,8 +4834,31 @@ static void terminal_dally_init(terminal_state* s, tw_lp* lp) {
 
 
     s->ross_sample.busy_time_sample = (tw_stime*)calloc(s->params->num_rails, sizeof(tw_stime));
+    s->ross_sample.stalled_chunks_sample =
+        (uint64_t*)calloc(s->params->num_rails, sizeof(uint64_t));
     s->busy_time_ross_sample = (tw_stime*)calloc(s->params->num_rails, sizeof(tw_stime));
+    s->stalled_chunks_ross_sample = (uint64_t*)calloc(s->params->num_rails, sizeof(uint64_t));
     s->busy_time_sample = (tw_stime*)calloc(s->params->num_rails, sizeof(tw_stime));
+    s->packets_gen_ross_sample = 0;
+    s->packets_fin_ross_sample = 0;
+    s->min_fin_ross_sample = 0;
+    s->nonmin_fin_ross_sample = 0;
+
+    /* The model-stats payload and virtual-time sample sizes depend on num_rails and
+     * num_qos_levels, so they are set here at runtime rather than in the static
+     * custom_dally_dragonfly_model_types initializer (all terminals share one params set
+     * per annotation, so every terminal writes the same values). Keep these formulas in
+     * sync with custom_dally_dragonfly_model_stat_collect() and
+     * ross_dally_dragonfly_sample_fn(). */
+    if (g_st_model_stats)
+        lp->model_types->mstat_sz = sizeof(tw_lpid) + 3 * sizeof(long) + sizeof(tw_stime) +
+                                    4 * sizeof(int64_t) +
+                                    p->num_rails * (sizeof(tw_stime) + sizeof(uint64_t)) +
+                                    2 * p->num_rails * num_qos_levels * sizeof(int);
+    if (g_st_use_analysis_lps && g_st_model_stats)
+        lp->model_types->sample_struct_sz = sizeof(struct dfly_cn_ross_sample) +
+                                            p->num_rails * (sizeof(tw_stime) + sizeof(uint64_t)) +
+                                            2 * p->num_rails * num_qos_levels * sizeof(int);
 
     /*if(s->terminal_id == 0)
         {
@@ -4768,17 +5003,22 @@ static void router_dally_init(router_state* r, tw_lp* lp) {
     r->busy_time = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
     r->busy_time_sample = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
 
-    /* set up for ROSS stats sampling */
+    /* set up for ROSS stats sampling; keep the size formulas in sync with
+     * custom_dally_dfly_router_model_stat_collect() and ross_dally_dragonfly_rsample_fn() */
     r->link_traffic_ross_sample = (int64_t*)calloc(p->radix, sizeof(int64_t));
     r->busy_time_ross_sample = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
+    r->stalled_chunks_ross_sample = (uint64_t*)calloc(p->radix, sizeof(uint64_t));
     if (g_st_model_stats)
         lp->model_types->mstat_sz =
-            sizeof(tw_lpid) + (sizeof(int64_t) + sizeof(tw_stime)) * p->radix;
+            sizeof(tw_lpid) +
+            (sizeof(int64_t) + sizeof(tw_stime) + sizeof(uint64_t) + 2 * sizeof(int)) * p->radix;
     if (g_st_use_analysis_lps && g_st_model_stats)
         lp->model_types->sample_struct_sz =
-            sizeof(struct dfly_router_sample) + (sizeof(tw_stime) + sizeof(int64_t)) * p->radix;
+            sizeof(struct dfly_router_ross_sample) +
+            (sizeof(tw_stime) + sizeof(int64_t) + sizeof(uint64_t) + 2 * sizeof(int)) * p->radix;
     r->ross_rsample.busy_time = (tw_stime*)calloc(p->radix, sizeof(tw_stime));
     r->ross_rsample.link_traffic_sample = (int64_t*)calloc(p->radix, sizeof(int64_t));
+    r->ross_rsample.stalled_chunks_sample = (uint64_t*)calloc(p->radix, sizeof(uint64_t));
 
     rc_stack_create(&r->st);
     rc_stack_create(&r->cc_st);
@@ -4956,6 +5196,8 @@ static void packet_generate_predicted_rc(terminal_state* s, tw_bf* bf, terminal_
     s->packet_counter--;
     s->total_gen_size -= msg->packet_size;
     s->packet_gen--;
+    s->packets_gen_ross_sample--;
+    s->ross_sample.packets_gen_sample--;
     packet_gen--;
 }
 
@@ -4964,6 +5206,8 @@ static void packet_generate_predicted(terminal_state* s, tw_bf* bf, terminal_dal
                                       tw_lp* lp) {
     packet_gen++;
     s->packet_gen++;
+    s->packets_gen_ross_sample++;
+    s->ross_sample.packets_gen_sample++;
     s->total_gen_size += msg->packet_size;
 
     assert(lp->gid != msg->dest_terminal_lpid);
@@ -5108,6 +5352,8 @@ static void packet_generate_rc(terminal_state* s, tw_bf* bf, terminal_dally_mess
 
     s->total_gen_size -= msg->packet_size;
     s->packet_gen--;
+    s->packets_gen_ross_sample--;
+    s->ross_sample.packets_gen_sample--;
     packet_gen--;
     s->packet_counter--;
 
@@ -5172,6 +5418,8 @@ static void packet_generate(terminal_state* s, tw_bf* bf, terminal_dally_message
     packet_gen++;
 
     s->packet_gen++;
+    s->packets_gen_ross_sample++;
+    s->ross_sample.packets_gen_sample++;
     s->total_gen_size += msg->packet_size;
     msg->saved_processing_time = tw_now(lp);
 
@@ -5540,6 +5788,8 @@ static void packet_send_rc(terminal_state* s, tw_bf* bf, terminal_dally_message*
     if (bf->c1) {
         s->in_send_loop[msg->rail_id] = msg->saved_send_loop;
         s->stalled_chunks[msg->rail_id]--;
+        s->stalled_chunks_ross_sample[msg->rail_id]--;
+        s->ross_sample.stalled_chunks_sample[msg->rail_id]--;
         if (bf->c3)
             s->last_buf_full[msg->rail_id] = msg->saved_busy_time;
 
@@ -5605,6 +5855,8 @@ static void packet_send(terminal_state* s, tw_bf* bf, terminal_dally_message* ms
         bf->c1 = 1;
         s->in_send_loop[msg->rail_id] = 0;
         s->stalled_chunks[msg->rail_id]++;
+        s->stalled_chunks_ross_sample[msg->rail_id]++;
+        s->ross_sample.stalled_chunks_sample[msg->rail_id]++;
         if (!s->last_buf_full[msg->rail_id]) {
             bf->c3 = 1;
             msg->saved_busy_time = s->last_buf_full[msg->rail_id];
@@ -6069,10 +6321,16 @@ static void packet_arrive_rc(terminal_state* s, tw_bf* bf, terminal_dally_messag
     if (g_congestion_control_enabled)
         cc_terminal_send_ack_rc(s->local_congestion_controller);
 
-    if (msg->path_type == MINIMAL)
+    if (msg->path_type == MINIMAL) {
         minimal_count--;
-    if (msg->path_type == NON_MINIMAL)
+        s->min_fin_ross_sample--;
+        s->ross_sample.min_fin_sample--;
+    }
+    if (msg->path_type == NON_MINIMAL) {
         nonmin_count--;
+        s->nonmin_fin_ross_sample--;
+        s->ross_sample.nonmin_fin_sample--;
+    }
 
     N_finished_chunks--;
     s->finished_chunks--;
@@ -6112,6 +6370,8 @@ static void packet_arrive_rc(terminal_state* s, tw_bf* bf, terminal_dally_messag
 
     if (bf->c1) {
         s->packet_fin--;
+        s->packets_fin_ross_sample--;
+        s->ross_sample.packets_fin_sample--;
         packet_fin--;
         stat->recv_count--;
         stat->recv_bytes -= msg->packet_size;
@@ -6249,11 +6509,17 @@ static void packet_arrive(terminal_state* s, tw_bf* bf, terminal_dally_message* 
 
     uint64_t const num_chunks = num_chunks_for(msg->packet_size, s->params->chunk_size);
 
-    if (msg->path_type == MINIMAL)
+    if (msg->path_type == MINIMAL) {
         minimal_count++;
+        s->min_fin_ross_sample++;
+        s->ross_sample.min_fin_sample++;
+    }
 
-    if (msg->path_type == NON_MINIMAL)
+    if (msg->path_type == NON_MINIMAL) {
         nonmin_count++;
+        s->nonmin_fin_ross_sample++;
+        s->ross_sample.nonmin_fin_sample++;
+    }
 
     if (msg->path_type != MINIMAL && msg->path_type != NON_MINIMAL)
         printf("\n Wrong message path type %d ", msg->path_type);
@@ -6286,6 +6552,8 @@ static void packet_arrive(terminal_state* s, tw_bf* bf, terminal_dally_message* 
     if (msg->chunk_id == num_chunks - 1) {
         bf->c1 = 1;
         s->packet_fin++;
+        s->packets_fin_ross_sample++;
+        s->ross_sample.packets_fin_sample++;
         packet_fin++;
 
         stat->recv_count++;
@@ -7082,6 +7350,8 @@ static void router_packet_receive_rc(router_state* s, tw_bf* bf, terminal_dally_
     }
     if (bf->c4) {
         s->stalled_chunks[output_port]--;
+        s->stalled_chunks_ross_sample[output_port]--;
+        s->ross_rsample.stalled_chunks_sample[output_port]--;
         if (bf->c22) {
             s->last_buf_full[output_port] = msg->saved_busy_time;
         }
@@ -7288,6 +7558,8 @@ static void router_packet_receive(router_state* s, tw_bf* bf, terminal_dally_mes
     } else {
         bf->c4 = 1;
         s->stalled_chunks[output_port]++;
+        s->stalled_chunks_ross_sample[output_port]++;
+        s->ross_rsample.stalled_chunks_sample[output_port]++;
         cur_chunk->msg.saved_vc = msg->vc_index;
         cur_chunk->msg.saved_channel = msg->output_chan;
         assert(output_chan < s->params->num_vcs && output_port < s->params->radix);
@@ -8232,6 +8504,7 @@ static void save_terminal_state(terminal_state* into, terminal_state const* from
     // from->sample_stat
     // from->ross_sample
     // from->busy_time_ross_sample
+    // from->stalled_chunks_ross_sample
     // from->busy_time_sample
 
     memcpy(into, from, sizeof(terminal_state));
@@ -8410,6 +8683,10 @@ static bool check_terminal_state(terminal_state* before, terminal_state* after) 
     is_same &= (before->data_size_ross_sample == after->data_size_ross_sample);
     is_same &= (before->fin_hops_ross_sample == after->fin_hops_ross_sample);
     is_same &= (before->fin_chunks_time_ross_sample == after->fin_chunks_time_ross_sample);
+    is_same &= (before->packets_gen_ross_sample == after->packets_gen_ross_sample);
+    is_same &= (before->packets_fin_ross_sample == after->packets_fin_ross_sample);
+    is_same &= (before->min_fin_ross_sample == after->min_fin_ross_sample);
+    is_same &= (before->nonmin_fin_ross_sample == after->nonmin_fin_ross_sample);
     is_same &= (before->last_in_queue_time == after->last_in_queue_time);
 
     // Compare string buffers
@@ -8718,7 +8995,7 @@ static void print_terminal_state(FILE* out, char const* prefix, terminal_state* 
         state
             ->busy_time_ross_sample); // ingnoring as this part of the code is never used. Originally part of instrumentation
     fprintf(
-        out, "%s  |              ross_sample = <dfly_cn_sample object>\n",
+        out, "%s  |              ross_sample = <dfly_cn_ross_sample object>\n",
         prefix); // ingnoring as this part of the code is never used. Originally part of instrumentation
 
     // modified outside of process and reverse computation (at commit and at surrogate change)
@@ -8762,6 +9039,7 @@ static void save_router_state(router_state* into, router_state const* from) {
     // from->busy_time_sample
     // from->link_traffic_sample
     // from->link_traffic_ross_sample
+    // from->stalled_chunks_ross_sample
 
     memcpy(into, from, sizeof(router_state));
 
@@ -9217,7 +9495,7 @@ static void print_router_state(FILE* out, char const* prefix, router_state* stat
         fprintf(out, "%s  |  ]\n", prefix);
     }
 
-    fprintf(out, "%s  |             ross_rsample = <dfly_router_sample object>\n", prefix);
+    fprintf(out, "%s  |             ross_rsample = <dfly_router_ross_sample object>\n", prefix);
     fprintf(out, "%s  |                last_time = %g\n", prefix, state->last_time);
 }
 

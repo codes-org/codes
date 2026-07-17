@@ -1,0 +1,27 @@
+schema_version: 1
+
+# YAML twin of modelnet-mpi-test-dfly-amg-216.conf: a regular dragonfly with 8
+# routers per group (num_cn = 4, num_groups = 33, repetitions = 264).
+
+components:
+  compute_host:
+    model: nw-lp
+
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly
+    shape:
+      num_routers: 8
+    links:
+      local:  { bandwidth: 5.25, vc_size: 16384 }
+      global: { bandwidth: 4.7,  vc_size: 32768 }
+      cn:     { bandwidth: 5.25, vc_size: 16384 }
+    routing:
+      algorithm: adaptive
+    packet_size: 512
+    chunk_size: 256
+    modelnet_scheduler: fcfs
+    message_size: 768
+  hosts:
+    component: compute_host

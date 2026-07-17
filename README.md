@@ -222,6 +222,13 @@ bash run-experiment.sh path-to-experiment/script.sh
 
 A folder will be created under `path-to-experiment/results` containing the result of running the experiment.
 
+### Configuration format
+
+A model's configuration can be written as a `.conf` (the legacy format) or as a
+YAML/JSON file — both are supported, chosen per file by extension. See
+[Running with a YAML config](doc/dev/yaml-config.md) for the YAML format and
+worked examples.
+
 ## Features
 
 CODES provides comprehensive simulation capabilities for:
@@ -260,6 +267,18 @@ This repo uses [clang-format](https://clang.llvm.org/docs/ClangFormat.html) to k
 
 To reformat a file manually: `clang-format -i path/to/file.c`. CI runs `clang-format --dry-run --Werror` on every PR and rejects any drift, so PRs with unformatted code don't merge.
 Note: The CI uses clang-format major release version 20, so you should format your files with that version.
+
+To catch drift at commit time instead of in CI, enable the repo's pre-commit hook
+(one-time, per clone):
+
+```bash
+git config core.hooksPath scripts/git-hooks
+```
+
+The hook runs the same `clang-format --dry-run --Werror` check CI does, on the *staged*
+content of C/C++ files under `src/`, `codes/`, `doc/`, and `tests/`, and rejects the
+commit with a fix-it command if anything drifts. Bypass a single commit with
+`git commit --no-verify`.
 
 ### Determinism
 

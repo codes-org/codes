@@ -1,0 +1,79 @@
+schema_version: 1
+
+# YAML twin of dfdally-3k-par.conf.in: a ~3k-terminal dragonfly-dally
+# (repetitions = num_groups * num_routers = 342) for the union MILC/Jacobi
+# workload with the director. The group carries an extra director workload LP
+# (dir-nw-lp) alongside nw-lp, which is not the single-workload-per-terminal
+# shape the parametric fabric derives, so the layout is written directly with the
+# explicit-groups form. The director and the two surrogates read their own
+# DIRECTOR / NETWORK_SURROGATE / APPLICATION_SURROGATE sections, carried through
+# verbatim. The ${...} tokens are substituted by the run environment.
+
+topology:
+  format: groups
+  params:
+    packet_size: 4096
+    modelnet_order: [dragonfly_dally, dragonfly_dally_router]
+    modelnet_scheduler: fcfs
+    chunk_size: "${CHUNK_SIZE}"
+    num_routers: 18
+    num_groups: 19
+    local_vc_size: 16384
+    global_vc_size: 16384
+    cn_vc_size: 32768
+    local_bandwidth: 5.25
+    global_bandwidth: 4.7
+    cn_bandwidth: 5.25
+    message_size: 840
+    num_cns_per_router: 9
+    num_global_channels: 9
+    intra-group-connections: "${DFDALLY_INTRA_CONNECTIONS}"
+    inter-group-connections: "${DFDALLY_INTER_CONNECTIONS}"
+    routing: prog-adaptive
+    minimal-bias: 0
+    df-dally-vc: 1
+    counting_bool: 0
+    counting_start: 0
+    counting_windows: 1800
+    counting_interval: 300
+    num_apps: 2
+    offset: 6156
+  groups:
+    MODELNET_GRP:
+      repetitions: 342
+      lps:
+        nw-lp: 9
+        dir-nw-lp: ${DIRECTOR_LP_PER_REP}
+        modelnet_dragonfly_dally: 9
+        modelnet_dragonfly_dally_router: 1
+
+sections:
+  DIRECTOR:
+    start_iter: "${DIRECTOR_START_ITER}"
+    end_iter: "${DIRECTOR_END_ITER}"
+    retrain_enabled: "${DIRECTOR_RETRAIN_ENABLED}"
+    retrain_iter: "${DIRECTOR_RETRAIN_ITER}"
+    retrain_save_path: "${DIRECTOR_RETRAIN_SAVE_PATH}"
+    second_surrogate_enabled: "${DIRECTOR_SECOND_SURROGATE_ENABLED}"
+    second_start_iter: "${DIRECTOR_SECOND_START_ITER}"
+    second_end_iter: "${DIRECTOR_SECOND_END_ITER}"
+    inferencing_enabled: "${INFERENCING_ENABLED}"
+    surrogate_enabled: "${SURROGATE_ENABLED}"
+    training_enabled: "${TRAINING_ENABLED}"
+    debug_prints: "${DIRECTOR_DEBUG_PRINTS}"
+    shutdown_zmqml_server_on_finalize: "${SHUTDOWN_ZMQML_SERVER_ON_FINALIZE}"
+  NETWORK_SURROGATE:
+    enable: "${NETWORK_SURR_ON}"
+    director_mode: delegate-to-app-director
+    fixed_switch_timestamps: ["25.0e6", "400.0e6"]
+    packet_latency_predictor: average
+    ignore_until: "2.0e6"
+    torch_jit_mode: single-static-model-for-all-terminals
+    torch_jit_model_path: ""
+    network_treatment_on_switch: "${NETWORK_MODE}"
+  APPLICATION_SURROGATE:
+    enable: "${APP_SURR_ON}"
+    director_mode: "${APP_DIRECTOR_MODE}"
+    director_num_gvt: "${EVERY_N_GVT}"
+    director_num_ns: "${EVERY_NSECS}"
+    num_iters_to_collect: 2

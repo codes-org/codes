@@ -1,0 +1,39 @@
+schema_version: 1
+
+# YAML twin of dfcustom-8group.conf: an 8-group Theta-style custom dragonfly. It
+# is file-enumerated, so the shape counts are genuine inputs that must match the
+# binary connection files, referenced by path (@CMAKE_SOURCE_DIR@ substituted by
+# CMake so the model resolves them from any run directory). The compiler derives
+# repetitions = num_groups * num_router_rows * num_router_cols (768 routers), with
+# num_cns_per_router terminals plus one router LP per repetition.
+
+components:
+  compute_host:
+    model: nw-lp
+
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly-custom
+    shape:
+      num_router_rows: 6
+      num_router_cols: 16
+      num_groups: 8
+      num_cns_per_router: 4
+      num_global_channels: 4
+    links:
+      local:  { bandwidth: 12.5, vc_size: 65536 }
+      global: { bandwidth: 12.5, vc_size: 65536 }
+      cn:     { bandwidth: 12.5, vc_size: 65536 }
+    routing:
+      algorithm: adaptive
+    connections:
+      intra: "@CMAKE_SOURCE_DIR@/scripts/dragonfly-custom/example/intra-theta-8group"
+      inter: "@CMAKE_SOURCE_DIR@/scripts/dragonfly-custom/example/inter-theta-8group"
+    packet_size: 4096
+    message_size: 656
+    chunk_size: 4096
+    modelnet_scheduler: fcfs
+    router_delay: 90
+  hosts:
+    component: compute_host

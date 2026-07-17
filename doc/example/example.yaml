@@ -1,0 +1,29 @@
+schema_version: 1
+
+# YAML twin of example.conf: 16 servers (nw-lp), each point-to-point connected via
+# a simplenet NIC. The group name (SERVERS) and the custom server_pings section
+# are not what a flat topology would emit, so the layout is written directly with
+# the explicit-groups form; PARAMS carried through verbatim, and the model's own
+# server_pings section carried through under sections:.
+
+topology:
+  format: groups
+  params:
+    message_size: 432
+    pe_mem_factor: 512
+    packet_size: 512
+    modelnet_order: [simplenet]
+    modelnet_scheduler: fcfs
+    net_startup_ns: 1.5
+    net_bw_mbps: 20000
+  groups:
+    SERVERS:
+      repetitions: 16
+      lps:
+        nw-lp: 1
+        modelnet_simplenet: 1
+
+sections:
+  server_pings:
+    num_reqs: 5
+    payload_sz: 4096

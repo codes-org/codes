@@ -50,9 +50,17 @@ static struct codes_cb_info cb_info;
 
 char conf_file_name[256] = {0};
 
-const tw_optdef app_opt[] = {TWOPT_GROUP("Simple Network Test Model"),
-                             TWOPT_CHAR("conf", conf_file_name, "Name of configuration file"),
-                             TWOPT_END()};
+static char lp_io_dir[256] = {'\0'};
+static unsigned int lp_io_use_suffix = 0;
+static int do_lp_io = 0;
+
+const tw_optdef app_opt[] = {
+    TWOPT_GROUP("Simple Network Test Model"),
+    TWOPT_CHAR("conf", conf_file_name, "Name of configuration file"),
+    TWOPT_CHAR("lp-io-dir", lp_io_dir, "Where to place io output (unspecified -> no output)"),
+    TWOPT_UINT("lp-io-use-suffix", lp_io_use_suffix,
+               "Whether to append uniq suffix to lp-io directory (default 0)"),
+    TWOPT_END()};
 
 
 static void svr_init(svr_state* ns, tw_lp* lp);
@@ -102,17 +110,23 @@ int main(int argc, char** argv) {
 
     lsm_configure();
 
-    ret = lp_io_prepare("lsm-test", LP_IO_UNIQ_SUFFIX, &handle, MPI_COMM_WORLD);
-    if (ret < 0) {
-        return (-1);
+    if (lp_io_dir[0]) {
+        do_lp_io = 1;
+        int flags = lp_io_use_suffix ? LP_IO_UNIQ_SUFFIX : 0;
+        ret = lp_io_prepare(lp_io_dir, flags, &handle, MPI_COMM_WORLD);
+        if (ret < 0) {
+            return (-1);
+        }
     }
 
     INIT_CODES_CB_INFO(&cb_info, svr_msg, h, tag, ret);
 
     tw_run();
 
-    ret = lp_io_flush(handle, MPI_COMM_WORLD);
-    assert(ret == 0);
+    if (do_lp_io) {
+        ret = lp_io_flush(handle, MPI_COMM_WORLD);
+        assert(ret == 0);
+    }
 
     tw_end();
 

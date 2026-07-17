@@ -85,7 +85,7 @@ EXTRA_DIST += tests/download-traces.sh \
  tests/conf/modelnet-prio-sched-test.conf \
  tests/conf/modelnet-test-bw.conf \
  tests/conf/modelnet-test-bw-tri.conf \
- tests/conf/modelnet-test.conf \
+ tests/conf/modelnet-test-simplenet.conf \
  tests/conf/modelnet-test-em.conf	\
  tests/conf/modelnet-test-dragonfly.conf \
  tests/conf/modelnet-test-slimfly.conf \

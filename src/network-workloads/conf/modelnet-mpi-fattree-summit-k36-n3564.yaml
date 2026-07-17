@@ -1,0 +1,31 @@
+schema_version: 1
+
+# YAML twin of modelnet-mpi-fattree-summit-k36-n3564.conf: a 3-level Summit-style
+# fat-tree (198 edge switches, switch_radix 36 -> 18 terminals each). No routing
+# key is set, so the fabric omits the routing block.
+
+components:
+  compute_host:
+    model: nw-lp
+
+topology:
+  format: parametric
+  fabric:
+    model: fattree
+    shape:
+      num_levels: 3
+      switch_count: 198
+      switch_radix: 36
+    ft_type: 0
+    packet_size: 512
+    message_size: 592
+    chunk_size: 32
+    modelnet_scheduler: fcfs
+    router_delay: 60
+    soft_delay: 1000
+    vc_size: 65536
+    cn_vc_size: 65536
+    link_bandwidth: 12.5
+    cn_bandwidth: 12.5
+  hosts:
+    component: compute_host

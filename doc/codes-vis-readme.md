@@ -6,6 +6,8 @@ on the ROSS webpage.
 
 There are currently 4 types of instrumentation: GVT-based, real time sampling, virtual time sampling, and event tracing.
 See the ROSS documentation for more info on the specific options or use `--help` with your model.
+The binary layout of the model-stats output files (and a reference Python parser) is documented in
+[model-stats-binary-format.md](model-stats-binary-format.md).
 To collect data about the simulation engine, no changes are needed to model code for any of the instrumentation modes.
 Some additions to the model code is needed in order to turn on any model-level data collection.
 See the "Model-level data sampling" section on [ROSS Instrumentation blog post](http://ross-org.github.io/instrumentation/instrumentation.html).
@@ -109,7 +111,7 @@ st_model_types svr_model_types[] = {
 
 static void svr_register_model_types()
 {
-    st_model_type_register("ns-lp", &svr_model_types[0]);
+    st_model_type_register("nw-lp", &svr_model_types[0]);
 }
 
 int main(int argc, char **argv)
@@ -135,12 +137,18 @@ modes are collecting model-level data as well.
 ### CODES LPs that currently have event type collection implemented:
 If you're using any of the following CODES models, you don't have to add anything, unless you want to change the data that's being collected.
 - nw-lp (model-net-mpi-replay.c)
+- ping pong tutorial server LP (doc/example/tutorial-synthetic-ping-pong.c) — also collects
+  model-level stats in all sampling modes; a good minimal example to copy from
 - dfly server LP (model-net-synthetic.c)
 - custom dfly server LP (model-net-synthetic-custom-dfly.c)
 - fat tree server LP (model-net-synthetic-fattree.c)
 - slimfly server LP (model-net-synthetic-slimfly.c)
 - original dragonfly router and terminal LPs (dragonfly.c)
 - dragonfly custom router and terminal LPs (dragonfly-custom.cxx)
+- dragonfly dally router and terminal LPs (dragonfly-dally.cxx) — richest model-stats
+  payload (packet rates, routing-path mix, stalls, occupancy snapshots); layout in
+  [model-stats-binary-format.md](model-stats-binary-format.md)
+- dragonfly plus router and terminal LPs (dragonfly-plus.cxx)
 - slimfly router and terminal LPs (slimfly.c)
 - fat tree switch and terminal LPs (fat-tree.c)
 - model-net-base-lp (model-net-lp.c)

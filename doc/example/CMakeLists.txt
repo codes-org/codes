@@ -11,6 +11,10 @@ endforeach()
 # Saving default config files to run experiments with
 configure_file(tutorial-ping-pong.conf.in tutorial-ping-pong.template.conf.in @ONLY)
 configure_file(tutorial-ping-pong-surrogate.conf.in tutorial-ping-pong-surrogate.template.conf.in @ONLY)
+# YAML twins of the templates above (@ONLY so @CMAKE_SOURCE_DIR@ is substituted but
+# the ${VAR} tokens stay for envsubst, exactly like the .conf templates).
+configure_file(tutorial-ping-pong.yaml.in tutorial-ping-pong.template.yaml.in @ONLY)
+configure_file(tutorial-ping-pong-surrogate.yaml.in tutorial-ping-pong-surrogate.template.yaml.in @ONLY)
 configure_file(kb.dfdally-72-zeromq-director.conf.in kb.dfdally-72-zeromq-director.template.conf.in @ONLY)
 configure_file(kb.dfdally-72-event-time-director.conf.in kb.dfdally-72-event-time-director.template.conf.in @ONLY)
 configure_file(kb.dfdally-72-milc-small.workload.conf.in kb.dfdally-72-milc-small.workload.template.conf.in @ONLY)
@@ -39,6 +43,9 @@ set(SURROGATE_ENABLED "1")
 set(TRAINING_ENABLED "1")
 configure_file(tutorial-ping-pong.conf.in tutorial-ping-pong.conf)
 configure_file(tutorial-ping-pong-surrogate.conf.in tutorial-ping-pong-surrogate.conf)
+# YAML twins, configured for direct build-dir use (all ${VAR} tokens substituted).
+configure_file(tutorial-ping-pong.yaml.in tutorial-ping-pong.yaml)
+configure_file(tutorial-ping-pong-surrogate.yaml.in tutorial-ping-pong-surrogate.yaml)
 configure_file(kb.dfdally-72-zeromq-director.conf.in kb.dfdally-72-zeromq-director.conf)
 configure_file(kb.dfdally-72-event-time-director.conf.in kb.dfdally-72-event-time-director.conf)
 configure_file(kb.dfdally-72-milc-small.workload.conf.in kb.dfdally-72-milc-small.workload.conf)

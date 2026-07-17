@@ -1,0 +1,40 @@
+schema_version: 1
+
+# YAML twin of dfp_8k.conf: an ~8k-terminal dragonfly-plus. Its LPGROUPS layout
+# (repetitions 1056, one router LP per repetition, 8 workload/terminal LPs each)
+# is not the per-group shape the parametric dragonfly-plus fabric derives, so the
+# layout is written directly with the explicit-groups form and PARAMS are carried
+# through verbatim (including the intra/inter connection-file paths).
+
+topology:
+  format: groups
+  params:
+    packet_size: 4096
+    modelnet_order: [dragonfly_plus, dragonfly_plus_router]
+    modelnet_scheduler: fcfs
+    chunk_size: 4096
+    num_router_spine: 16
+    num_router_leaf: 16
+    num_level_chans: 1
+    num_groups: 33
+    local_vc_size: 32768
+    global_vc_size: 32768
+    cn_vc_size: 32768
+    local_bandwidth: 25.0
+    global_bandwidth: 25.0
+    cn_bandwidth: 25.0
+    message_size: 640
+    num_cns_per_router: 16
+    num_global_connections: 16
+    intra-group-connections: "../src/network-workloads/conf/dragonfly-plus/dfp_8k_intra"
+    inter-group-connections: "../src/network-workloads/conf/dragonfly-plus/dfp_8k_inter"
+    routing: prog-adaptive
+    route_scoring_metric: delta
+    adaptive_threshold: 131072
+  groups:
+    MODELNET_GRP:
+      repetitions: 1056
+      lps:
+        nw-lp: 8
+        modelnet_dragonfly_plus: 8
+        modelnet_dragonfly_plus_router: 1

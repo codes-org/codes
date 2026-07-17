@@ -1,0 +1,20 @@
+schema_version: 1
+
+# YAML twin of modelnet-mpi-test.conf: 256 peer compute nodes running a workload
+# over a simplenet NIC. A flat topology is just a component (the workload plus its
+# NIC model) and a node count; the net params sit directly on the component.
+
+components:
+  compute_node:
+    model: nw-lp
+    network: simplenet
+    packet_size: 512
+    message_size: 784
+    modelnet_scheduler: fcfs
+    net_startup_ns: 1.5
+    net_bw_mbps: 20000
+
+topology:
+  format: flat
+  component: compute_node
+  nodes: 256

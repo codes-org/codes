@@ -1,0 +1,21 @@
+schema_version: 1
+
+# YAML twin of modelnet-test-simplep2p.conf: three peer compute nodes running a
+# workload over a simplep2p NIC. simplep2p's link table comes from the existing
+# latency/bandwidth matrix files, referenced by path on the component; the flat
+# topology just supplies the node count.
+
+components:
+  compute_node:
+    model: nw-lp
+    network: simplep2p
+    message_size: 464
+    packet_size: 1024
+    modelnet_scheduler: fcfs
+    net_latency_ns_file: modelnet-test-latency.conf
+    net_bw_mbps_file: modelnet-test-bw.conf
+
+topology:
+  format: flat
+  component: compute_node
+  nodes: 3

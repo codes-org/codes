@@ -1,0 +1,36 @@
+schema_version: 1
+
+# YAML twin of modelnet-test-dragonfly-dally.conf.in: a 72-terminal dragonfly-
+# dally (repetitions = num_groups * num_routers = 36). File-enumerated; the
+# connection-file paths use the @abs_srcdir@ token substituted at configure time.
+
+components:
+  compute_host:
+    model: nw-lp
+
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly-dally
+    shape:
+      num_routers: 4
+      num_groups: 9
+      num_cns_per_router: 2
+      num_global_channels: 2
+    links:
+      local:  { bandwidth: 2.0, vc_size: 16384 }
+      global: { bandwidth: 2.0, vc_size: 16384 }
+      cn:     { bandwidth: 2.0, vc_size: 32768 }
+    routing:
+      algorithm: minimal
+    connections:
+      intra: "@abs_srcdir@/dfdally-72-intra"
+      inter: "@abs_srcdir@/dfdally-72-inter"
+    packet_size: 4096
+    chunk_size: 4096
+    message_size: 736
+    modelnet_scheduler: fcfs
+    minimal-bias: 1
+    df-dally-vc: 1
+  hosts:
+    component: compute_host

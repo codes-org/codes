@@ -1,0 +1,36 @@
+schema_version: 1
+
+# YAML twin of modelnet-synthetic-slimfly-min.conf: an MMS slimfly on
+# num_routers=5 (repetitions = 2 * 5^2 = 50). The generator sets are list-valued
+# PARAMS written as YAML sequences.
+
+components:
+  compute_host:
+    model: nw-lp
+
+topology:
+  format: parametric
+  fabric:
+    model: slimfly
+    shape:
+      num_routers: 5
+      num_terminals: 3
+    links:
+      local:  { bandwidth: 9.0, vc_size: 25600 }
+      global: { bandwidth: 9.0, vc_size: 25600 }
+      cn:     { bandwidth: 9.0, vc_size: 25600 }
+    routing:
+      algorithm: minimal
+    generator_set_X: [1, 4]
+    generator_set_X_prime: [2, 3]
+    packet_size: 256
+    chunk_size: 256
+    modelnet_scheduler: fcfs
+    num_vcs: 4
+    global_channels: 5
+    local_channels: 2
+    router_delay: 0
+    link_delay: 0
+    message_size: 512
+  hosts:
+    component: compute_host

@@ -1,0 +1,54 @@
+schema_version: 1
+
+# YAML twin of example.conf: a heterogeneous setup -- two compute clusters (foo,
+# bar) each with its own simplenet parameters, plus forwarder groups bridging
+# them over a shared forwarding network. codes_mapping lets the same NIC model
+# (modelnet_simplenet) appear per-cluster under an annotation, so this uses the
+# explicit-groups form with type@annotation LP entries and matching @-annotated
+# PARAMS. The custom run_params section is carried through under sections:.
+
+topology:
+  format: groups
+  params:
+    message_size: 352
+    modelnet_order: [simplenet]
+    packet_size@foo: 8192
+    modelnet_scheduler@foo: fcfs
+    net_startup_ns@foo: 1.5
+    net_bw_mbps@foo: 10000
+    packet_size@bar: 2048
+    modelnet_scheduler@bar: round-robin
+    net_startup_ns@bar: 3.0
+    net_bw_mbps@bar: 15000
+    packet_size: 4096
+    modelnet_scheduler: fcfs
+    net_startup_ns: 8.0
+    net_bw_mbps: 5000
+  groups:
+    FOO_CLUSTER:
+      repetitions: 12
+      lps:
+        node: 1
+        modelnet_simplenet@foo: 1
+    FOO_FORWARDERS:
+      repetitions: 4
+      lps:
+        forwarder: 1
+        modelnet_simplenet@foo: 1
+        modelnet_simplenet: 1
+    BAR_CLUSTER:
+      repetitions: 12
+      lps:
+        node: 1
+        modelnet_simplenet@bar: 1
+    BAR_FORWARDERS:
+      repetitions: 4
+      lps:
+        forwarder: 1
+        modelnet_simplenet@bar: 1
+        modelnet_simplenet: 1
+
+sections:
+  run_params:
+    num_reqs: 5
+    payload_sz: 16384

@@ -1,0 +1,38 @@
+# Golden dragonfly-plus config for the YAML-equivalence test. Identical to
+# src/network-workloads/conf/dragonfly-plus/dfp-test.conf except the
+# connection-file paths are absolute (@CMAKE_SOURCE_DIR@ substituted by CMake) so
+# the model resolves them regardless of the run directory.
+LPGROUPS
+{
+   MODELNET_GRP
+   {
+      repetitions="5";
+      nw-lp="16";
+      modelnet_dragonfly_plus="16";
+      modelnet_dragonfly_plus_router="8";
+   }
+}
+PARAMS
+{
+   packet_size="1024";
+   modelnet_order=( "dragonfly_plus","dragonfly_plus_router" );
+   modelnet_scheduler="fcfs";
+   chunk_size="1024";
+   num_router_spine="4";
+   num_router_leaf="4";
+   num_level_chans="1";
+   num_groups="5";
+   local_vc_size="8192";
+   global_vc_size="16384";
+   cn_vc_size="8192";
+   local_bandwidth="5.25";
+   global_bandwidth="1.5";
+   cn_bandwidth="8.0";
+   message_size="608";
+   num_cns_per_router="4";
+   num_global_connections="4";
+   intra-group-connections="@CMAKE_SOURCE_DIR@/src/network-workloads/conf/dragonfly-plus/dfp-test-intra";
+   inter-group-connections="@CMAKE_SOURCE_DIR@/src/network-workloads/conf/dragonfly-plus/dfp-test-inter";
+   routing="prog-adaptive";
+   route_scoring_metric="delta";
+}

@@ -1,0 +1,65 @@
+schema_version: 1
+
+# YAML twin of tutorial-ping-pong.conf: the 72-terminal dragonfly-dally fabric the
+# ping-pong tutorial runs on. dragonfly-dally is file-enumerated, so the shape
+# counts are genuine inputs that must match the binary connection files (referenced
+# by absolute path; @CMAKE_SOURCE_DIR@ is substituted by CMake so the model resolves
+# them from any run directory). The configure-time placeholders are filled in by
+# CMake for the build-dir .yaml, or by envsubst for the .template.yaml.in -- exactly
+# as in the .conf. The compiler derives repetitions = num_groups * num_routers and
+# lays out the [workload, terminal, router] LPs, so nw-lp / modelnet_dragonfly_dally*
+# are emitted for you.
+#
+# To also collect model-level stats through the ROSS instrumentation layer, add e.g.
+#   --model-stats=1 --num-gvt=8 --stats-path=model-stats-out
+# to the run command (see doc/model-stats-binary-format.md for all modes and the
+# output format; scripts/parse-ross-model-stats.py parses the result).
+
+components:
+  compute_host:
+# name of this lp changes according to the model
+    model: nw-lp
+
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly-dally
+    shape:
+# number of routers in group
+      num_routers: 4
+# number of groups in the network
+      num_groups: 9
+# number of compute nodes connected to router, dictated by dragonfly config file
+      num_cns_per_router: 2
+# number of global channels per router
+      num_global_channels: 2
+    links:
+# bandwidth in GiB/s and virtual-channel buffer size in bytes, per link class:
+# local + global channels, and the compute node-router channel
+      local:  { bandwidth: 2.0, vc_size: 16384 }
+      global: { bandwidth: 2.0, vc_size: 16384 }
+      cn:     { bandwidth: 2.0, vc_size: 32768 }
+    routing:
+# routing protocol to be used
+      algorithm: prog-adaptive
+    connections:
+# network config files for intra-group and inter-group connections
+      intra: "@CMAKE_SOURCE_DIR@/src/network-workloads/conf/dragonfly-dally/dfdally-72-intra"
+      inter: "@CMAKE_SOURCE_DIR@/src/network-workloads/conf/dragonfly-dally/dfdally-72-inter"
+# packet size in the network
+    packet_size: ${PACKET_SIZE}
+# chunk size in the network (when chunk size = packet size, packets will not be
+# divided into chunks)
+    chunk_size: ${CHUNK_SIZE}
+# scheduler options (alternative: round-robin)
+    modelnet_scheduler: fcfs
+# ROSS message size
+    message_size: 456
+# router buffer occupancy snapshots
+    router_buffer_snapshots: [ ${BUFFER_SNAPSHOTS} ]
+# folder path to store packet latency from terminal to terminal, if no value is given it won't save anything
+    save_packet_latency_path: "${PACKET_LATENCY_TRACE_PATH}"
+    save_router_timing_trace_path: "${ROUTER_TIMING_TRACE_PATH}"
+    save_router_timing_trace_stride: "${ROUTER_TIMING_TRACE_STRIDE}"
+  hosts:
+    component: compute_host
