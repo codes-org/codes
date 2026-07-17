@@ -57,13 +57,11 @@ static constexpr int MAX_SOURCE_FLOWS_PER_TERMINAL = 256;
 static constexpr int MAX_FLOW_ENTRIES_PER_PORT = 256;
 static constexpr int MAX_RATE_CACHE_ENTRIES = 512;
 static constexpr int MAX_SIMULATION_INTERVALS = 4096;
-static constexpr int INTERVAL_FLAG_WORDS =
-    (MAX_SIMULATION_INTERVALS + 63) / 64;
+static constexpr int INTERVAL_FLAG_WORDS = (MAX_SIMULATION_INTERVALS + 63) / 64;
 static constexpr double EPS = 1e-9;
 
 
-template <typename T, int Capacity>
-struct fixed_vector {
+template <typename T, int Capacity> struct fixed_vector {
     T data[Capacity];
     int count;
 
@@ -651,8 +649,8 @@ static double parse_scaled_quantity(const std::string& raw, const char* mega_suf
         return value * 1000.0;
     }
 
-    tw_error(TW_LOC, "invalid unit in %s value '%s'; expected %s or %s", description,
-             raw.c_str(), mega_suffix, giga_suffix);
+    tw_error(TW_LOC, "invalid unit in %s value '%s'; expected %s or %s", description, raw.c_str(),
+             mega_suffix, giga_suffix);
     return 0.0;
 }
 
@@ -904,18 +902,15 @@ static void load_config(void) {
                       &cfg.pause_high_watermark_fraction);
     read_double_param("FLUID_FLOW_WAN", "pause_low_watermark_fraction",
                       &cfg.pause_low_watermark_fraction);
-    read_int_param("FLUID_FLOW_WAN", "pause_duration_intervals",
-                   &cfg.pause_duration_intervals);
+    read_int_param("FLUID_FLOW_WAN", "pause_duration_intervals", &cfg.pause_duration_intervals);
     read_double_param("FLUID_FLOW_WAN", "interval_seconds", &cfg.interval_seconds);
     read_int_param("FLUID_FLOW_WAN", "num_send_intervals", &cfg.num_send_intervals);
     read_int_param("FLUID_FLOW_WAN", "num_drain_intervals", &cfg.num_drain_intervals);
     read_int_param("FLUID_FLOW_WAN", "rng_seed", &cfg.rng_seed);
     read_int_param("FLUID_FLOW_WAN", "flow_generation_every_n_intervals",
                    &cfg.flow_generation_every_n_intervals);
-    read_data_quantity_param("FLUID_FLOW_WAN", "random_flow_min",
-                             &cfg.random_flow_min_mbit);
-    read_data_quantity_param("FLUID_FLOW_WAN", "random_flow_max",
-                             &cfg.random_flow_max_mbit);
+    read_data_quantity_param("FLUID_FLOW_WAN", "random_flow_min", &cfg.random_flow_min_mbit);
+    read_data_quantity_param("FLUID_FLOW_WAN", "random_flow_max", &cfg.random_flow_max_mbit);
     read_int_param("FLUID_FLOW_WAN", "debug_prints", &cfg.debug_prints);
 
     if (cfg.pause_duration_intervals <= 0) {
@@ -1152,12 +1147,10 @@ static double stage_flowlet_arrival(switch_state* ns, int port_id, const fluid_m
         if (!q.valid) {
             continue;
         }
-        if (q.enqueue_interval == m->interval_id &&
-            q.flowlet_id == m->flowlet_id &&
+        if (q.enqueue_interval == m->interval_id && q.flowlet_id == m->flowlet_id &&
             q.source_terminal == m->source_terminal &&
             q.destination_terminal == m->destination_terminal &&
-            q.creation_interval == m->creation_interval &&
-            q.ingress_id == m->rc_ingress_id) {
+            q.creation_interval == m->creation_interval && q.ingress_id == m->rc_ingress_id) {
             q.remaining_mbit += m->mbit;
             q.age_intervals = m->interval_id - m->creation_interval;
             q.final_segment_sent |= m->final_segment_sent;
@@ -1264,19 +1257,18 @@ static int find_queue_index_for_flowlet(const switch_state* ns, int port_id,
     return -1;
 }
 
-static int find_staged_index_for_msg(const switch_state* ns, int port_id,
-                                     const fluid_msg* m) {
+static int find_staged_index_for_msg(const switch_state* ns, int port_id, const fluid_msg* m) {
     if (port_id < 0 || port_id >= ns->num_ports) {
         return -1;
     }
 
-    const fixed_vector<queued_flowlet, MAX_FLOW_ENTRIES_PER_PORT>& staged = ns->staged_arrivals[port_id];
+    const fixed_vector<queued_flowlet, MAX_FLOW_ENTRIES_PER_PORT>& staged =
+        ns->staged_arrivals[port_id];
     for (int i = 0; i < (int)staged.size(); ++i) {
         if (!staged[i].valid) {
             continue;
         }
-        if (staged[i].enqueue_interval == m->interval_id &&
-            staged[i].flowlet_id == m->flowlet_id &&
+        if (staged[i].enqueue_interval == m->interval_id && staged[i].flowlet_id == m->flowlet_id &&
             staged[i].source_terminal == m->source_terminal &&
             staged[i].destination_terminal == m->destination_terminal &&
             staged[i].creation_interval == m->creation_interval &&
@@ -1372,13 +1364,12 @@ static void append_switch_log(int interval_id, const char* event_name, int switc
     row << interval_id << ',' << event_name << ',' << switch_id << ',' << switches[switch_id].name
         << ',' << port_id << ',' << (target_is_terminal ? "terminal" : "switch") << ','
         << target_index << ',' << to_output_data_unit(capacity_mbit) << ','
-        << to_output_data_unit(queued_before_mbit) << ',' << to_output_data_unit(sent_mbit)
-        << ',' << to_output_data_unit(queued_after_mbit) << ','
+        << to_output_data_unit(queued_before_mbit) << ',' << to_output_data_unit(sent_mbit) << ','
+        << to_output_data_unit(queued_after_mbit) << ','
         << to_output_data_unit(shared_queued_before_mbit) << ','
         << to_output_data_unit(shared_queued_after_mbit) << ','
-        << to_output_data_unit(shared_buffer_mbit) << ','
-        << to_output_data_unit(dropped_mbit) << ','
-        << active_queue_entries << '\n';
+        << to_output_data_unit(shared_buffer_mbit) << ',' << to_output_data_unit(dropped_mbit)
+        << ',' << active_queue_entries << '\n';
     append_log_row(cfg.switch_log_path, &switch_log_buffer, row.str());
 }
 
@@ -1394,9 +1385,9 @@ static void append_flowlet_log(int interval_id, const char* event_name, int swit
         << target_index << ',' << flowlet_id << ',' << source_terminal << ','
         << destination_terminal << ',' << creation_interval << ','
         << (interval_id - creation_interval) << ',' << to_output_data_unit(capacity_mbit) << ','
-        << to_output_data_unit(queued_before_mbit) << ',' << to_output_data_unit(send_mbit)
-        << ',' << to_output_data_unit(remaining_after_mbit) << ','
-        << to_output_data_unit(dropped_mbit) << '\n';
+        << to_output_data_unit(queued_before_mbit) << ',' << to_output_data_unit(send_mbit) << ','
+        << to_output_data_unit(remaining_after_mbit) << ',' << to_output_data_unit(dropped_mbit)
+        << '\n';
     append_log_row(cfg.flowlet_log_path, &flowlet_log_buffer, row.str());
 }
 
@@ -1409,11 +1400,10 @@ static void append_switch_training_log(int interval_id, int switch_id, int port_
     std::ostringstream row;
     row << interval_id << ',' << switch_id << ',' << switches[switch_id].name << ',' << port_id
         << ',' << (target_is_terminal ? "terminal" : "switch") << ',' << target_index << ','
-        << to_output_data_unit(capacity_mbit) << ','
-        << to_output_data_unit(queued_before_mbit) << ','
-        << to_output_data_unit(sent_mbit) << ',' << to_output_data_unit(queued_after_mbit) << ','
-        << to_output_data_unit(dropped_mbit) << ',' << active_before
-        << ',' << active_after << ',';
+        << to_output_data_unit(capacity_mbit) << ',' << to_output_data_unit(queued_before_mbit)
+        << ',' << to_output_data_unit(sent_mbit) << ',' << to_output_data_unit(queued_after_mbit)
+        << ',' << to_output_data_unit(dropped_mbit) << ',' << active_before << ',' << active_after
+        << ',';
     bool wrote_allocation = false;
     for (int i = 0; i < message->rc_alloc_count; ++i) {
         const rc_alloc_record& rc = message->rc_allocs[i];
@@ -1430,8 +1420,7 @@ static void append_switch_training_log(int interval_id, int switch_id, int port_
         row << rc.before.flowlet_id << ':' << rc.before.source_terminal << ':'
             << rc.before.destination_terminal << ':' << rc.before.creation_interval << ':'
             << to_output_data_unit(rc.before.remaining_mbit) << ':'
-            << to_output_data_unit(rc.send_mbit) << ':'
-            << to_output_data_unit(remaining_after);
+            << to_output_data_unit(rc.send_mbit) << ':' << to_output_data_unit(remaining_after);
         wrote_allocation = true;
     }
     row << '\n';
@@ -1475,7 +1464,9 @@ static void schedule_workload_generate(terminal_state* ns, int interval_id, tw_l
         return;
     }
 
-    tw_event* e = tw_event_new(lp->gid, delay_until_ns(interval_id, PHASE_TERMINAL_WORKLOAD_GENERATE, lp), lp);
+    tw_event* e =
+        tw_event_new(lp->gid, delay_until_ns(interval_id, PHASE_TERMINAL_WORKLOAD_GENERATE, lp),
+                     lp);
     fluid_msg* m = (fluid_msg*)tw_event_data(e);
     memset(m, 0, sizeof(*m));
     m->event_type = TERMINAL_WORKLOAD_GENERATE;
@@ -1502,7 +1493,8 @@ static void schedule_switch_rate_eval(int interval_id, int port_id, tw_lp* lp) {
     if (interval_id < 0 || interval_id >= total_intervals) {
         return;
     }
-    tw_event* e = tw_event_new(lp->gid, delay_until_ns(interval_id, PHASE_SWITCH_RATE_EVAL, lp), lp);
+    tw_event* e =
+        tw_event_new(lp->gid, delay_until_ns(interval_id, PHASE_SWITCH_RATE_EVAL, lp), lp);
     fluid_msg* m = (fluid_msg*)tw_event_data(e);
     memset(m, 0, sizeof(*m));
     m->event_type = SWITCH_RATE_EVAL;
@@ -1520,8 +1512,7 @@ static void undo_requested_switch_rate_eval(switch_state* ns, fluid_msg* m) {
     const int interval_id = m->rc_rate_eval_request_interval;
     if (port_id < 0 || port_id >= ns->num_ports || interval_id < 0 ||
         interval_id >= MAX_SIMULATION_INTERVALS) {
-        tw_error(TW_LOC,
-                 "invalid rollback rate-eval request: switch %d port %d interval %d",
+        tw_error(TW_LOC, "invalid rollback rate-eval request: switch %d port %d interval %d",
                  ns->switch_id, port_id, interval_id);
     }
     if (!interval_flag_is_set(ns->scheduled_rate_eval[port_id], interval_id)) {
@@ -1532,16 +1523,14 @@ static void undo_requested_switch_rate_eval(switch_state* ns, fluid_msg* m) {
     interval_flag_set(&ns->scheduled_rate_eval[port_id], interval_id, false);
 }
 
-static void request_switch_rate_eval(switch_state* ns, int interval_id,
-                                     int port_id, tw_lp* lp,
+static void request_switch_rate_eval(switch_state* ns, int interval_id, int port_id, tw_lp* lp,
                                      fluid_msg* cause_msg) {
     const int total_intervals = cfg.num_send_intervals + cfg.num_drain_intervals;
     if (interval_id < 0 || interval_id >= total_intervals) {
         return;
     }
     if (port_id < 0 || port_id >= ns->num_ports) {
-        tw_error(TW_LOC, "invalid rate-eval request on switch %d port %d",
-                 ns->switch_id, port_id);
+        tw_error(TW_LOC, "invalid rate-eval request on switch %d port %d", ns->switch_id, port_id);
     }
 
     interval_flags* scheduled = &ns->scheduled_rate_eval[port_id];
@@ -1549,8 +1538,7 @@ static void request_switch_rate_eval(switch_state* ns, int interval_id,
         return;
     }
     if (cause_msg != NULL && cause_msg->rc_rate_eval_request_created) {
-        tw_error(TW_LOC,
-                 "event attempted to create more than one rate-eval request on switch %d",
+        tw_error(TW_LOC, "event attempted to create more than one rate-eval request on switch %d",
                  ns->switch_id);
     }
 
@@ -1565,11 +1553,9 @@ static void request_switch_rate_eval(switch_state* ns, int interval_id,
 }
 
 static void schedule_terminal_rate_update(int interval_id, int terminal_id,
-                                          unsigned long long flow_id,
-                                          int destination_terminal,
-                                          double rate_mbps, int rate_epoch,
-                                          int scope_key_type, int scope_key_index,
-                                          tw_lp* lp) {
+                                          unsigned long long flow_id, int destination_terminal,
+                                          double rate_mbps, int rate_epoch, int scope_key_type,
+                                          int scope_key_index, tw_lp* lp) {
     const int total_intervals = cfg.num_send_intervals + cfg.num_drain_intervals;
     if (interval_id < 0 || interval_id >= total_intervals) {
         return;
@@ -1591,13 +1577,10 @@ static void schedule_terminal_rate_update(int interval_id, int terminal_id,
 }
 
 static void schedule_switch_rate_feedback(int interval_id, int upstream_switch,
-                                          int downstream_switch,
-                                          unsigned long long flow_id,
-                                          int source_terminal,
-                                          int destination_terminal,
-                                          double rate_mbps, int rate_epoch,
-                                          int scope_key_type, int scope_key_index,
-                                          tw_lp* lp) {
+                                          int downstream_switch, unsigned long long flow_id,
+                                          int source_terminal, int destination_terminal,
+                                          double rate_mbps, int rate_epoch, int scope_key_type,
+                                          int scope_key_index, tw_lp* lp) {
     const int total_intervals = cfg.num_send_intervals + cfg.num_drain_intervals;
     if (interval_id < 0 || interval_id >= total_intervals) {
         return;
@@ -1642,9 +1625,7 @@ static void schedule_switch_egress(int event_type, int interval_id, int port_id,
     tw_event_send(e);
 }
 
-static interval_flags* scheduled_egress_flags(switch_state* ns,
-                                                int event_type,
-                                                int port_id) {
+static interval_flags* scheduled_egress_flags(switch_state* ns, int event_type, int port_id) {
     if (event_type == SWITCH_EGRESS_EARLY) {
         return &ns->scheduled_early_egress[port_id];
     }
@@ -1660,23 +1641,22 @@ static void undo_requested_switch_egress(switch_state* ns, fluid_msg* m) {
         return;
     }
 
-    interval_flags* flags = scheduled_egress_flags(
-        ns, m->rc_egress_request_event_type, m->rc_egress_request_port);
+    interval_flags* flags =
+        scheduled_egress_flags(ns, m->rc_egress_request_event_type, m->rc_egress_request_port);
     int interval_id = m->rc_egress_request_interval;
     if (flags == NULL || interval_id < 0 || interval_id >= MAX_SIMULATION_INTERVALS) {
         tw_error(TW_LOC, "invalid rollback egress request: switch %d port %d interval %d",
                  ns->switch_id, m->rc_egress_request_port, interval_id);
     }
     if (!interval_flag_is_set(*flags, interval_id)) {
-        tw_error(TW_LOC,
-                 "rollback expected scheduled egress flag: switch %d port %d interval %d",
+        tw_error(TW_LOC, "rollback expected scheduled egress flag: switch %d port %d interval %d",
                  ns->switch_id, m->rc_egress_request_port, interval_id);
     }
     interval_flag_set(flags, interval_id, false);
 }
 
-static void request_switch_egress(switch_state* ns, int event_type, int interval_id,
-                                  int port_id, tw_lp* lp, fluid_msg* cause_msg) {
+static void request_switch_egress(switch_state* ns, int event_type, int interval_id, int port_id,
+                                  tw_lp* lp, fluid_msg* cause_msg) {
     if (port_id < 0 || port_id >= ns->num_ports) {
         tw_error(TW_LOC, "invalid request_switch_egress port %d on switch %d", port_id,
                  ns->switch_id);
@@ -1697,8 +1677,7 @@ static void request_switch_egress(switch_state* ns, int event_type, int interval
     }
 
     if (cause_msg != NULL && cause_msg->rc_egress_request_created) {
-        tw_error(TW_LOC,
-                 "event attempted to create more than one egress request on switch %d",
+        tw_error(TW_LOC, "event attempted to create more than one egress request on switch %d",
                  ns->switch_id);
     }
 
@@ -1715,8 +1694,9 @@ static void request_switch_egress(switch_state* ns, int event_type, int interval
 
 static void schedule_pause_update(int interval_id, tw_lpid dst_gid, int pause_asserted,
                                   int pause_source_switch, tw_lp* lp) {
-    tw_event* e = tw_event_new(
-        dst_gid, delay_until_ns(interval_id, PHASE_ETHERNET_PAUSE_FRAME_UPDATE, lp), lp);
+    tw_event* e =
+        tw_event_new(dst_gid, delay_until_ns(interval_id, PHASE_ETHERNET_PAUSE_FRAME_UPDATE, lp),
+                     lp);
     fluid_msg* m = (fluid_msg*)tw_event_data(e);
     memset(m, 0, sizeof(*m));
     m->event_type = ETHERNET_PAUSE_FRAME_UPDATE;
@@ -1769,8 +1749,8 @@ static void schedule_ethernet_pause_eval(int interval_id, tw_lp* lp) {
         return;
     }
 
-    tw_event* e = tw_event_new(
-        lp->gid, delay_until_ns(interval_id, PHASE_ETHERNET_PAUSE_EVAL, lp), lp);
+    tw_event* e =
+        tw_event_new(lp->gid, delay_until_ns(interval_id, PHASE_ETHERNET_PAUSE_EVAL, lp), lp);
     fluid_msg* m = (fluid_msg*)tw_event_data(e);
     memset(m, 0, sizeof(*m));
     m->event_type = ETHERNET_PAUSE_EVAL;
@@ -1849,8 +1829,7 @@ static void handle_ethernet_pause_eval(switch_state* ns, fluid_msg* m, tw_lp* lp
                 return lhs < rhs;
             });
 
-            const double excess_mbit =
-                shared_occupancy_mbit - ns->pause_high_watermark_mbit;
+            const double excess_mbit = shared_occupancy_mbit - ns->pause_high_watermark_mbit;
             for (int candidate = 0; candidate < candidate_count; ++candidate) {
                 const int ingress_id = candidates[candidate];
                 if (has_paused_ingress && covered_mbit + EPS >= excess_mbit) {
@@ -1870,8 +1849,7 @@ static void handle_ethernet_pause_eval(switch_state* ns, fluid_msg* m, tw_lp* lp
         for (int ingress_id = 0; ingress_id < ns->num_ingress_links; ++ingress_id) {
             ingress_desc& ingress = ns->ingress_links[ingress_id];
             if (!ingress.pause_asserted ||
-                m->interval_id <
-                    ingress.last_pause_frame_interval + cfg.pause_duration_intervals) {
+                m->interval_id < ingress.last_pause_frame_interval + cfg.pause_duration_intervals) {
                 continue;
             }
 
@@ -1902,8 +1880,7 @@ static void schedule_arrival(int interval_id, tw_lpid dst_gid, const fluid_msg* 
 }
 
 
-static int find_source_flow_index(const terminal_state* ns,
-                                  unsigned long long flow_id) {
+static int find_source_flow_index(const terminal_state* ns, unsigned long long flow_id) {
     for (int i = 0; i < (int)ns->source_flows.size(); ++i) {
         const source_flow& f = ns->source_flows[i];
         if (f.flow_id == flow_id) {
@@ -1932,13 +1909,11 @@ static int find_reusable_source_flow_index(const terminal_state* ns) {
     return -1;
 }
 
-static int find_rate_cache_index(const terminal_state* ns, int key_type,
-                                 int key_index, int prefix_hops,
-                                 std::uint64_t path_hash) {
+static int find_rate_cache_index(const terminal_state* ns, int key_type, int key_index,
+                                 int prefix_hops, std::uint64_t path_hash) {
     for (int i = 0; i < MAX_RATE_CACHE_ENTRIES; ++i) {
         const rate_cache_entry& entry = ns->rate_cache[i];
-        if (!entry.valid || entry.key_type != key_type ||
-            entry.key_index != key_index) {
+        if (!entry.valid || entry.key_type != key_type || entry.key_index != key_index) {
             continue;
         }
         if (key_type == RATE_CACHE_DESTINATION_TERMINAL ||
@@ -1958,10 +1933,8 @@ static int find_free_rate_cache_index(const terminal_state* ns) {
     return -1;
 }
 
-static bool route_prefix_identity(int source_switch, int destination_switch,
-                                  int prefix_end_switch,
-                                  int* prefix_hops_out,
-                                  std::uint64_t* path_hash_out) {
+static bool route_prefix_identity(int source_switch, int destination_switch, int prefix_end_switch,
+                                  int* prefix_hops_out, std::uint64_t* path_hash_out) {
     int current_switch = source_switch;
     int hop_count = 0;
     std::uint64_t path_hash = UINT64_C(1469598103934665603);
@@ -1987,17 +1960,14 @@ static bool route_prefix_identity(int source_switch, int destination_switch,
     return false;
 }
 
-static double cached_initial_rate_mbps(const terminal_state* ns,
-                                       int destination_terminal) {
-    const double access_rate =
-        switches[ns->attached_switch].terminal_bandwidth_mbps;
+static double cached_initial_rate_mbps(const terminal_state* ns, int destination_terminal) {
+    const double access_rate = switches[ns->attached_switch].terminal_bandwidth_mbps;
     double cached_rate = access_rate;
 
-    const int exact_index = find_rate_cache_index(
-        ns, RATE_CACHE_DESTINATION_TERMINAL, destination_terminal, 0, 0);
+    const int exact_index =
+        find_rate_cache_index(ns, RATE_CACHE_DESTINATION_TERMINAL, destination_terminal, 0, 0);
     if (exact_index >= 0) {
-        cached_rate = std::min(cached_rate,
-                               ns->rate_cache[exact_index].rate_mbps);
+        cached_rate = std::min(cached_rate, ns->rate_cache[exact_index].rate_mbps);
     }
 
     const int destination_switch = terminals[destination_terminal].switch_id;
@@ -2014,16 +1984,14 @@ static double cached_initial_rate_mbps(const terminal_state* ns,
         }
         ++hop_count;
         if (hop_count > (int)switches.size()) {
-            tw_error(TW_LOC, "route loop while looking up terminal %d rate cache",
-                     ns->terminal_id);
+            tw_error(TW_LOC, "route loop while looking up terminal %d rate cache", ns->terminal_id);
         }
         path_hash = extend_path_hash(path_hash, next_switch);
 
-        const int cache_index = find_rate_cache_index(
-            ns, RATE_CACHE_SWITCH_PREFIX, next_switch, hop_count, path_hash);
+        const int cache_index =
+            find_rate_cache_index(ns, RATE_CACHE_SWITCH_PREFIX, next_switch, hop_count, path_hash);
         if (cache_index >= 0) {
-            cached_rate = std::min(cached_rate,
-                                   ns->rate_cache[cache_index].rate_mbps);
+            cached_rate = std::min(cached_rate, ns->rate_cache[cache_index].rate_mbps);
         }
         current_switch = next_switch;
     }
@@ -2031,8 +1999,7 @@ static double cached_initial_rate_mbps(const terminal_state* ns,
     return std::max(0.0, cached_rate);
 }
 
-static bool update_rate_cache(terminal_state* ns, fluid_msg* m,
-                              double new_rate_mbps) {
+static bool update_rate_cache(terminal_state* ns, fluid_msg* m, double new_rate_mbps) {
     m->rc_rate_cache_changed = 0;
     m->rc_rate_cache_index = -1;
     m->rc_rate_cache_was_created = 0;
@@ -2045,24 +2012,20 @@ static bool update_rate_cache(terminal_state* ns, fluid_msg* m,
     int prefix_hops = 0;
     std::uint64_t path_hash = 0;
     if (m->rate_scope_key_type == RATE_CACHE_SWITCH_PREFIX) {
-        const int destination_switch =
-            terminals[m->destination_terminal].switch_id;
-        if (!route_prefix_identity(ns->attached_switch, destination_switch,
-                                   m->rate_scope_key_index, &prefix_hops,
-                                   &path_hash)) {
+        const int destination_switch = terminals[m->destination_terminal].switch_id;
+        if (!route_prefix_identity(ns->attached_switch, destination_switch, m->rate_scope_key_index,
+                                   &prefix_hops, &path_hash)) {
             return false;
         }
     }
 
-    int index = find_rate_cache_index(ns, m->rate_scope_key_type,
-                                      m->rate_scope_key_index,
+    int index = find_rate_cache_index(ns, m->rate_scope_key_type, m->rate_scope_key_index,
                                       prefix_hops, path_hash);
     if (index < 0) {
         index = find_free_rate_cache_index(ns);
         if (index < 0) {
-            tw_error(TW_LOC,
-                     "terminal %d exhausted MAX_RATE_CACHE_ENTRIES=%d",
-                     ns->terminal_id, MAX_RATE_CACHE_ENTRIES);
+            tw_error(TW_LOC, "terminal %d exhausted MAX_RATE_CACHE_ENTRIES=%d", ns->terminal_id,
+                     MAX_RATE_CACHE_ENTRIES);
         }
         rate_cache_entry& entry = ns->rate_cache[index];
         memset(&entry, 0, sizeof(entry));
@@ -2085,12 +2048,10 @@ static bool update_rate_cache(terminal_state* ns, fluid_msg* m,
         return false;
     }
 
-    const double updated_rate =
-        m->rate_epoch == entry.rate_epoch
-            ? std::min(entry.rate_mbps, new_rate_mbps)
-            : new_rate_mbps;
-    if (m->rate_epoch == entry.rate_epoch &&
-        std::fabs(updated_rate - entry.rate_mbps) <= EPS) {
+    const double updated_rate = m->rate_epoch == entry.rate_epoch
+                                    ? std::min(entry.rate_mbps, new_rate_mbps)
+                                    : new_rate_mbps;
+    if (m->rate_epoch == entry.rate_epoch && std::fabs(updated_rate - entry.rate_mbps) <= EPS) {
         return false;
     }
 
@@ -2126,12 +2087,11 @@ static int choose_random_destination(int self, tw_lp* lp) {
 
 static double random_flow_size_mbit(tw_lp* lp) {
     double u = tw_rand_unif(lp->rng);
-    return cfg.random_flow_min_mbit +
-           u * (cfg.random_flow_max_mbit - cfg.random_flow_min_mbit);
+    return cfg.random_flow_min_mbit + u * (cfg.random_flow_max_mbit - cfg.random_flow_min_mbit);
 }
 
-static void compute_max_min_allocations(const double* requested, int count,
-                                        double budget, double* allocations) {
+static void compute_max_min_allocations(const double* requested, int count, double budget,
+                                        double* allocations) {
     for (int i = 0; i < count; ++i) {
         allocations[i] = 0.0;
     }
@@ -2209,7 +2169,6 @@ static void log_switch_arrival_event(const switch_state* ns, const fluid_msg* m)
                            m->rc_log_port_queued_before_mbit, 0.0,
                            m->rc_log_flowlet_remaining_after_mbit, 0.0);
     }
-
 }
 
 static void log_switch_egress_event(const switch_state* ns, const fluid_msg* m) {
@@ -2233,25 +2192,23 @@ static void log_switch_egress_event(const switch_state* ns, const fluid_msg* m) 
                                m->rc_log_target_index, rc->before.flowlet_id,
                                rc->before.source_terminal, rc->before.destination_terminal,
                                rc->before.creation_interval, m->rc_log_capacity_mbit,
-                               m->rc_log_port_queued_before_mbit, rc->send_mbit,
-                               remaining_after, 0.0);
+                               m->rc_log_port_queued_before_mbit, rc->send_mbit, remaining_after,
+                               0.0);
         }
         if (rc->buffered_mbit > EPS) {
-            append_flowlet_log(m->interval_id, "enqueue_residual", ns->switch_id,
-                               m->port_id, m->rc_log_target_is_terminal,
-                               m->rc_log_target_index, rc->before.flowlet_id,
-                               rc->before.source_terminal, rc->before.destination_terminal,
-                               rc->before.creation_interval, m->rc_log_capacity_mbit,
-                               m->rc_log_port_queued_before_mbit, 0.0,
+            append_flowlet_log(m->interval_id, "enqueue_residual", ns->switch_id, m->port_id,
+                               m->rc_log_target_is_terminal, m->rc_log_target_index,
+                               rc->before.flowlet_id, rc->before.source_terminal,
+                               rc->before.destination_terminal, rc->before.creation_interval,
+                               m->rc_log_capacity_mbit, m->rc_log_port_queued_before_mbit, 0.0,
                                rc->buffered_mbit, 0.0);
         }
         if (rc->dropped_mbit > EPS) {
-            append_flowlet_log(m->interval_id, "drop_shared_buffer_overflow",
-                               ns->switch_id, m->port_id, m->rc_log_target_is_terminal,
-                               m->rc_log_target_index, rc->before.flowlet_id,
-                               rc->before.source_terminal, rc->before.destination_terminal,
-                               rc->before.creation_interval, m->rc_log_capacity_mbit,
-                               m->rc_log_port_queued_before_mbit, 0.0, 0.0,
+            append_flowlet_log(m->interval_id, "drop_shared_buffer_overflow", ns->switch_id,
+                               m->port_id, m->rc_log_target_is_terminal, m->rc_log_target_index,
+                               rc->before.flowlet_id, rc->before.source_terminal,
+                               rc->before.destination_terminal, rc->before.creation_interval,
+                               m->rc_log_capacity_mbit, m->rc_log_port_queued_before_mbit, 0.0, 0.0,
                                rc->dropped_mbit);
         }
     }
@@ -2261,16 +2218,14 @@ static void log_switch_egress_event(const switch_state* ns, const fluid_msg* m) 
                       m->rc_log_port_queued_before_mbit, m->rc_log_sent_total_mbit,
                       m->rc_log_port_queued_after_mbit, m->rc_log_shared_queued_before_mbit,
                       m->rc_log_shared_queued_after_mbit, ns->shared_buffer_mbit,
-                      m->rc_dropped_mbit,
-                      m->rc_log_active_after_entries);
+                      m->rc_dropped_mbit, m->rc_log_active_after_entries);
 
     append_switch_training_log(m->interval_id, ns->switch_id, m->port_id,
                                m->rc_log_target_is_terminal, m->rc_log_target_index,
                                m->rc_log_capacity_mbit, m->rc_log_port_queued_before_mbit,
                                m->rc_log_sent_total_mbit, m->rc_log_port_queued_after_mbit,
-                               m->rc_dropped_mbit,
-                               m->rc_log_active_before_entries, m->rc_log_active_after_entries,
-                               m);
+                               m->rc_dropped_mbit, m->rc_log_active_before_entries,
+                               m->rc_log_active_after_entries, m);
 }
 
 static void handle_workload_generate(terminal_state* ns, fluid_msg* m, tw_lp* lp) {
@@ -2287,13 +2242,11 @@ static void handle_workload_generate(terminal_state* ns, fluid_msg* m, tw_lp* lp
 
     if (total_mbit > EPS) {
         int flow_index = find_reusable_source_flow_index(ns);
-        if (flow_index < 0 &&
-            ns->source_flows.size() >= MAX_SOURCE_FLOWS_PER_TERMINAL) {
+        if (flow_index < 0 && ns->source_flows.size() >= MAX_SOURCE_FLOWS_PER_TERMINAL) {
             tw_error(TW_LOC,
                      "terminal %d has %d concurrent source flows, exceeding "
                      "MAX_SOURCE_FLOWS_PER_TERMINAL=%d",
-                     ns->terminal_id, ns->source_flows.size(),
-                     MAX_SOURCE_FLOWS_PER_TERMINAL);
+                     ns->terminal_id, ns->source_flows.size(), MAX_SOURCE_FLOWS_PER_TERMINAL);
         }
         source_flow flow;
         memset(&flow, 0, sizeof(flow));
@@ -2343,8 +2296,7 @@ static void handle_terminal_send(terminal_state* ns, fluid_msg* m, tw_lp* lp) {
         ++active_count;
     }
     if (active_count > MAX_RC_ALLOCATIONS) {
-        tw_error(TW_LOC,
-                 "terminal %d has %d active source flows, exceeding MAX_RC_ALLOCATIONS=%d",
+        tw_error(TW_LOC, "terminal %d has %d active source flows, exceeding MAX_RC_ALLOCATIONS=%d",
                  ns->terminal_id, active_count, MAX_RC_ALLOCATIONS);
     }
 
@@ -2357,8 +2309,8 @@ static void handle_terminal_send(terminal_state* ns, fluid_msg* m, tw_lp* lp) {
         const double terminal_budget =
             switches[ns->attached_switch].terminal_bandwidth_mbps * cfg.interval_seconds;
         double allocations[MAX_SOURCE_FLOWS_PER_TERMINAL] = {0.0};
-        compute_max_min_allocations(requested, ns->source_flows.size(),
-                                    terminal_budget, allocations);
+        compute_max_min_allocations(requested, ns->source_flows.size(), terminal_budget,
+                                    allocations);
 
         for (int i = 0; i < ns->source_flows.size(); ++i) {
             const double send_mbit = allocations[i];
@@ -2376,8 +2328,7 @@ static void handle_terminal_send(terminal_state* ns, fluid_msg* m, tw_lp* lp) {
             rc.send_mbit = send_mbit;
 
             flow.remaining_source_mbit -= send_mbit;
-            if (flow.remaining_source_mbit < 0.0 &&
-                flow.remaining_source_mbit > -EPS) {
+            if (flow.remaining_source_mbit < 0.0 && flow.remaining_source_mbit > -EPS) {
                 flow.remaining_source_mbit = 0.0;
             }
 
@@ -2393,8 +2344,8 @@ static void handle_terminal_send(terminal_state* ns, fluid_msg* m, tw_lp* lp) {
             out_msg.final_segment_sent = flow.remaining_source_mbit <= EPS;
             out_msg.mbit = send_mbit;
 
-            schedule_arrival(m->interval_id + 1, get_switch_gid(ns->attached_switch),
-                             &out_msg, send_mbit, lp);
+            schedule_arrival(m->interval_id + 1, get_switch_gid(ns->attached_switch), &out_msg,
+                             send_mbit, lp);
             ns->sent_to_switch_mbit += send_mbit;
         }
     }
@@ -2407,8 +2358,7 @@ static void handle_terminal_rate_update(terminal_state* ns, fluid_msg* m) {
     m->rc_rate_update_applied = 0;
     m->rc_terminal_flow_index = -1;
 
-    const double access_rate =
-        switches[ns->attached_switch].terminal_bandwidth_mbps;
+    const double access_rate = switches[ns->attached_switch].terminal_bandwidth_mbps;
     const double new_rate = std::max(0.0, std::min(m->rate_mbps, access_rate));
     const bool cache_changed = update_rate_cache(ns, m, new_rate);
 
@@ -2418,8 +2368,7 @@ static void handle_terminal_rate_update(terminal_state* ns, fluid_msg* m) {
         if (flow.remaining_source_mbit > EPS && m->rate_epoch >= flow.rate_epoch) {
             m->rc_terminal_flow_before = flow;
             if (m->rate_epoch == flow.rate_epoch) {
-                flow.current_send_rate_mbps =
-                    std::min(flow.current_send_rate_mbps, new_rate);
+                flow.current_send_rate_mbps = std::min(flow.current_send_rate_mbps, new_rate);
             } else {
                 flow.current_send_rate_mbps = new_rate;
                 flow.rate_epoch = m->rate_epoch;
@@ -2486,8 +2435,7 @@ static void terminal_rev_event(terminal_state* ns, tw_bf* b, fluid_msg* m, tw_lp
                 }
                 ns->source_flows.pop_back();
             } else {
-                ns->source_flows[m->rc_terminal_flow_index] =
-                    m->rc_terminal_flow_before;
+                ns->source_flows[m->rc_terminal_flow_index] = m->rc_terminal_flow_before;
             }
             ns->generated_mbit -= m->mbit;
             ns->generated_flowlets--;
@@ -2522,8 +2470,7 @@ static void terminal_rev_event(terminal_state* ns, tw_bf* b, fluid_msg* m, tw_lp
             if (m->rc_rate_cache_was_created) {
                 ns->rate_cache[m->rc_rate_cache_index].valid = 0;
                 if (ns->rate_cache_entry_count <= 0) {
-                    tw_error(TW_LOC, "terminal %d rate-cache count underflow",
-                             ns->terminal_id);
+                    tw_error(TW_LOC, "terminal %d rate-cache count underflow", ns->terminal_id);
                 }
                 ns->rate_cache_entry_count--;
             } else {
@@ -2585,30 +2532,28 @@ static void terminal_finalize(terminal_state* ns, tw_lp* lp) {
         }
     }
     const char* unit = output_data_field_suffix();
-    printf(
-        "fluid-flow-wan-terminal gid=%llu terminal=%d switch=%d generated_%s=%.6f "
-        "sent_%s=%.6f source_backlog_%s=%.6f active_source_flows=%d "
-        "received_%s=%.6f rate_updates_received=%llu rate_cache_entries=%d "
-        "pause_updates_received=%llu "
-        "pause_frames_received=%llu resume_frames_received=%llu "
-        "link_paused_intervals=%llu generated_flows=%d received_fragments=%d\n",
-        (unsigned long long)lp->gid, ns->terminal_id, ns->attached_switch, unit,
-        to_output_data_unit(ns->generated_mbit), unit,
-        to_output_data_unit(ns->sent_to_switch_mbit), unit,
-        to_output_data_unit(source_backlog_mbit), active_source_flows, unit,
-        to_output_data_unit(ns->received_mbit), ns->rate_updates_received,
-        ns->rate_cache_entry_count, ns->pause_updates_received,
-        ns->pause_frames_received,
-        ns->resume_frames_received, ns->link_paused_intervals,
-        ns->generated_flowlets, ns->received_fragments);
+    printf("fluid-flow-wan-terminal gid=%llu terminal=%d switch=%d generated_%s=%.6f "
+           "sent_%s=%.6f source_backlog_%s=%.6f active_source_flows=%d "
+           "received_%s=%.6f rate_updates_received=%llu rate_cache_entries=%d "
+           "pause_updates_received=%llu "
+           "pause_frames_received=%llu resume_frames_received=%llu "
+           "link_paused_intervals=%llu generated_flows=%d received_fragments=%d\n",
+           (unsigned long long)lp->gid, ns->terminal_id, ns->attached_switch, unit,
+           to_output_data_unit(ns->generated_mbit), unit,
+           to_output_data_unit(ns->sent_to_switch_mbit), unit,
+           to_output_data_unit(source_backlog_mbit), active_source_flows, unit,
+           to_output_data_unit(ns->received_mbit), ns->rate_updates_received,
+           ns->rate_cache_entry_count, ns->pause_updates_received, ns->pause_frames_received,
+           ns->resume_frames_received, ns->link_paused_intervals, ns->generated_flowlets,
+           ns->received_fragments);
 }
 
-static int find_rate_flow_index(const switch_state* ns, int port_id,
-                                unsigned long long flow_id) {
+static int find_rate_flow_index(const switch_state* ns, int port_id, unsigned long long flow_id) {
     if (port_id < 0 || port_id >= ns->num_ports) {
         return -1;
     }
-    const fixed_vector<switch_rate_flow, MAX_FLOW_ENTRIES_PER_PORT>& flows = ns->rate_flows[port_id];
+    const fixed_vector<switch_rate_flow, MAX_FLOW_ENTRIES_PER_PORT>& flows =
+        ns->rate_flows[port_id];
     for (int i = 0; i < (int)flows.size(); ++i) {
         if (flows[i].flow_id == flow_id) {
             return i;
@@ -2635,10 +2580,8 @@ static bool port_has_buffered_flow(const switch_state* ns, int port_id,
     return false;
 }
 
-static bool rate_flow_is_active(const switch_state* ns, int port_id,
-                                const switch_rate_flow& flow) {
-    return !flow.final_segment_seen ||
-           port_has_buffered_flow(ns, port_id, flow.flow_id);
+static bool rate_flow_is_active(const switch_state* ns, int port_id, const switch_rate_flow& flow) {
+    return !flow.final_segment_seen || port_has_buffered_flow(ns, port_id, flow.flow_id);
 }
 
 static int active_rate_flow_count_on_port(const switch_state* ns, int port_id) {
@@ -2655,8 +2598,7 @@ static int active_rate_flow_count_on_port(const switch_state* ns, int port_id) {
     return active;
 }
 
-static double effective_rate_mbps(const switch_state* ns, int port_id,
-                                  const switch_rate_flow& flow,
+static double effective_rate_mbps(const switch_state* ns, int port_id, const switch_rate_flow& flow,
                                   int active_flow_count) {
     if (active_flow_count <= 0) {
         return 0.0;
@@ -2680,8 +2622,7 @@ static void observe_rate_flow(switch_state* ns, int port_id, const fluid_msg* m,
     rc_msg->rc_rate_flow_created = 0;
     rc_msg->rc_rate_flow_appended = 0;
     rc_msg->rc_rate_flow_index = find_rate_flow_index(ns, port_id, m->flowlet_id);
-    fixed_vector<switch_rate_flow, MAX_FLOW_ENTRIES_PER_PORT>& flows =
-        ns->rate_flows[port_id];
+    fixed_vector<switch_rate_flow, MAX_FLOW_ENTRIES_PER_PORT>& flows = ns->rate_flows[port_id];
     if (rc_msg->rc_rate_flow_index >= 0) {
         switch_rate_flow& flow = flows[rc_msg->rc_rate_flow_index];
         rc_msg->rc_rate_flow_before = flow;
@@ -2718,8 +2659,7 @@ static void observe_rate_flow(switch_state* ns, int port_id, const fluid_msg* m,
             tw_error(TW_LOC,
                      "switch %d port %d has %d concurrent rate flows, "
                      "exceeding MAX_FLOW_ENTRIES_PER_PORT=%d",
-                     ns->switch_id, port_id, flows.size(),
-                     MAX_FLOW_ENTRIES_PER_PORT);
+                     ns->switch_id, port_id, flows.size(), MAX_FLOW_ENTRIES_PER_PORT);
         }
         rc_msg->rc_rate_flow_before = flows[reusable_index];
         flows[reusable_index] = new_flow;
@@ -2737,33 +2677,26 @@ static int output_port_for_destination(const switch_state* ns, int destination_t
     return next_sw < 0 ? -1 : find_switch_link_port(ns, next_sw);
 }
 
-static void send_rate_feedback_upstream(switch_state* ns,
-                                        const switch_rate_flow& flow,
-                                        double rate_mbps, int rate_epoch,
-                                        int scope_key_type, int scope_key_index,
-                                        int interval_id, tw_lp* lp) {
+static void send_rate_feedback_upstream(switch_state* ns, const switch_rate_flow& flow,
+                                        double rate_mbps, int rate_epoch, int scope_key_type,
+                                        int scope_key_index, int interval_id, tw_lp* lp) {
     if (flow.ingress_id < 0 || flow.ingress_id >= ns->num_ingress_links) {
         tw_error(TW_LOC, "invalid rate-feedback ingress on switch %d", ns->switch_id);
     }
     const ingress_desc& ingress = ns->ingress_links[flow.ingress_id];
     int delivery_interval = interval_id + 1;
     if (ingress.is_terminal) {
-        schedule_terminal_rate_update(delivery_interval, ingress.peer_index,
-                                      flow.flow_id, flow.destination_terminal,
-                                      rate_mbps, rate_epoch,
+        schedule_terminal_rate_update(delivery_interval, ingress.peer_index, flow.flow_id,
+                                      flow.destination_terminal, rate_mbps, rate_epoch,
                                       scope_key_type, scope_key_index, lp);
     } else {
-        schedule_switch_rate_feedback(delivery_interval, ingress.peer_index,
-                                      ns->switch_id, flow.flow_id,
-                                      flow.source_terminal,
-                                      flow.destination_terminal,
-                                      rate_mbps, rate_epoch,
-                                      scope_key_type, scope_key_index, lp);
+        schedule_switch_rate_feedback(delivery_interval, ingress.peer_index, ns->switch_id,
+                                      flow.flow_id, flow.source_terminal, flow.destination_terminal,
+                                      rate_mbps, rate_epoch, scope_key_type, scope_key_index, lp);
     }
 }
 
-static void handle_switch_rate_feedback(switch_state* ns, fluid_msg* m,
-                                        tw_lp* lp) {
+static void handle_switch_rate_feedback(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     m->rc_rate_update_applied = 0;
     m->rc_rate_flow_created = 0;
     m->rc_rate_flow_appended = 0;
@@ -2779,10 +2712,9 @@ static void handle_switch_rate_feedback(switch_state* ns, fluid_msg* m,
 
     switch_rate_flow& flow = (ns->rate_flows[port_id])[idx];
     const int active_count = active_rate_flow_count_on_port(ns, port_id);
-    const double old_effective_rate =
-        rate_flow_is_active(ns, port_id, flow)
-            ? effective_rate_mbps(ns, port_id, flow, active_count)
-            : 0.0;
+    const double old_effective_rate = rate_flow_is_active(ns, port_id, flow)
+                                          ? effective_rate_mbps(ns, port_id, flow, active_count)
+                                          : 0.0;
 
     m->rc_rate_flow_index = idx;
     m->rc_port_id = port_id;
@@ -2791,8 +2723,8 @@ static void handle_switch_rate_feedback(switch_state* ns, fluid_msg* m,
         return;
     }
     if (m->rate_epoch == flow.downstream_rate_epoch) {
-        flow.downstream_rate_mbps = std::min(flow.downstream_rate_mbps,
-                                             std::max(0.0, m->rate_mbps));
+        flow.downstream_rate_mbps =
+            std::min(flow.downstream_rate_mbps, std::max(0.0, m->rate_mbps));
     } else {
         flow.downstream_rate_mbps = std::max(0.0, m->rate_mbps);
         flow.downstream_rate_epoch = m->rate_epoch;
@@ -2803,12 +2735,11 @@ static void handle_switch_rate_feedback(switch_state* ns, fluid_msg* m,
         return;
     }
 
-    const double new_effective_rate =
-        effective_rate_mbps(ns, port_id, flow, active_count);
+    const double new_effective_rate = effective_rate_mbps(ns, port_id, flow, active_count);
     if (fabs(new_effective_rate - old_effective_rate) > EPS) {
-        send_rate_feedback_upstream(ns, flow, new_effective_rate,
-                                    m->rate_epoch, m->rate_scope_key_type,
-                                    m->rate_scope_key_index, m->interval_id, lp);
+        send_rate_feedback_upstream(ns, flow, new_effective_rate, m->rate_epoch,
+                                    m->rate_scope_key_type, m->rate_scope_key_index, m->interval_id,
+                                    lp);
     }
 }
 
@@ -2818,8 +2749,8 @@ static void handle_switch_rate_eval(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     const int port_id = m->port_id;
     if (port_id < 0 || port_id >= ns->num_ports || m->interval_id < 0 ||
         m->interval_id >= MAX_SIMULATION_INTERVALS) {
-        tw_error(TW_LOC, "invalid rate-eval event on switch %d port %d interval %d",
-                 ns->switch_id, port_id, m->interval_id);
+        tw_error(TW_LOC, "invalid rate-eval event on switch %d port %d interval %d", ns->switch_id,
+                 port_id, m->interval_id);
     }
     if (!interval_flag_is_set(ns->scheduled_rate_eval[port_id], m->interval_id)) {
         return;
@@ -2838,14 +2769,12 @@ static void handle_switch_rate_eval(switch_state* ns, fluid_msg* m, tw_lp* lp) {
             continue;
         }
         const port_desc& port = ns->ports[port_id];
-        const int scope_key_type = port.is_terminal
-                                       ? RATE_CACHE_DESTINATION_TERMINAL
-                                       : RATE_CACHE_SWITCH_PREFIX;
+        const int scope_key_type =
+            port.is_terminal ? RATE_CACHE_DESTINATION_TERMINAL : RATE_CACHE_SWITCH_PREFIX;
         const int scope_key_index = port.target_index;
-        send_rate_feedback_upstream(
-            ns, flow, effective_rate_mbps(ns, port_id, flow, active_count),
-            m->interval_id, scope_key_type, scope_key_index,
-            m->interval_id, lp);
+        send_rate_feedback_upstream(ns, flow, effective_rate_mbps(ns, port_id, flow, active_count),
+                                    m->interval_id, scope_key_type, scope_key_index, m->interval_id,
+                                    lp);
     }
 }
 
@@ -2884,8 +2813,7 @@ static void switch_init(switch_state* ns, tw_lp* lp) {
         ingress.last_pause_frame_interval = -1;
     }
     for (int upstream = 0; upstream < (int)switches.size(); ++upstream) {
-        if (upstream == ns->switch_id ||
-            !switch_has_directed_link_to(upstream, ns->switch_id)) {
+        if (upstream == ns->switch_id || !switch_has_directed_link_to(upstream, ns->switch_id)) {
             continue;
         }
         if (ns->num_ingress_links >= MAX_PAUSE_INGRESS_LINKS) {
@@ -2901,10 +2829,8 @@ static void switch_init(switch_state* ns, tw_lp* lp) {
     if (ns->num_ingress_links <= 0) {
         tw_error(TW_LOC, "switch %d has no ingress links", ns->switch_id);
     }
-    ns->pause_high_watermark_mbit =
-        ns->shared_buffer_mbit * cfg.pause_high_watermark_fraction;
-    ns->pause_low_watermark_mbit =
-        ns->shared_buffer_mbit * cfg.pause_low_watermark_fraction;
+    ns->pause_high_watermark_mbit = ns->shared_buffer_mbit * cfg.pause_high_watermark_fraction;
+    ns->pause_low_watermark_mbit = ns->shared_buffer_mbit * cfg.pause_low_watermark_fraction;
 
     for (size_t i = 0; i < sw.links.size(); ++i) {
         if (ns->num_ports >= MAX_PORTS_PER_SWITCH) {
@@ -3030,8 +2956,8 @@ static void handle_switch_arrival(switch_state* ns, fluid_msg* m, tw_lp* lp) {
             ? (ns->staged_arrivals[port_id])[prior_staged_index].final_segment_sent
             : 0;
 
-    double staged_mbit = stage_flowlet_arrival(ns, port_id, m, &coalesced, &queue_index,
-                                               &staged_remaining_after);
+    double staged_mbit =
+        stage_flowlet_arrival(ns, port_id, m, &coalesced, &queue_index, &staged_remaining_after);
 
     m->rc_queue_index = queue_index;
     m->rc_coalesced = coalesced;
@@ -3043,8 +2969,7 @@ static void handle_switch_arrival(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     m->rc_log_shared_queued_before_mbit = shared_queued_before;
     m->rc_log_shared_queued_after_mbit = shared_queued_before;
     m->rc_log_flowlet_remaining_after_mbit = staged_remaining_after;
-    m->rc_log_active_after_entries =
-        ns->staged_arrivals[port_id].size();
+    m->rc_log_active_after_entries = ns->staged_arrivals[port_id].size();
 
     log_switch_arrival_event(ns, m);
 
@@ -3099,11 +3024,10 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
         tw_error(TW_LOC, "invalid switch egress port %d", port_id);
     }
 
-    interval_flags* scheduled =
-        scheduled_egress_flags(ns, m->event_type, port_id);
-    m->rc_egress_event_active =
-        scheduled != NULL && m->interval_id >= 0 &&
-        m->interval_id < MAX_SIMULATION_INTERVALS && interval_flag_is_set(*scheduled, m->interval_id);
+    interval_flags* scheduled = scheduled_egress_flags(ns, m->event_type, port_id);
+    m->rc_egress_event_active = scheduled != NULL && m->interval_id >= 0 &&
+                                m->interval_id < MAX_SIMULATION_INTERVALS &&
+                                interval_flag_is_set(*scheduled, m->interval_id);
 
     /* A duplicate or canceled event is a forward and reverse no-op. */
     if (!m->rc_egress_event_active) {
@@ -3126,8 +3050,7 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     }
 
     const double capacity = p->capacity_mbit_per_interval;
-    double remaining_capacity =
-        std::max(0.0, capacity - ns->capacity_used_mbit[port_id]);
+    double remaining_capacity = std::max(0.0, capacity - ns->capacity_used_mbit[port_id]);
     const double queued_before = queued_mbit_on_port(ns, port_id);
     const double shared_queued_before = queued_mbit_on_switch(ns);
 
@@ -3267,8 +3190,7 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
                 residual_msg.mbit = residual;
                 residual_msg.rc_ingress_id = before.ingress_id;
 
-                const int prior_residual_index =
-                    find_queue_index_for_flowlet(ns, port_id, before);
+                const int prior_residual_index = find_queue_index_for_flowlet(ns, port_id, before);
                 rc->residual_prev_final_segment_sent =
                     prior_residual_index >= 0
                         ? (ns->queues[port_id])[prior_residual_index].final_segment_sent
@@ -3281,10 +3203,10 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
                 double ignored_remaining_after = 0.0;
                 int coalesced = 0;
                 int residual_queue_index = -1;
-                double buffered = enqueue_flowlet(
-                    ns, port_id, &residual_msg, &ignored_port_before,
-                    &ignored_shared_before, &ignored_shared_after, &dropped,
-                    &ignored_remaining_after, &coalesced, &residual_queue_index);
+                double buffered =
+                    enqueue_flowlet(ns, port_id, &residual_msg, &ignored_port_before,
+                                    &ignored_shared_before, &ignored_shared_after, &dropped,
+                                    &ignored_remaining_after, &coalesced, &residual_queue_index);
 
                 rc->buffered_mbit = buffered;
                 rc->dropped_mbit = dropped;
@@ -3302,8 +3224,7 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
 
     ns->capacity_used_mbit[port_id] += sent_total;
     if (ns->capacity_used_mbit[port_id] > capacity + EPS) {
-        tw_error(TW_LOC,
-                 "switch %d port %d exceeded interval capacity: used %.12f capacity %.12f",
+        tw_error(TW_LOC, "switch %d port %d exceeded interval capacity: used %.12f capacity %.12f",
                  ns->switch_id, port_id, ns->capacity_used_mbit[port_id], capacity);
     }
 
@@ -3403,8 +3324,7 @@ static void rollback_switch_arrival(switch_state* ns, fluid_msg* m) {
     fixed_vector<queued_flowlet, MAX_FLOW_ENTRIES_PER_PORT>& staged = ns->staged_arrivals[port_id];
 
     int idx = m->rc_queue_index;
-    if (idx < 0 || idx >= (int)staged.size() ||
-        staged[idx].flowlet_id != m->flowlet_id) {
+    if (idx < 0 || idx >= (int)staged.size() || staged[idx].flowlet_id != m->flowlet_id) {
         idx = find_staged_index_for_msg(ns, port_id, m);
     }
 
@@ -3432,13 +3352,11 @@ static void rollback_switch_arrival(switch_state* ns, fluid_msg* m) {
         const int rate_idx = m->rc_rate_flow_index;
         if (rate_idx < 0 || rate_idx >= rate_flows.size() ||
             rate_flows[rate_idx].flow_id != m->flowlet_id) {
-            tw_error(TW_LOC, "invalid created rate-flow rollback on switch %d",
-                     ns->switch_id);
+            tw_error(TW_LOC, "invalid created rate-flow rollback on switch %d", ns->switch_id);
         }
         if (m->rc_rate_flow_appended) {
             if (rate_idx != rate_flows.size() - 1) {
-                tw_error(TW_LOC, "rate-flow rollback order mismatch on switch %d",
-                         ns->switch_id);
+                tw_error(TW_LOC, "rate-flow rollback order mismatch on switch %d", ns->switch_id);
             }
             rate_flows.pop_back();
         } else {
@@ -3456,23 +3374,19 @@ static void rollback_switch_egress(switch_state* ns, fluid_msg* m) {
 
     int port_id = m->port_id;
     if (port_id < 0 || port_id >= ns->num_ports) {
-        tw_error(TW_LOC, "invalid rollback egress port %d on switch %d", port_id,
-                 ns->switch_id);
+        tw_error(TW_LOC, "invalid rollback egress port %d on switch %d", port_id, ns->switch_id);
     }
 
     undo_requested_switch_egress(ns, m);
     undo_requested_switch_rate_eval(ns, m);
 
-    interval_flags* scheduled =
-        scheduled_egress_flags(ns, m->event_type, port_id);
-    if (scheduled == NULL || m->interval_id < 0 ||
-        m->interval_id >= MAX_SIMULATION_INTERVALS) {
-        tw_error(TW_LOC, "invalid rollback egress interval %d on switch %d port %d",
-                 m->interval_id, ns->switch_id, port_id);
+    interval_flags* scheduled = scheduled_egress_flags(ns, m->event_type, port_id);
+    if (scheduled == NULL || m->interval_id < 0 || m->interval_id >= MAX_SIMULATION_INTERVALS) {
+        tw_error(TW_LOC, "invalid rollback egress interval %d on switch %d port %d", m->interval_id,
+                 ns->switch_id, port_id);
     }
     interval_flag_set(scheduled, m->interval_id, true);
-    ns->capacity_accounting_interval[port_id] =
-        m->rc_prev_capacity_accounting_interval;
+    ns->capacity_accounting_interval[port_id] = m->rc_prev_capacity_accounting_interval;
     ns->capacity_used_mbit[port_id] = m->rc_prev_capacity_used_mbit;
 
     if (m->rc_paused_interval_counted) {
@@ -3495,36 +3409,31 @@ static void rollback_switch_egress(switch_state* ns, fluid_msg* m) {
 
         if (rc->buffered_mbit > EPS) {
             int idx = rc->residual_queue_index;
-            if (idx < 0 || idx >= (int)qv.size() ||
-                qv[idx].flowlet_id != rc->before.flowlet_id) {
+            if (idx < 0 || idx >= (int)qv.size() || qv[idx].flowlet_id != rc->before.flowlet_id) {
                 idx = find_queue_index_for_flowlet(ns, port_id, rc->before);
             }
             if (idx < 0) {
                 tw_error(TW_LOC,
                          "could not find residual flowlet %llu on switch %d port %d "
                          "during egress rollback",
-                         (unsigned long long)rc->before.flowlet_id, ns->switch_id,
-                         port_id);
+                         (unsigned long long)rc->before.flowlet_id, ns->switch_id, port_id);
             }
 
             if (rc->residual_coalesced) {
                 qv[idx].remaining_mbit -= rc->buffered_mbit;
-                qv[idx].final_segment_sent =
-                    rc->residual_prev_final_segment_sent;
+                qv[idx].final_segment_sent = rc->residual_prev_final_segment_sent;
                 if (qv[idx].remaining_mbit <= EPS) {
                     tw_error(TW_LOC,
                              "coalesced residual flowlet %llu became empty during "
                              "egress rollback on switch %d port %d",
-                             (unsigned long long)rc->before.flowlet_id,
-                             ns->switch_id, port_id);
+                             (unsigned long long)rc->before.flowlet_id, ns->switch_id, port_id);
                 }
             } else {
                 qv.erase(qv.begin() + idx);
             }
 
             ns->buffered_residual_mbit -= rc->buffered_mbit;
-            ns->ingress_links[rc->before.ingress_id].queued_mbit -=
-                rc->buffered_mbit;
+            ns->ingress_links[rc->before.ingress_id].queued_mbit -= rc->buffered_mbit;
             if (ns->ingress_links[rc->before.ingress_id].queued_mbit < 0.0 &&
                 ns->ingress_links[rc->before.ingress_id].queued_mbit > -EPS) {
                 ns->ingress_links[rc->before.ingress_id].queued_mbit = 0.0;
@@ -3553,8 +3462,7 @@ static void rollback_switch_egress(switch_state* ns, fluid_msg* m) {
         }
 
         int idx = rc->queue_index;
-        if (idx < 0 || idx >= (int)qv.size() ||
-            qv[idx].flowlet_id != rc->before.flowlet_id) {
+        if (idx < 0 || idx >= (int)qv.size() || qv[idx].flowlet_id != rc->before.flowlet_id) {
             idx = find_queue_index_for_flowlet(ns, port_id, rc->before);
         }
         if (idx >= 0) {
@@ -3625,20 +3533,17 @@ static void switch_rev_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp
 
     case SWITCH_RATE_FEEDBACK:
         if (m->rc_rate_update_applied) {
-            if (m->rc_port_id < 0 || m->rc_port_id >= ns->num_ports ||
-                m->rc_rate_flow_index < 0 ||
+            if (m->rc_port_id < 0 || m->rc_port_id >= ns->num_ports || m->rc_rate_flow_index < 0 ||
                 m->rc_rate_flow_index >= (int)ns->rate_flows[m->rc_port_id].size()) {
                 tw_error(TW_LOC, "invalid switch rate-feedback rollback state");
             }
-            ns->rate_flows[m->rc_port_id][m->rc_rate_flow_index] =
-                m->rc_rate_flow_before;
+            ns->rate_flows[m->rc_port_id][m->rc_rate_flow_index] = m->rc_rate_flow_before;
         }
         break;
 
     case SWITCH_RATE_EVAL:
         if (m->rc_rate_eval_event_active) {
-            if (m->port_id < 0 || m->port_id >= ns->num_ports ||
-                m->interval_id < 0 ||
+            if (m->port_id < 0 || m->port_id >= ns->num_ports || m->interval_id < 0 ||
                 m->interval_id >= MAX_SIMULATION_INTERVALS) {
                 tw_error(TW_LOC, "invalid rate-eval rollback state");
             }
@@ -3695,15 +3600,13 @@ static void switch_finalize(switch_state* ns, tw_lp* lp) {
            "pause_frames_sent=%llu resume_frames_sent=%llu pause_updates_received=%llu "
            "pause_frames_received=%llu resume_frames_received=%llu paused_egress_intervals=%llu\n",
            (unsigned long long)lp->gid, ns->switch_id, switches[ns->switch_id].name.c_str(),
-           ns->num_ports, unit, to_output_data_unit(ns->shared_buffer_mbit),
-           ns->received_fragments, ns->sent_fragments, unit,
-           to_output_data_unit(ns->buffered_residual_mbit), unit,
+           ns->num_ports, unit, to_output_data_unit(ns->shared_buffer_mbit), ns->received_fragments,
+           ns->sent_fragments, unit, to_output_data_unit(ns->buffered_residual_mbit), unit,
            to_output_data_unit(ns->sent_mbit), unit, to_output_data_unit(ns->delivered_local_mbit),
            unit, to_output_data_unit(ns->dropped_mbit), unit, to_output_data_unit(queued), unit,
            to_output_data_unit(queued), any_pause_asserted, ns->pause_updates_sent,
-           ns->pause_frames_sent,
-           ns->resume_frames_sent, ns->pause_updates_received, ns->pause_frames_received,
-           ns->resume_frames_received, ns->paused_egress_intervals);
+           ns->pause_frames_sent, ns->resume_frames_sent, ns->pause_updates_received,
+           ns->pause_frames_received, ns->resume_frames_received, ns->paused_egress_intervals);
 }
 
 const tw_optdef app_opt[] = {TWOPT_GROUP("interval-fluid switch/terminal workload"), TWOPT_END()};
@@ -3711,8 +3614,7 @@ const tw_optdef app_opt[] = {TWOPT_GROUP("interval-fluid switch/terminal workloa
 static bool has_suffix(const char* value, const char* suffix) {
     const size_t value_len = strlen(value);
     const size_t suffix_len = strlen(suffix);
-    return value_len >= suffix_len &&
-           strcmp(value + value_len - suffix_len, suffix) == 0;
+    return value_len >= suffix_len && strcmp(value + value_len - suffix_len, suffix) == 0;
 }
 
 static const char* find_config_arg(int argc, char** argv) {
@@ -3722,9 +3624,7 @@ static const char* find_config_arg(int argc, char** argv) {
         }
 
         const char* arg = argv[i];
-        if (has_suffix(arg, ".conf") ||
-            has_suffix(arg, ".yaml") ||
-            has_suffix(arg, ".yml") ||
+        if (has_suffix(arg, ".conf") || has_suffix(arg, ".yaml") || has_suffix(arg, ".yml") ||
             has_suffix(arg, ".json")) {
             return arg;
         }
@@ -3826,16 +3726,15 @@ static void write_log_headers(int rank) {
     switch_header << "interval,event,switch,switch_name,port,target_type,target_index,"
                   << "capacity_" << unit << ",queued_before_" << unit << ",sent_" << unit
                   << ",queued_after_" << unit << ",shared_queued_before_" << unit
-                  << ",shared_queued_after_" << unit << ",shared_buffer_" << unit
-                  << ",dropped_" << unit << ",active_queue_entries\n";
+                  << ",shared_queued_after_" << unit << ",shared_buffer_" << unit << ",dropped_"
+                  << unit << ",active_queue_entries\n";
     write_log_header_file(cfg.switch_log_path, switch_header.str().c_str());
 
     std::ostringstream flowlet_header;
     flowlet_header << "interval,event,switch,switch_name,port,target_type,target_index,"
                    << "flowlet_id,source_terminal,destination_terminal,creation_interval,"
-                   << "age_intervals,capacity_" << unit << ",queued_before_" << unit
-                   << ",send_" << unit << ",remaining_after_" << unit << ",dropped_"
-                   << unit << '\n';
+                   << "age_intervals,capacity_" << unit << ",queued_before_" << unit << ",send_"
+                   << unit << ",remaining_after_" << unit << ",dropped_" << unit << '\n';
     write_log_header_file(cfg.flowlet_log_path, flowlet_header.str().c_str());
 
     std::ostringstream training_header;
