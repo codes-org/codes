@@ -26,38 +26,77 @@ mkdir -p "$comparison_dir"
 seq_output="$seq_case/model-output.txt"
 opt_output="$opt_case/model-output.txt"
 
-extract_committed_state() {
+extract_net_events() {
     local output="$1"
-    local summary="$2"
+    local count
+    local value
 
-    local switch_count
-    local terminal_count
-    local net_event_count
-    switch_count="$(grep -c '^fluid-flow-wan gid=' "$output" || true)"
-    terminal_count="$(grep -c '^fluid-flow-wan-terminal gid=' "$output" || true)"
-    net_event_count="$(grep -c 'Net Events Processed' "$output" || true)"
+    count="$(awk '$1 == "Net" && $2 == "Events" && $3 == "Processed" {count++} END {print count + 0}' "$output")"
+    value="$(awk '$1 == "Net" && $2 == "Events" && $3 == "Processed" {print $NF}' "$output")"
 
-    if (( switch_count == 0 || terminal_count == 0 || net_event_count != 1 )); then
-        echo "incomplete committed-state output in $output"
-        echo "switch summaries: $switch_count"
-        echo "terminal summaries: $terminal_count"
-        echo "Net Events Processed lines: $net_event_count"
-        exit 1
+    if [[ "$count" != "1" || ! "$value" =~ ^[0-9]+$ ]]; then
+        echo "expected exactly one numeric Net Events Processed value in $output" >&2
+        return 1
     fi
 
-    {
-        grep -E '^fluid-flow-wan(-terminal)? gid=' "$output" | LC_ALL=C sort
-        awk '/Net Events Processed/ {print "Net Events Processed=" $NF}' "$output"
-    } > "$summary"
+    printf '%s\n' "$value"
 }
 
-seq_summary="$comparison_dir/sequential-summary.txt"
-opt_summary="$comparison_dir/optimistic-summary.txt"
-extract_committed_state "$seq_output" "$seq_summary"
-extract_committed_state "$opt_output" "$opt_summary"
+canonicalize_csv() {
+    local input="$1"
+    local output="$2"
+    local header
+    local row_count
 
-if ! diff -u "$seq_summary" "$opt_summary"; then
-    echo "sequential and optimistic committed fluid-flow-wan states differ"
+    [[ -s "$input" ]] || {
+        echo "missing or empty committed CSV log: $input"
+        return 1
+    }
+
+    IFS= read -r header < "$input" || {
+        echo "could not read CSV header from $input"
+        return 1
+    }
+    header="${header%$'\r'}"
+
+    {
+        printf '%s\n' "$header"
+        tail -n +2 "$input" | tr -d '\r' | LC_ALL=C sort
+    } > "$output"
+
+    row_count="$(wc -l < "$output")"
+    if (( row_count < 2 )); then
+        echo "committed CSV log has no data rows: $input"
+        return 1
+    fi
+}
+
+csv_logs=(
+    terminal-events.csv
+    switch-events.csv
+    flowlet-events.csv
+    switch-training.csv
+)
+
+for csv in "${csv_logs[@]}"; do
+    seq_csv="$seq_case/logs/$csv"
+    opt_csv="$opt_case/logs/$csv"
+    seq_canonical="$comparison_dir/sequential-$csv"
+    opt_canonical="$comparison_dir/optimistic-$csv"
+
+    canonicalize_csv "$seq_csv" "$seq_canonical"
+    canonicalize_csv "$opt_csv" "$opt_canonical"
+
+    if ! diff -u "$seq_canonical" "$opt_canonical"; then
+        echo "sequential and optimistic committed CSV logs differ: $csv"
+        exit 1
+    fi
+done
+
+seq_net_events="$(extract_net_events "$seq_output")"
+opt_net_events="$(extract_net_events "$opt_output")"
+if [[ "$seq_net_events" != "$opt_net_events" ]]; then
+    echo "Net Events Processed differs: sequential=$seq_net_events optimistic=$opt_net_events"
     exit 1
 fi
 
@@ -74,6 +113,7 @@ if [[ ! "$rollbacks" =~ ^[0-9]+$ ]] || (( rollbacks == 0 )); then
     exit 1
 fi
 
-echo "fluid-flow-wan sequential/optimistic committed state matches"
+echo "fluid-flow-wan sequential/optimistic committed CSV logs match"
+echo "Net Events Processed=$seq_net_events"
 echo "Events Rolled Back=$rolled_back"
 echo "Total Roll Backs=$rollbacks"
