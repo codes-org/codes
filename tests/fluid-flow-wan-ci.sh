@@ -49,6 +49,7 @@ grep "fluid-flow-wan config:" "$out"
 grep "Net Events Processed" "$out"
 grep -Eq "source_backlog_(mbit|gbit)=" "$out"
 grep -Eq "rate_updates_received=[1-9][0-9]*" "$out"
+grep -Eq "rate_cache_entries=[1-9][0-9]*" "$out"
 grep -q ',generate_flow,' "$case_name/logs/terminal-events.csv"
 grep -q ',send,' "$case_name/logs/terminal-events.csv"
 
