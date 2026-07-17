@@ -84,38 +84,38 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--switch-link-min-mbps",
         type=positive_float,
-        default=5.0,
-        help="minimum switch-to-switch bandwidth in Mbps; default: 5",
+        default=10000.0,
+        help="minimum switch-to-switch bandwidth in Mbps; default: 10000 (10 Gbps)",
     )
     parser.add_argument(
         "--switch-link-max-mbps",
         type=positive_float,
-        default=25.0,
-        help="maximum switch-to-switch bandwidth in Mbps; default: 25",
+        default=30000.0,
+        help="maximum switch-to-switch bandwidth in Mbps; default: 30000 (30 Gbps)",
     )
     parser.add_argument(
         "--terminal-link-min-mbps",
         type=positive_float,
-        default=80.0,
-        help="minimum terminal-to-switch bandwidth in Mbps; default: 80",
+        default=100000.0,
+        help="minimum terminal-to-switch bandwidth in Mbps; default: 100000 (100 Gbps)",
     )
     parser.add_argument(
         "--terminal-link-max-mbps",
         type=positive_float,
-        default=160.0,
-        help="maximum terminal-to-switch bandwidth in Mbps; default: 160",
+        default=100000.0,
+        help="maximum terminal-to-switch bandwidth in Mbps; default: 100000 (100 Gbps)",
     )
     parser.add_argument(
         "--switch-buffer-min-mb",
         type=positive_float,
-        default=1000.0,
-        help="minimum shared switch buffer in Mbit; default: 1000",
+        default=64000.0,
+        help="minimum shared switch buffer in Mbit; default: 64000 (64 Gb)",
     )
     parser.add_argument(
         "--switch-buffer-max-mb",
         type=positive_float,
-        default=4000.0,
-        help="maximum shared switch buffer in Mbit; default: 4000",
+        default=64000.0,
+        help="maximum shared switch buffer in Mbit; default: 64000 (64 Gb)",
     )
     parser.add_argument(
         "--seed",
@@ -172,6 +172,12 @@ def parse_args() -> argparse.Namespace:
 
 def rand_uniform_rounded(rng: random.Random, lo: float, hi: float) -> float:
     return round(rng.uniform(lo, hi), 3)
+
+
+def format_quantity(value_in_mega: float, mega_suffix: str, giga_suffix: str) -> str:
+    if value_in_mega >= 1000.0:
+        return f"{value_in_mega / 1000.0:g} {giga_suffix}"
+    return f"{value_in_mega:g} {mega_suffix}"
 
 
 def add_link(
@@ -269,12 +275,15 @@ def write_topology(args: argparse.Namespace, links: dict[int, dict[int, float]])
 
             f.write(f"    {names[i]}:\n")
             f.write(f"      terminals: {args.terminals_per_switch}\n")
-            f.write(f'      terminal_bandwidth: "{terminal_bw} Mbps"\n')
-            f.write(f'      switch_buffer: "{switch_buffer} Mb"\n')
+            terminal_bandwidth = format_quantity(terminal_bw, "Mbps", "Gbps")
+            buffer_size = format_quantity(switch_buffer, "Mb", "Gb")
+            f.write(f'      terminal_bandwidth: "{terminal_bandwidth}"\n')
+            f.write(f'      switch_buffer: "{buffer_size}"\n')
             f.write("      connections:\n")
 
             for dst in sorted(links[i]):
-                f.write(f'        {names[dst]}: "{links[i][dst]} Mbps"\n')
+                bandwidth = format_quantity(links[i][dst], "Mbps", "Gbps")
+                f.write(f'        {names[dst]}: "{bandwidth}"\n')
 
             f.write("\n")
 

@@ -1,57 +1,31 @@
 #!/bin/bash
 set -euo pipefail
 
-scheduler="${1:?scheduler required: fifo or round_robin}"
-synch="${2:?synch mode required: 1 or 3}"
-np="${3:?MPI rank count required}"
-case_name="${4:-fluid-flow-wan-${scheduler}-synch${synch}}"
-mpi_exec="${5:-mpirun}"
-mpi_np_flag="${6:--np}"
+synch="${1:?synch mode required: 1 or 3}"
+np="${2:?MPI rank count required}"
+case_name="${3:-fluid-flow-wan-synch${synch}}"
+mpi_exec="${4:-mpirun}"
+mpi_np_flag="${5:--np}"
 
-if [[ "$scheduler" != "fifo" && "$scheduler" != "round_robin" ]]; then
-    echo "unsupported scheduler: $scheduler"
-    exit 1
-fi
-
-if [[ -z "${bindir:-}" ]]; then
-    echo "bindir is not set; this script should be run through tests/run-test.sh"
-    exit 1
-fi
-
-if [[ -z "${srcdir:-}" ]]; then
-    echo "srcdir is not set; this script should be run through tests/run-test.sh"
+if [[ -z "${bindir:-}" || -z "${srcdir:-}" ]]; then
+    echo "bindir/srcdir are not set; run through tests/run-test.sh"
     exit 1
 fi
 
 binary="$bindir/src/model-net-fluid-flow-wan"
 base_conf="$bindir/doc/example/fluid-flow-wan.conf"
-
-if [[ ! -x "$binary" ]]; then
-    echo "missing executable: $binary"
-    exit 1
-fi
-
-if [[ ! -f "$base_conf" ]]; then
-    echo "missing generated config: $base_conf"
-    exit 1
-fi
-
 topology="$bindir/doc/example/fluid-flow-wan-topology.yaml"
-if [[ ! -f "$topology" ]]; then
-    topology="$srcdir/doc/example/fluid-flow-wan-topology.yaml"
-fi
+[[ -f "$topology" ]] || topology="$srcdir/doc/example/fluid-flow-wan-topology.yaml"
 
-if [[ ! -f "$topology" ]]; then
-    echo "missing topology file"
-    exit 1
-fi
+[[ -x "$binary" ]] || { echo "missing executable: $binary"; exit 1; }
+[[ -f "$base_conf" ]] || { echo "missing generated config: $base_conf"; exit 1; }
+[[ -f "$topology" ]] || { echo "missing topology file"; exit 1; }
 
 rm -rf "$case_name"
 mkdir -p "$case_name/logs"
 cp "$topology" "$case_name/fluid-flow-wan-topology.yaml"
 
 sed \
-    -e "s|switch_scheduler=\"[^\"]*\";|switch_scheduler=\"$scheduler\";|" \
     -e 's|topology_yaml_file="[^"]*";|topology_yaml_file="fluid-flow-wan-topology.yaml";|' \
     -e 's|terminal_log_path="[^"]*";|terminal_log_path="logs/terminal-events.csv";|' \
     -e 's|switch_log_path="[^"]*";|switch_log_path="logs/switch-events.csv";|' \
@@ -59,39 +33,24 @@ sed \
     -e 's|switch_training_log_path="[^"]*";|switch_training_log_path="logs/switch-training.csv";|' \
     "$base_conf" > "$case_name/fluid-flow-wan.conf"
 
-for expected in \
-    "switch_scheduler=\"$scheduler\";" \
-    'topology_yaml_file="fluid-flow-wan-topology.yaml";' \
-    'terminal_log_path="logs/terminal-events.csv";' \
-    'switch_log_path="logs/switch-events.csv";' \
-    'flowlet_log_path="logs/flowlet-events.csv";' \
-    'switch_training_log_path="logs/switch-training.csv";'
-do
-    if ! grep -q "$expected" "$case_name/fluid-flow-wan.conf"; then
-        echo "could not rewrite generated config; missing: $expected"
-        cat "$case_name/fluid-flow-wan.conf" || true
-        exit 1
-    fi
-done
-
 if ! (
     cd "$case_name"
     "$mpi_exec" "$mpi_np_flag" "$np" "$binary" --sync="$synch" -- fluid-flow-wan.conf \
         > model-output.txt 2> model-output-error.txt
 ); then
     echo "fluid-flow-wan model run failed"
-    echo "--- stdout ---"
     cat "$case_name/model-output.txt" || true
-    echo "--- stderr ---"
     cat "$case_name/model-output-error.txt" || true
     exit 1
 fi
 
 out="$case_name/model-output.txt"
-
 grep "fluid-flow-wan config:" "$out"
-grep "switch_scheduler=$scheduler" "$out"
 grep "Net Events Processed" "$out"
+grep -Eq "source_backlog_(mbit|gbit)=" "$out"
+grep -Eq "rate_updates_received=[1-9][0-9]*" "$out"
+grep -q ',generate_flow,' "$case_name/logs/terminal-events.csv"
+grep -q ',send,' "$case_name/logs/terminal-events.csv"
 
 if [[ "$synch" == "1" ]]; then
     grep "csv_logs=buffered-forward" "$out"
@@ -99,14 +58,6 @@ else
     grep "csv_logs=buffered-commit" "$out"
 fi
 
-for csv in \
-    "$case_name/logs/terminal-events.csv" \
-    "$case_name/logs/switch-events.csv" \
-    "$case_name/logs/flowlet-events.csv" \
-    "$case_name/logs/switch-training.csv"
-do
-    if [[ ! -s "$csv" ]]; then
-        echo "missing or empty CSV log: $csv"
-        exit 1
-    fi
+for csv in terminal-events.csv switch-events.csv flowlet-events.csv switch-training.csv; do
+    [[ -s "$case_name/logs/$csv" ]] || { echo "missing or empty CSV log: $csv"; exit 1; }
 done

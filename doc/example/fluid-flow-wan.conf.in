@@ -27,11 +27,18 @@ FLUID_FLOW_WAN
     num_drain_intervals="20";
     rng_seed="12345";
 
-    terminal_send_every_n_intervals="1";
-    terminal_send_probability="1.0";
-    terminal_min_send_mbit="0";
-    terminal_max_send_fraction_of_link_capacity="1.0";
+    # Generate one persistent random flow per terminal at each configured period.
+    # The initial send rate is inferred from the terminal access-link bandwidth.
+    flow_generation_every_n_intervals="3";
+    # Size values accept Mb or Gb. All-Gb/Gbps inputs produce Gbit output;
+    # any mixture of mega and giga units produces Mbit output.
+    # 10-50 Gb persistent transfers take roughly 1-5 seconds on the 10 Gbps
+    # constrained inter-site link and create useful WAN contention.
+    random_flow_min="200 Gb";
+    random_flow_max="300 Gb";
 
+    # Switches advertise equal per-flow shares of each outgoing link. Feedback
+    # moves one reverse-path hop per interval and can only lower future sends.
     debug_prints="0";
 
     # Per-ingress Ethernet PAUSE hysteresis using the shared switch buffer.
