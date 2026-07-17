@@ -13,29 +13,23 @@ if [[ -z "${bindir:-}" || -z "${srcdir:-}" ]]; then
 fi
 
 binary="$bindir/src/model-net-fluid-flow-wan"
-base_conf="$bindir/doc/example/fluid-flow-wan.conf"
+base_yaml="$bindir/doc/example/fluid-flow-wan.yaml"
 topology="$bindir/doc/example/fluid-flow-wan-topology.yaml"
 [[ -f "$topology" ]] || topology="$srcdir/doc/example/fluid-flow-wan-topology.yaml"
 
 [[ -x "$binary" ]] || { echo "missing executable: $binary"; exit 1; }
-[[ -f "$base_conf" ]] || { echo "missing generated config: $base_conf"; exit 1; }
+[[ -f "$base_yaml" ]] || { echo "missing generated config: $base_yaml"; exit 1; }
 [[ -f "$topology" ]] || { echo "missing topology file"; exit 1; }
 
 rm -rf "$case_name"
 mkdir -p "$case_name/logs"
 cp "$topology" "$case_name/fluid-flow-wan-topology.yaml"
 
-sed \
-    -e 's|topology_yaml_file="[^"]*";|topology_yaml_file="fluid-flow-wan-topology.yaml";|' \
-    -e 's|terminal_log_path="[^"]*";|terminal_log_path="logs/terminal-events.csv";|' \
-    -e 's|switch_log_path="[^"]*";|switch_log_path="logs/switch-events.csv";|' \
-    -e 's|flowlet_log_path="[^"]*";|flowlet_log_path="logs/flowlet-events.csv";|' \
-    -e 's|switch_training_log_path="[^"]*";|switch_training_log_path="logs/switch-training.csv";|' \
-    "$base_conf" > "$case_name/fluid-flow-wan.conf"
+cp "$base_yaml" "$case_name/fluid-flow-wan.yaml"
 
 if ! (
     cd "$case_name"
-    "$mpi_exec" "$mpi_np_flag" "$np" "$binary" --sync="$synch" -- fluid-flow-wan.conf \
+    "$mpi_exec" "$mpi_np_flag" "$np" "$binary" --sync="$synch" -- fluid-flow-wan.yaml \
         > model-output.txt 2> model-output-error.txt
 ); then
     echo "fluid-flow-wan model run failed"

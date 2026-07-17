@@ -3846,7 +3846,7 @@ int main(int argc, char** argv) {
 
     const char* config_file = find_config_arg(argc, argv);
     if (config_file == NULL) {
-        printf("Usage: mpirun -np <n> %s --synch=1 -- <config.conf>\n", argv[0]);
+        printf("Usage: mpirun -np <n> %s --sync=1 -- <config.yaml>\n", argv[0]);
         MPI_Finalize();
         return 1;
     }
