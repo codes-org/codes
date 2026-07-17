@@ -3708,14 +3708,24 @@ static void switch_finalize(switch_state* ns, tw_lp* lp) {
 
 const tw_optdef app_opt[] = {TWOPT_GROUP("interval-fluid switch/terminal workload"), TWOPT_END()};
 
+static bool has_suffix(const char* value, const char* suffix) {
+    const size_t value_len = strlen(value);
+    const size_t suffix_len = strlen(suffix);
+    return value_len >= suffix_len &&
+           strcmp(value + value_len - suffix_len, suffix) == 0;
+}
+
 static const char* find_config_arg(int argc, char** argv) {
     for (int i = argc - 1; i >= 1; --i) {
         if (argv[i] == NULL) {
             continue;
         }
+
         const char* arg = argv[i];
-        size_t len = strlen(arg);
-        if (len >= 5 && strcmp(arg + len - 5, ".conf") == 0) {
+        if (has_suffix(arg, ".conf") ||
+            has_suffix(arg, ".yaml") ||
+            has_suffix(arg, ".yml") ||
+            has_suffix(arg, ".json")) {
             return arg;
         }
     }
