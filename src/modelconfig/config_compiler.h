@@ -52,8 +52,10 @@ struct compiled_key {
 
 /** One configuration section: named keys plus nested subsections. LPGROUPS
  *  holds a MODELNET_GRP subsection; PARAMS is flat. Insertion order is
- *  preserved throughout, so a compiled config is byte-comparable to the `.conf`
- *  it replaces. */
+ *  preserved throughout, so emission is deterministic — but key order may
+ *  differ from a hand-written `.conf` (the compiler emits derived keys like
+ *  `modelnet_order` first). The config store looks everything up by name, so
+ *  equivalence with a `.conf` is by name/value (see `cf_equal`), not bytes. */
 struct compiled_section {
     std::string name;                          ///< section name (e.g. LPGROUPS, PARAMS)
     std::vector<compiled_key> keys;            ///< this section's keys, in insertion order

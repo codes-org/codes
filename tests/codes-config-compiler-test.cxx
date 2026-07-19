@@ -5,9 +5,19 @@
 // tests assert on the returned compiled_config plain data rather than on any
 // simulator behavior. This is the first real unit-test consumer of the vendored
 // GoogleTest framework; the model-net equivalence tests cover the emit path.
+//
+// The suite is split across multiple translation units that GoogleTest links into
+// one binary; this file holds the core ConfigCompiler suite (topology sanity,
+// schema_version, malformed input, the flat / parametric / groups forms,
+// pass-through sections, reserved names, the derived-key guard, and includes).
+// Shared fixtures and lookup helpers live in config-compiler-test-util.h.
+#include "config-compiler-test-util.h"
 #include "config_compiler.h"
 
 #include <gtest/gtest.h>
+
+#include <string>
+#include <vector>
 
 using codes::config::compile;
 using codes::config::compiled_config;
@@ -15,84 +25,6 @@ using codes::config::compiled_key;
 using codes::config::compiled_section;
 using codes::config::config_error;
 using codes::config::parse_includes;
-
-namespace {
-
-const compiled_section* find_section(const compiled_config& c, const char* name) {
-    for (const compiled_section& s : c.sections)
-        if (s.name == name)
-            return &s;
-    return nullptr;
-}
-
-const compiled_section* find_subsection(const compiled_section& s, const char* name) {
-    for (const compiled_section& sub : s.subsections)
-        if (sub.name == name)
-            return &sub;
-    return nullptr;
-}
-
-const compiled_key* find_key(const compiled_section& s, const char* name) {
-    for (const compiled_key& k : s.keys)
-        if (k.name == name)
-            return &k;
-    return nullptr;
-}
-
-// A minimal, valid flat-network config; tests append a `sections:` block to it.
-const char* kFlatBase = R"(
-schema_version: 1
-components:
-  cn:
-    model: nw-lp
-    network: simplenet
-    message_size: 464
-topology:
-  format: flat
-  component: cn
-  nodes: 4
-)";
-
-// A minimal, valid parametric dragonfly config. With num_routers: 4 the
-// derivation is num_cn = 4/2 = 2, num_groups = 4*2+1 = 9, so repetitions =
-// num_groups*num_routers = 36, terminals per rep = 2, one router per rep.
-const char* kParametricDragonfly = R"(
-schema_version: 1
-components:
-  compute_host:
-    model: nw-lp
-topology:
-  format: parametric
-  fabric:
-    model: dragonfly
-    shape:
-      num_routers: 4
-  hosts:
-    component: compute_host
-)";
-
-// An explicit LP-groups config: two groups, custom LP types, an annotation, and
-// a PARAMS block -- the layout escape hatch for non-network configs.
-const char* kGroupsBase = R"(
-schema_version: 1
-topology:
-  format: groups
-  params:
-    message_size: 256
-  groups:
-    GRP1:
-      repetitions: 2
-      lps:
-        a: 1
-        b: 2
-        a@foo: 1
-    GRP2:
-      repetitions: 3
-      lps:
-        c: 2
-)";
-
-} // namespace
 
 // --- topology sanity (the compiler still does its normal job) ---------------
 
@@ -740,6 +672,104 @@ topology:
     EXPECT_EQ(find_key(*grp, "repetitions")->values.at(0), "16");
     // torus folds routing into the terminal node -> no router LP line.
     EXPECT_EQ(find_key(*grp, "modelnet_torus_router"), nullptr);
+}
+
+// --- compiler-derived PARAMS keys can't be shadowed by user params ----------
+//
+// The compiler emits modelnet_order (derived from the model) as the first PARAMS
+// key, then appends the user's fabric/component params. The config store returns
+// the first match for a name, so a user param of the same name would land after
+// the derived one and be silently ignored -- the front-end must reject that
+// instead of silently dropping the user's value.
+
+TEST(ConfigCompiler, FlatRejectsUserModelnetOrderParam) {
+    // reachable via a flat component's pass-through params.
+    EXPECT_THROW(compile(R"(
+schema_version: 1
+components:
+  cn:
+    model: nw-lp
+    network: simplenet
+    modelnet_order: bogus
+topology: { format: flat, component: cn, nodes: 4 }
+)"),
+                 config_error);
+}
+
+TEST(ConfigCompiler, ParametricRejectsUserModelnetOrderFabricKey) {
+    // reachable via a fabric's pass-through scalar keys.
+    EXPECT_THROW(compile(R"(
+schema_version: 1
+components:
+  compute_host: { model: nw-lp }
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly
+    shape:
+      num_routers: 4
+    modelnet_order: bogus
+  hosts:
+    component: compute_host
+)"),
+                 config_error);
+}
+
+TEST(ConfigCompiler, ParametricRejectsUserModelnetOrderHostParam) {
+    // reachable via the host component's own params (appended to PARAMS).
+    EXPECT_THROW(compile(R"(
+schema_version: 1
+components:
+  compute_host:
+    model: nw-lp
+    modelnet_order: bogus
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly
+    shape:
+      num_routers: 4
+  hosts:
+    component: compute_host
+)"),
+                 config_error);
+}
+
+TEST(ConfigCompiler, DerivedKeyGuardIsExactMatchNotPrefix) {
+    // a nearby, legitimate key that merely shares a prefix is accepted -- the
+    // guard is an exact-name match, not a prefix ban.
+    compiled_config c = compile(R"(
+schema_version: 1
+components:
+  cn:
+    model: nw-lp
+    network: simplenet
+    modelnet_scheduler: fcfs
+topology: { format: flat, component: cn, nodes: 4 }
+)");
+    const compiled_section* params = find_section(c, "PARAMS");
+    ASSERT_NE(params, nullptr);
+    EXPECT_NE(find_key(*params, "modelnet_scheduler"), nullptr);
+}
+
+TEST(ConfigCompiler, ExplicitGroupsAllowsUserModelnetOrder) {
+    // the explicit-groups form derives no PARAMS at all -- the user lays out
+    // everything, including modelnet_order -- so it is NOT guarded there.
+    compiled_config c = compile(R"(
+schema_version: 1
+topology:
+  format: groups
+  params:
+    modelnet_order: [dragonfly, dragonfly_router]
+  groups:
+    G: { repetitions: 1, lps: { a: 1 } }
+)");
+    const compiled_section* params = find_section(c, "PARAMS");
+    ASSERT_NE(params, nullptr);
+    const compiled_key* order = find_key(*params, "modelnet_order");
+    ASSERT_NE(order, nullptr);
+    ASSERT_EQ(order->values.size(), 2u);
+    EXPECT_EQ(order->values.at(0), "dragonfly");
 }
 
 // --- includes / multi-document merge ----------------------------------------

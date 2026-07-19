@@ -1,0 +1,45 @@
+schema_version: 1
+
+# Drives the multi-job guard. Two jobs compile to a JOBS section (num_jobs: 2
+# plus a per-job subsection with the resolved allocation), which no synthetic
+# main can execute: they generate one global traffic pattern with no per-job
+# destination dispatch. A synthetic main loading this config must abort with
+# codes_workload_config_check_unsupported_jobs()'s diagnostic instead of
+# silently running global traffic over the placement.
+#
+# Topology matches synthetic-workload-dragonfly.yaml (num_routers: 4 -> 72
+# compute nodes); the two contiguous jobs book 40 + 32 = 72 slots.
+
+components:
+  compute_host:
+    model: nw-lp
+
+topology:
+  format: parametric
+  fabric:
+    model: dragonfly
+    shape:
+      num_routers: 4
+    links:
+      local:  { bandwidth: 5.25, vc_size: 4096 }
+      global: { bandwidth: 4.7,  vc_size: 8192 }
+      cn:     { bandwidth: 5.25, vc_size: 4096 }
+    routing:
+      algorithm: adaptive
+    packet_size: 512
+    chunk_size: 32
+    num_vcs: 1
+    modelnet_scheduler: fcfs
+    message_size: 512
+  hosts:
+    component: compute_host
+
+jobs:
+  - id: production
+    workload: { type: synthetic, traffic: uniform, num_messages: 2 }
+    ranks: 40
+    placement: { policy: contiguous }
+  - id: background
+    workload: { type: synthetic, traffic: uniform, arrival_time: "500ns" }
+    ranks: 32
+    placement: { policy: contiguous }

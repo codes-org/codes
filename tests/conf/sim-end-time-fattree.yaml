@@ -1,0 +1,40 @@
+schema_version: 1
+
+# Drives the simulation end-time seam: the top-level simulation: block sets a
+# run end time (in nanoseconds) that codes_mapping applies to ROSS's g_tw_ts_end
+# when the command line did not pass --end. The fat-tree fabric below is the same
+# one the model-net-synthetic-fattree equivalence tests use; only the end time is
+# distinctive so a run's "Simulation End Time" banner is checkable.
+
+components:
+  compute_host:
+    model: nw-lp
+
+topology:
+  format: parametric
+  fabric:
+    model: fattree
+    shape:
+      num_levels: 3
+      switch_count: 32
+      switch_radix: 8
+    routing:
+      algorithm: adaptive
+    ft_type: 0
+    packet_size: 512
+    message_size: 512
+    chunk_size: 512
+    modelnet_scheduler: fcfs
+    router_delay: 90
+    terminal_radix: 1
+    soft_delay: 1000
+    vc_size: 65536
+    cn_vc_size: 65536
+    link_bandwidth: 12.5
+    cn_bandwidth: 12.5
+    rail_routing: adaptive
+  hosts:
+    component: compute_host
+
+simulation:
+  end_time: "60us"     # 60000 ns; applied unless the CLI passes --end

@@ -12,10 +12,15 @@ option(CODES_ENABLE_ZMQML_HYBRID_TESTS
 # is ROSS-free by design, so it compiles straight into the test with ryml -- no
 # codes/ROSS/MPI link -- and the tests assert on the returned compiled_config.
 # Unit tests run serially (no MPI), distinct from the mpiexec-launched model
-# tests below.
+# tests below. The suite is split across three per-area translation units that
+# GoogleTest links into this one binary (core compiler, unit conversion, and
+# simulation/workload/jobs), sharing fixtures via config-compiler-test-util.h.
 add_executable(codes-config-compiler-test
     codes-config-compiler-test.cxx
+    codes-unit-convert-test.cxx
+    codes-config-workload-test.cxx
     ${CMAKE_SOURCE_DIR}/src/modelconfig/config_compiler.cxx
+    ${CMAKE_SOURCE_DIR}/src/modelconfig/unit_convert.cxx
     ${CODES_RYML_IMPL_TU})
 target_include_directories(codes-config-compiler-test SYSTEM PRIVATE ${CODES_RYML_INCLUDE_DIRS})
 target_include_directories(codes-config-compiler-test PRIVATE ${CMAKE_SOURCE_DIR}/src/modelconfig)
@@ -170,6 +175,29 @@ function(codes_add_run_test)
             COMMAND "${CMAKE_CURRENT_BINARY_DIR}/run-test.sh" ${_run}
             WORKING_DIRECTORY "${CODES_BINARY_DIR}")
     endif()
+endfunction()
+
+# codes_add_config_tree_test — assert a .conf and its YAML twin compile to the
+# *same* config tree.
+#
+# Loads both files through config-tree-equivalence-test (the production loader +
+# cf_equal) and passes iff every section, key and value matches. It runs no model,
+# so it is far cheaper than the behavioral equivalence tests and checks every key
+# rather than a marker/lp-io side effect -- catching defaulting/derivation drift a
+# short run can mask. Use it *alongside* the lp-io / marker equivalence test for a
+# twin, not instead of it: this proves the trees are identical, those prove the
+# model behaves identically.
+#
+#   codes_add_config_tree_test(NAME <name> CONFIG_A <path> CONFIG_B <path>)
+#
+# CONFIG_A/CONFIG_B are absolute paths (the runner executes in a temp dir).
+function(codes_add_config_tree_test)
+    cmake_parse_arguments(T "" "NAME;CONFIG_A;CONFIG_B" "" ${ARGN})
+    if(NOT T_NAME OR NOT T_CONFIG_A OR NOT T_CONFIG_B)
+        message(FATAL_ERROR "codes_add_config_tree_test: NAME, CONFIG_A and CONFIG_B are required")
+    endif()
+    codes_add_run_test(NAME ${T_NAME} BINARY config-tree-equivalence-test NP 1
+        ARGS "${T_CONFIG_A}" "${T_CONFIG_B}")
 endfunction()
 
 # codes_add_lpio_equivalence_test — assert two configs produce equivalent results.
@@ -338,6 +366,13 @@ add_executable(codes-workload-test
     workload/codes-workload-test-cn-lp.c
     )
 target_link_libraries(codes-workload-test PUBLIC codes)
+
+# Config-tree equivalence harness: loads two config files through the production
+# loader and asserts the two compiled trees are equal (cf_equal). Data-driven --
+# one binary taking the two config paths -- registered once per .conf/.yaml twin
+# by codes_add_config_tree_test below.
+add_executable(config-tree-equivalence-test config-tree-equivalence-test.c)
+target_link_libraries(config-tree-equivalence-test PUBLIC codes)
 
 # Tests are also not consistent with the files to compile, but
 # that's ok, there are more tests than binary files
@@ -647,3 +682,165 @@ codes_add_lpio_equivalence_test(
     ARGS     --sync=1 --num_messages=1
     CONFIG_A "${CMAKE_CURRENT_BINARY_DIR}/conf/dragonfly-custom/dfcustom-8group.conf"
     CONFIG_B "${CMAKE_CURRENT_BINARY_DIR}/conf/dragonfly-custom/dfcustom-8group.yaml")
+
+# Config-tree equivalence: for each .conf/.yaml twin above, assert the two files
+# compile to an identical config tree (every section/key/value), independent of
+# any model run. Registered for the same twin set as the behavioral equivalence
+# tests. The surrogate twin is intentionally excluded: its config is assembled per
+# run from a template by envsubst (SETUP), so there is no static file pair to diff.
+codes_add_config_tree_test(NAME simplenet-config-tree
+    CONFIG_A "${_tconf}/modelnet-test-simplenet.conf"
+    CONFIG_B "${_tconf}/modelnet-test-simplenet.yaml")
+codes_add_config_tree_test(NAME simplep2p-config-tree
+    CONFIG_A "${_tconf}/modelnet-test-simplep2p.conf"
+    CONFIG_B "${_tconf}/modelnet-test-simplep2p.yaml")
+codes_add_config_tree_test(NAME loggp-config-tree
+    CONFIG_A "${_tconf}/modelnet-test-loggp.conf"
+    CONFIG_B "${_tconf}/modelnet-test-loggp.yaml")
+codes_add_config_tree_test(NAME torus-config-tree
+    CONFIG_A "${_tconf}/modelnet-test-torus.conf"
+    CONFIG_B "${_tconf}/modelnet-test-torus.yaml")
+codes_add_config_tree_test(NAME express-mesh-config-tree
+    CONFIG_A "${_tconf}/modelnet-test-em.conf"
+    CONFIG_B "${_tconf}/modelnet-test-em.yaml")
+codes_add_config_tree_test(NAME slimfly-config-tree
+    CONFIG_A "${_tconf}/modelnet-test-slimfly.conf"
+    CONFIG_B "${_tconf}/modelnet-test-slimfly.yaml")
+codes_add_config_tree_test(NAME dragonfly-config-tree
+    CONFIG_A "${_nwconf}/modelnet-synthetic-dragonfly.conf"
+    CONFIG_B "${_nwconf}/modelnet-synthetic-dragonfly.yaml")
+codes_add_config_tree_test(NAME fattree-config-tree
+    CONFIG_A "${_nwconf}/modelnet-synthetic-fattree.conf"
+    CONFIG_B "${_nwconf}/modelnet-synthetic-fattree.yaml")
+codes_add_config_tree_test(NAME lsm-config-tree
+    CONFIG_A "${_tconf}/lsm-test.conf"
+    CONFIG_B "${_tconf}/lsm-test.yaml")
+# Same layout, lsm section pulled in with include: -- exercises the loader's
+# collective include resolution, which must yield the identical tree.
+codes_add_config_tree_test(NAME lsm-include-config-tree
+    CONFIG_A "${_tconf}/lsm-test.conf"
+    CONFIG_B "${_tconf}/lsm-test-include.yaml")
+codes_add_config_tree_test(NAME resource-config-tree
+    CONFIG_A "${_tconf}/buffer_test.conf"
+    CONFIG_B "${_tconf}/buffer_test.yaml")
+codes_add_config_tree_test(NAME ping-pong-config-tree
+    CONFIG_A "${CMAKE_BINARY_DIR}/doc/example/tutorial-ping-pong.conf"
+    CONFIG_B "${CMAKE_BINARY_DIR}/doc/example/tutorial-ping-pong.yaml")
+# File-enumerated fabrics: the configure_file outputs (absolute connection-file
+# paths) are compared -- the tree check never opens the connection files, so they
+# need not exist for this test.
+codes_add_config_tree_test(NAME dragonfly-dally-config-tree
+    CONFIG_A "${CMAKE_CURRENT_BINARY_DIR}/conf/dragonfly-dally/dfdally-72.conf"
+    CONFIG_B "${CMAKE_CURRENT_BINARY_DIR}/conf/dragonfly-dally/dfdally-72.yaml")
+codes_add_config_tree_test(NAME dragonfly-plus-config-tree
+    CONFIG_A "${CMAKE_CURRENT_BINARY_DIR}/conf/dragonfly-plus/dfp-test.conf"
+    CONFIG_B "${CMAKE_CURRENT_BINARY_DIR}/conf/dragonfly-plus/dfp-test.yaml")
+codes_add_config_tree_test(NAME dragonfly-custom-config-tree
+    CONFIG_A "${CMAKE_CURRENT_BINARY_DIR}/conf/dragonfly-custom/dfcustom-8group.conf"
+    CONFIG_B "${CMAKE_CURRENT_BINARY_DIR}/conf/dragonfly-custom/dfcustom-8group.yaml")
+
+# Negative twin: every codes_add_config_tree_test above pairs a config with the
+# YAML meant to reproduce it, so they only ever prove cf_equal_report stays silent
+# on a match. This one feeds it two configs that are *not* twins -- a fat-tree and
+# a dragonfly fabric -- and asserts it accurately reports the divergence. The
+# binary exits 1 (trees differ) and cf_equal_report prints a per-key report, so we
+# gate on the report text with PASS_REGULAR_EXPRESSION (which passes on a match and
+# ignores the non-zero exit) rather than the codes_add_config_tree_test helper,
+# which expects a clean exit. "values differ" and "only in ... tree" are emitted
+# only by cf_equal_report's divergence report, and any two distinct topologies
+# produce at least one of each -- so a match proves it both detected the
+# difference and wrote the report.
+add_test(NAME config-tree-divergence
+    COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS}
+            $<TARGET_FILE:config-tree-equivalence-test>
+            "${_nwconf}/modelnet-synthetic-fattree.yaml"
+            "${_nwconf}/modelnet-synthetic-dragonfly.yaml"
+            ${MPIEXEC_POSTFLAGS})
+set_tests_properties(config-tree-divergence PROPERTIES
+    PASS_REGULAR_EXPRESSION "values differ|only in .* tree")
+
+# Resolved-config dump: loading a config with CODES_RESOLVED_CONFIG_DUMP set makes
+# rank 0 print the fully-resolved config tree. Load a YAML config in load-only mode
+# with the dump aimed at stdout ("-") and assert the dump carries a compiler-
+# derived key (modelnet_order) -- i.e. the tree really is the resolved one, not the
+# friendly YAML source. No model is run, so nothing is written to the build dir.
+add_test(NAME resolved-config-dump
+    COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS}
+            $<TARGET_FILE:config-tree-equivalence-test> "${_tconf}/modelnet-test-simplenet.yaml"
+            ${MPIEXEC_POSTFLAGS})
+set_tests_properties(resolved-config-dump PROPERTIES
+    ENVIRONMENT "CODES_RESOLVED_CONFIG_DUMP=-"
+    PASS_REGULAR_EXPRESSION "modelnet_order")
+
+# Simulation end time from a YAML config: the top-level simulation: block sets an
+# end_time that codes_mapping applies to ROSS's g_tw_ts_end at setup time.
+# model-net-synthetic-fattree never assigns g_tw_ts_end itself, so the config
+# value survives to the run and shows up in ROSS's "Simulation End Time" banner.
+# The config sets 60000 ns; the marker asserts the run really ended there.
+codes_add_run_test(
+    NAME   modelnet-fattree-config-end-time
+    BINARY model-net-synthetic-fattree
+    ARGS   --sync=1 -- "${_tconf}/sim-end-time-fattree.yaml"
+    MARKER "Simulation End Time.*60000.00")
+# CLI precedence: the same config, but --end=40000 on the command line wins over
+# the config's 60000 -- the banner must show the command-line value.
+codes_add_run_test(
+    NAME   modelnet-fattree-cli-end-time-overrides-config
+    BINARY model-net-synthetic-fattree
+    ARGS   --sync=1 --end=40000 -- "${_tconf}/sim-end-time-fattree.yaml"
+    MARKER "Simulation End Time.*40000.00")
+
+# Synthetic workload params from a YAML workload: block. model-net-synthetic
+# sends `num_messages` events per server and prints the count in each server's
+# finalize line ("... sent_count N recvd_count ..."); the config sets 2, which is
+# distinct from the model's built-in default of 20, so the marker proves the
+# config value took effect.
+codes_add_run_test(
+    NAME   modelnet-synthetic-config-workload-params
+    BINARY model-net-synthetic
+    ARGS   --sync=1 -- "${_tconf}/synthetic-workload-dragonfly.yaml"
+    MARKER "sent_count 2 recvd_count")
+# CLI precedence: --num_messages=1 on the command line wins over the config's 2,
+# so every server sends one message instead.
+codes_add_run_test(
+    NAME   modelnet-synthetic-cli-overrides-config-workload-params
+    BINARY model-net-synthetic
+    ARGS   --sync=1 --num_messages=1 -- "${_tconf}/synthetic-workload-dragonfly.yaml"
+    MARKER "sent_count 1 recvd_count")
+
+# payload_size from the config. The same config sets payload_size: 1KiB (1024
+# bytes); with the deterministic nearest_neighbor traffic every server receives
+# exactly num_messages (2) messages, so the finalize line reports
+# 1024 * 2 = 2048 bytes. The model's built-in default of 2048 would instead
+# print 4096, so "recvd 2048 bytes" proves the configured payload_size applied.
+codes_add_run_test(
+    NAME   modelnet-synthetic-config-payload-size
+    BINARY model-net-synthetic
+    ARGS   --sync=1 -- "${_tconf}/synthetic-workload-dragonfly.yaml"
+    MARKER "recvd 2048 bytes")
+# CLI precedence for payload_size: a command-line --payload_size beats the
+# config's 1KiB. We pass 4096 (not 2048): the precedence helper detects a
+# command-line override by comparing the option global against its registered
+# default, and 2048 *is* the built-in default, so passing 2048 is
+# indistinguishable from omitting it and the config would win (the documented
+# one edge case).
+codes_add_run_test(
+    NAME   modelnet-synthetic-cli-payload-size-overrides-config
+    BINARY model-net-synthetic
+    ARGS   --sync=1 --payload_size=4096 -- "${_tconf}/synthetic-workload-dragonfly.yaml"
+    MARKER "recvd 8192 bytes")
+
+# Multi-job guard: a jobs: block with more than one job compiles to a JOBS
+# section, which the synthetic mains cannot execute (one global traffic pattern,
+# no per-job destination dispatch). codes_workload_config_check_unsupported_jobs
+# must abort the run with its diagnostic rather than silently running global
+# traffic over the placement. Gate on the diagnostic text with
+# PASS_REGULAR_EXPRESSION (a match passes and the abort's non-zero exit is
+# ignored) instead of the clean-exit helpers; the guard fires before tw_run, so
+# the aborted run leaves no output files behind.
+add_test(NAME modelnet-synthetic-rejects-multi-job-config
+    COMMAND ${MPIEXEC_EXECUTABLE} ${MPIEXEC_NUMPROC_FLAG} 1 ${MPIEXEC_PREFLAGS}
+            $<TARGET_FILE:model-net-synthetic> --sync=1
+            ${MPIEXEC_POSTFLAGS} -- "${_tconf}/multi-job-dragonfly.yaml")
+set_tests_properties(modelnet-synthetic-rejects-multi-job-config PROPERTIES
+    PASS_REGULAR_EXPRESSION "places 2 jobs.*cannot execute per-job placement")

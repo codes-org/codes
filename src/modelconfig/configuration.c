@@ -38,6 +38,52 @@ ConfigHandle config;
 /* Global to hold LP configuration */
 config_lpgroups_t lpconf;
 
+/* Optional resolved-config dump. When the environment variable
+ * CODES_RESOLVED_CONFIG_DUMP is set, rank 0 writes the fully-resolved config tree
+ * -- every compiler-derived and defaulted value, in .conf text form -- so a run
+ * is traceable to one complete configuration. The value "-" (or "stdout") writes
+ * to stdout; any other value is a file path. It is opt-in and default-off, so
+ * existing tests and workflows (which diff lp-io output or grep stdout) are
+ * unaffected, and it works identically for a .conf or a compiled YAML config --
+ * both are the same in-memory tree. A destination that can't be opened is a
+ * non-fatal warning; the run continues. */
+static void config_maybe_dump_resolved(ConfigHandle handle, MPI_Comm comm) {
+    const char* dest = getenv("CODES_RESOLVED_CONFIG_DUMP");
+    if (!dest || !dest[0])
+        return;
+
+    int rank = 0;
+    MPI_Comm_rank(comm, &rank);
+    if (rank != 0)
+        return;
+
+    int to_stdout = (strcmp(dest, "-") == 0 || strcmp(dest, "stdout") == 0);
+    char* err = NULL;
+    int rc;
+
+    if (to_stdout) {
+        /* cf_dump writes the tree to stdout in .conf text form. */
+        rc = cf_dump(handle, ROOT_SECTION, &err);
+        fflush(stdout);
+    } else {
+        FILE* out = fopen(dest, "w");
+        if (!out) {
+            fprintf(stderr, "config warning: cannot open CODES_RESOLVED_CONFIG_DUMP=\"%s\": %s\n",
+                    dest, strerror(errno));
+            return;
+        }
+        /* the same writer cf_dump wraps, aimed at the chosen file. */
+        rc = txtfile_writeConfig(handle, ROOT_SECTION, out, &err);
+        fclose(out);
+    }
+
+    if (rc < 0) {
+        fprintf(stderr, "config warning: could not dump resolved config: %s\n",
+                err ? err : "(unknown error)");
+        free(err);
+    }
+}
+
 int configuration_load(const char* filepath, MPI_Comm comm, ConfigHandle* handle) {
     MPI_File fh;
     MPI_Status status;
@@ -139,6 +185,9 @@ int configuration_load(const char* filepath, MPI_Comm comm, ConfigHandle* handle
     assert((*handle)->config_dir);
 
     rc = configuration_get_lpgroups(handle, "LPGROUPS", &lpconf);
+
+    /* Opt-in, default-off dump of the fully-resolved tree (rank 0 only). */
+    config_maybe_dump_resolved(*handle, comm);
 
 finalize:
     if (fh != MPI_FILE_NULL)
