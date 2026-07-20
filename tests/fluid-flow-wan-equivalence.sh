@@ -75,7 +75,6 @@ csv_logs=(
     terminal-events.csv
     switch-events.csv
     flowlet-events.csv
-    switch-training.csv
 )
 
 for csv in "${csv_logs[@]}"; do

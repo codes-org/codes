@@ -20,7 +20,7 @@ sections:
   fluid_flow_wan:
     topology_yaml_file: fluid-flow-wan-topology.yaml
 
-    interval_seconds: 1
+    interval_seconds: 10
     num_send_intervals: 20
     num_drain_intervals: 20
     rng_seed: 12345
@@ -36,9 +36,14 @@ sections:
     random_flow_min: "200 Gb"
     random_flow_max: "300 Gb"
 
-    # Switches advertise equal per-flow shares of each outgoing link. Feedback
-    # moves one reverse-path hop per interval. Terminals cache exact-destination
-    # and shared path-prefix rates so later flows avoid full-rate startup bursts.
+    # Path-rate feedback always uses full max-min allocation inside the CODES
+    # switch LPs. When one flow receives a lower downstream cap, the released
+    # capacity is redistributed across the other active flows on that port.
+    #
+    # The selectable egress model controls the total data budget for each output
+    # active output-link phase. pdes computes the phase egress locally.
+    # statistical queries one no-training ZeroMQ statistical model per switch.
+    egress_model: pdes
     debug_prints: 0
 
     # Per-ingress Ethernet PAUSE hysteresis using the shared switch buffer.
@@ -50,4 +55,3 @@ sections:
     terminal_log_path: logs/terminal-events.csv
     switch_log_path: logs/switch-events.csv
     flowlet_log_path: logs/flowlet-events.csv
-    switch_training_log_path: logs/switch-training.csv

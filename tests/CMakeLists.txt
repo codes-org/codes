@@ -390,6 +390,7 @@ if(USE_ZEROMQ AND CODES_ENABLE_ZMQML_HYBRID_TESTS)
     list(APPEND test-shell-files
         zmqml-iteration-time-hybrid-workflow.sh
         zmqml-event-time-hybrid-workflow.sh
+        zmqml-fluid-flow-wan-statistical-workflow.sh
     )
 endif()
 

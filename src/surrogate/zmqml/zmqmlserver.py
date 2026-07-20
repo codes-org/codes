@@ -19,6 +19,7 @@ import numpy as np
 from runmlpacketdelay import run_mlpacketdelay_training
 from model.mliterationtime import IterationTimeModelRegistry
 from model.mleventtime import EventTimeModel
+from model.statisticalfluidflowwan import FluidFlowWanStatisticalRegistry
 import csv
 import io
 import pickle
@@ -28,7 +29,7 @@ import os
 #model_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "model"))
 #sys.path.insert(0, model_dir)
 
-endpoint = "tcp://*:5555"
+endpoint = os.environ.get("ZMQML_ENDPOINT", "tcp://*:5555")
 
 debug = False
 debug2 = False
@@ -54,6 +55,7 @@ EVENT_TIME_MODEL_KWARGS = {
     "lr": float(os.environ.get("ZMQML_EVENT_TIME_LR", "0.001")),
     "hidden_dim": int(os.environ.get("ZMQML_EVENT_TIME_HIDDEN_DIM", "64")),
 }
+
 
 DEFAULT_TERMINAL_MODEL_SCOPE = "terminal"
 DEFAULT_TERMINAL_MODEL_KEY = "global"
@@ -228,6 +230,7 @@ class ScopedEventTimeModelRegistry:
 
 iteration_time_models = IterationTimeModelRegistry(**ITERATION_MODEL_KWARGS)
 event_time_models = ScopedEventTimeModelRegistry(EVENT_TIME_MODEL_KWARGS)
+fluid_flow_wan_statistical_models = FluidFlowWanStatisticalRegistry()
 
 event_time_model = event_time_models.get()
 iteration_model_path = os.environ.get("ZMQML_ITERATION_MODEL_PATH", "").strip()
@@ -407,6 +410,7 @@ def set_director_debug_prints(args):
     director_debug_prints = raw in ("1", "true", "yes", "on", "enabled")
     iteration_time_models.set_debug(director_debug_prints)
     event_time_models.set_debug(director_debug_prints)
+    fluid_flow_wan_statistical_models.set_debug(director_debug_prints)
 
     if director_debug_prints:
         print(f"[zmqmlserver] director_debug_prints=1", flush=True)
@@ -1270,6 +1274,87 @@ def launch_surrogate_inferencing(args, bindata):
     return launch_iteration_time_inferencing(args, bindata)
 
 
+def _fluid_flow_wan_rows_from_bindata(bindata):
+    payload = bindata.decode("utf-8").strip()
+    if not payload:
+        raise ValueError("empty fluid-flow-wan egress CSV payload")
+
+    reader = csv.DictReader(io.StringIO(payload))
+    if not reader.fieldnames:
+        raise ValueError("fluid-flow-wan egress CSV payload has no header")
+
+    rows = []
+    for row in reader:
+        if any(str(value or "").strip() for value in row.values()):
+            rows.append(row)
+    if not rows:
+        raise ValueError("fluid-flow-wan egress CSV payload has no data rows")
+    return rows
+
+
+def fluid_flow_wan_inference_command(args, bindata, backend):
+    st = time.time()
+    real_args = _real_command_args(args)
+    if not real_args:
+        return {
+            "status": "failed",
+            "et": str(time.time() - st),
+            "error": "missing switch id for fluid-flow-wan inference",
+        }
+
+    try:
+        normalized_backend = str(backend or "").strip().lower()
+        if normalized_backend not in ("stat", "statistics", "statistical"):
+            raise ValueError(
+                f"unknown fluid-flow-wan backend={backend!r}; expected statistical"
+            )
+
+        switch_id = int(real_args[0])
+        rows = _fluid_flow_wan_rows_from_bindata(bindata)
+        predictions = fluid_flow_wan_statistical_models.predict(switch_id, rows)
+        predictions_str = " ".join(str(float(value)) for value in predictions)
+        director_debug(
+            "[fluid-flow-wan egress inference] "
+            f"backend=statistical switch={switch_id} rows={len(rows)} "
+            f"predicted_egress_mbit={predictions_str}"
+        )
+        return {
+            "status": "done",
+            "et": str(time.time() - st),
+            "predictions": predictions_str,
+            "backend": "statistical",
+            "switch": str(switch_id),
+            "row_count": str(len(rows)),
+        }
+    except Exception as exc:
+        director_debug(f"[fluid-flow-wan egress inference failed] error={exc}")
+        return {
+            "status": "failed",
+            "et": str(time.time() - st),
+            "error": str(exc),
+        }
+
+
+def fluid_flow_wan_model_status_command(args, backend):
+    st = time.time()
+    normalized_backend = str(backend or "").strip().lower()
+    if normalized_backend not in ("stat", "statistics", "statistical"):
+        return {
+            "status": "failed",
+            "et": str(time.time() - st),
+            "error": f"unknown fluid-flow-wan backend={backend!r}; expected statistical",
+        }
+    return {
+        "status": "done",
+        "et": str(time.time() - st),
+        "backend": "statistical",
+        "training_required": "0",
+        "prediction_unit": "Mbit per egress phase",
+        "description": "per-switch phase-level analytical egress model",
+        **fluid_flow_wan_statistical_models.status(),
+    }
+
+
 #
 
 #
@@ -1284,7 +1369,7 @@ def director_request_command(msg, bindata):
 
         {
             "cmd": "director-request",
-            "surrogate_family": "iteration-time" | "event-time",
+            "surrogate_family": "iteration-time" | "event-time" | "fluid-flow-wan",
             "surrogate_backend": "...",
             "operation": "send-records" | "inference" | "train-model" |
                          "save-model" | "load-model" | "load-records-csv" |
@@ -1352,6 +1437,20 @@ def director_request_command(msg, bindata):
         if operation == "model-status":
             return event_time_model_status_command(args)
 
+    if family in ("fluid-flow-wan", "ffw"):
+        normalized_backend = backend.strip().lower()
+        if operation == "inference":
+            return fluid_flow_wan_inference_command(args, bindata, normalized_backend)
+        if operation == "model-status":
+            return fluid_flow_wan_model_status_command(args, normalized_backend)
+        return {
+            "status": "failed",
+            "error": (
+                "the fluid-flow-wan statistical backend requires no training and supports "
+                "only inference and model-status"
+            ),
+        }
+
     return {
         "status": "failed",
         "error": (
@@ -1398,6 +1497,8 @@ def zmq_cmd_listener():
         elif cmd == "set-debug":
             (status, et) = set_director_debug_prints(args)
             retmsg = {"status":status, "et":str(et)}
+        elif cmd == "exit":
+            retmsg = {"status":"done"}
 
         elif cmd == "director-request":
             retmsg = director_request_command(msg, bindata)

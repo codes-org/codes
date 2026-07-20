@@ -53,6 +53,6 @@ else
     grep "csv_logs=buffered-commit" "$out"
 fi
 
-for csv in terminal-events.csv switch-events.csv flowlet-events.csv switch-training.csv; do
+for csv in terminal-events.csv switch-events.csv flowlet-events.csv; do
     [[ -s "$case_name/logs/$csv" ]] || { echo "missing or empty CSV log: $csv"; exit 1; }
 done

@@ -4,8 +4,11 @@
  *
  * Terminal LPs generate persistent stochastic flows, retain unsent bytes at
  * the source, and inject interval-sized segments at delayed advertised rates.
- * Switch LPs stage arrivals, service buffered residuals first, advertise fair
- * per-flow rates hop by hop, and buffer only unsent arrival residuals. Terminals
+ * Switch LPs stage arrivals, service buffered residuals first, advertise full
+ * max-min per-flow rates hop by hop, and buffer only unsent arrival residuals.
+ * In statistical-hybrid mode, each switch queries a no-training per-switch
+ * model for the egress-data volume of each active output-link phase.
+ * Terminals
  * cache learned rates for exact destinations and shared switch-path prefixes.
  *
  * Supports sequential validation and optimistic execution. Optimistic mode uses
@@ -33,10 +36,14 @@
 
 #include <ross.h>
 
+#include "codes_config.h"
 #include "codes/codes.h"
 #include "codes/codes_mapping.h"
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
+#if CODES_HAVE_ZEROMQ
+#include "zmqmlrequester.h"
+#endif
 
 static const char* GROUP_NAME = "FLUID_FLOW_WAN_GRP";
 static const char* TERMINAL_LP_NAME = "fluid-flow-wan-terminal-lp";
@@ -191,15 +198,22 @@ struct sim_config {
     double random_flow_min_mbit = 10000.0;
     double random_flow_max_mbit = 50000.0;
     int debug_prints = 0;
+    char egress_model[32] = "pdes";
     char topology_yaml_file[1024] = "";
     char terminal_log_path[1024] = "";
     char switch_log_path[1024] = "";
     char flowlet_log_path[1024] = "";
-    char switch_training_log_path[1024] = "";
     double pause_high_watermark_fraction = 0.80;
     double pause_low_watermark_fraction = 0.50;
     int pause_duration_intervals = 2;
 };
+
+enum fluid_egress_model_mode {
+    FLUID_EGRESS_MODEL_PDES = 0,
+    FLUID_EGRESS_MODEL_STATISTICAL = 1,
+};
+
+static fluid_egress_model_mode configured_egress_model = FLUID_EGRESS_MODEL_PDES;
 
 static sim_config cfg;
 /* Immutable process-wide topology metadata built before tw_run(). */
@@ -869,6 +883,14 @@ static void read_double_param(const char* section, const char* key, double* valu
     }
 }
 
+static void read_string_param(const char* section, const char* key, char* value, size_t len) {
+    char tmp[128];
+    memset(tmp, 0, sizeof(tmp));
+    if (configuration_get_value(&config, section, key, NULL, tmp, sizeof(tmp)) > 0) {
+        snprintf(value, len, "%s", tmp);
+    }
+}
+
 static void read_data_quantity_param(const char* section, const char* key, double* value) {
     char raw[128];
     memset(raw, 0, sizeof(raw));
@@ -896,8 +918,6 @@ static void load_config(void) {
                        sizeof(cfg.switch_log_path));
     read_relpath_param("FLUID_FLOW_WAN", "flowlet_log_path", cfg.flowlet_log_path,
                        sizeof(cfg.flowlet_log_path));
-    read_relpath_param("FLUID_FLOW_WAN", "switch_training_log_path", cfg.switch_training_log_path,
-                       sizeof(cfg.switch_training_log_path));
     read_double_param("FLUID_FLOW_WAN", "pause_high_watermark_fraction",
                       &cfg.pause_high_watermark_fraction);
     read_double_param("FLUID_FLOW_WAN", "pause_low_watermark_fraction",
@@ -912,6 +932,30 @@ static void load_config(void) {
     read_data_quantity_param("FLUID_FLOW_WAN", "random_flow_min", &cfg.random_flow_min_mbit);
     read_data_quantity_param("FLUID_FLOW_WAN", "random_flow_max", &cfg.random_flow_max_mbit);
     read_int_param("FLUID_FLOW_WAN", "debug_prints", &cfg.debug_prints);
+    read_string_param("FLUID_FLOW_WAN", "egress_model", cfg.egress_model,
+                      sizeof(cfg.egress_model));
+
+    if (strcmp(cfg.egress_model, "pdes") == 0 || strcmp(cfg.egress_model, "pure-pdes") == 0 ||
+        strcmp(cfg.egress_model, "pure_pdes") == 0) {
+        configured_egress_model = FLUID_EGRESS_MODEL_PDES;
+        snprintf(cfg.egress_model, sizeof(cfg.egress_model), "pdes");
+    } else if (strcmp(cfg.egress_model, "statistical") == 0 ||
+               strcmp(cfg.egress_model, "stat") == 0) {
+        configured_egress_model = FLUID_EGRESS_MODEL_STATISTICAL;
+        snprintf(cfg.egress_model, sizeof(cfg.egress_model), "statistical");
+    } else {
+        tw_error(TW_LOC,
+                 "FLUID_FLOW_WAN.egress_model must be pdes or statistical; got '%s'",
+                 cfg.egress_model);
+    }
+
+#if !CODES_HAVE_ZEROMQ
+    if (configured_egress_model != FLUID_EGRESS_MODEL_PDES) {
+        tw_error(TW_LOC,
+                 "FLUID_FLOW_WAN.egress_model=%s requires a CODES build with ZeroMQ enabled",
+                 cfg.egress_model);
+    }
+#endif
 
     if (cfg.pause_duration_intervals <= 0) {
         tw_error(TW_LOC, "pause_duration_intervals must be positive, got %d",
@@ -1308,7 +1352,6 @@ static bool fluid_commit_logging_active = false;
 static std::ostringstream terminal_log_buffer;
 static std::ostringstream switch_log_buffer;
 static std::ostringstream flowlet_log_buffer;
-static std::ostringstream switch_training_log_buffer;
 
 static bool fluid_optimistic_mode(void) {
     return g_tw_synchronization_protocol == OPTIMISTIC ||
@@ -1389,42 +1432,6 @@ static void append_flowlet_log(int interval_id, const char* event_name, int swit
         << to_output_data_unit(remaining_after_mbit) << ',' << to_output_data_unit(dropped_mbit)
         << '\n';
     append_log_row(cfg.flowlet_log_path, &flowlet_log_buffer, row.str());
-}
-
-static void append_switch_training_log(int interval_id, int switch_id, int port_id,
-                                       int target_is_terminal, int target_index,
-                                       double capacity_mbit, double queued_before_mbit,
-                                       double sent_mbit, double queued_after_mbit,
-                                       double dropped_mbit, int active_before, int active_after,
-                                       const fluid_msg* message) {
-    std::ostringstream row;
-    row << interval_id << ',' << switch_id << ',' << switches[switch_id].name << ',' << port_id
-        << ',' << (target_is_terminal ? "terminal" : "switch") << ',' << target_index << ','
-        << to_output_data_unit(capacity_mbit) << ',' << to_output_data_unit(queued_before_mbit)
-        << ',' << to_output_data_unit(sent_mbit) << ',' << to_output_data_unit(queued_after_mbit)
-        << ',' << to_output_data_unit(dropped_mbit) << ',' << active_before << ',' << active_after
-        << ',';
-    bool wrote_allocation = false;
-    for (int i = 0; i < message->rc_alloc_count; ++i) {
-        const rc_alloc_record& rc = message->rc_allocs[i];
-        if (!rc.valid || rc.send_mbit <= EPS) {
-            continue;
-        }
-        double remaining_after = rc.before.remaining_mbit - rc.send_mbit;
-        if (remaining_after < 0.0 && remaining_after > -EPS) {
-            remaining_after = 0.0;
-        }
-        if (wrote_allocation) {
-            row << ';';
-        }
-        row << rc.before.flowlet_id << ':' << rc.before.source_terminal << ':'
-            << rc.before.destination_terminal << ':' << rc.before.creation_interval << ':'
-            << to_output_data_unit(rc.before.remaining_mbit) << ':'
-            << to_output_data_unit(rc.send_mbit) << ':' << to_output_data_unit(remaining_after);
-        wrote_allocation = true;
-    }
-    row << '\n';
-    append_log_row(cfg.switch_training_log_path, &switch_training_log_buffer, row.str());
 }
 
 static int next_terminal_generate_interval_after(int interval_id) {
@@ -2220,12 +2227,6 @@ static void log_switch_egress_event(const switch_state* ns, const fluid_msg* m) 
                       m->rc_log_shared_queued_after_mbit, ns->shared_buffer_mbit,
                       m->rc_dropped_mbit, m->rc_log_active_after_entries);
 
-    append_switch_training_log(m->interval_id, ns->switch_id, m->port_id,
-                               m->rc_log_target_is_terminal, m->rc_log_target_index,
-                               m->rc_log_capacity_mbit, m->rc_log_port_queued_before_mbit,
-                               m->rc_log_sent_total_mbit, m->rc_log_port_queued_after_mbit,
-                               m->rc_dropped_mbit, m->rc_log_active_before_entries,
-                               m->rc_log_active_after_entries, m);
 }
 
 static void handle_workload_generate(terminal_state* ns, fluid_msg* m, tw_lp* lp) {
@@ -2598,23 +2599,159 @@ static int active_rate_flow_count_on_port(const switch_state* ns, int port_id) {
     return active;
 }
 
-static double effective_rate_mbps(const switch_state* ns, int port_id, const switch_rate_flow& flow,
-                                  int active_flow_count) {
-    if (active_flow_count <= 0) {
-        return 0.0;
+static double rate_demand_cap_mbps(const switch_rate_flow& flow) {
+    double demand =
+        switches[terminals[flow.source_terminal].switch_id].terminal_bandwidth_mbps;
+    if (std::isfinite(flow.downstream_rate_mbps)) {
+        demand = std::min(demand, flow.downstream_rate_mbps);
+    }
+    return std::max(0.0, demand);
+}
+
+static void compute_port_rate_allocations(const switch_state* ns, int port_id,
+                                          const switch_rate_flow* const* flows, int count,
+                                          double* allocations) {
+    if (count <= 0) {
+        return;
+    }
+    if (port_id < 0 || port_id >= ns->num_ports) {
+        tw_error(TW_LOC, "invalid rate-allocation port %d on switch %d", port_id,
+                 ns->switch_id);
+    }
+
+    double requested[MAX_FLOW_ENTRIES_PER_PORT];
+    for (int i = 0; i < count; ++i) {
+        requested[i] = rate_demand_cap_mbps(*flows[i]);
     }
 
     const double capacity_mbps =
         ns->ports[port_id].capacity_mbit_per_interval / cfg.interval_seconds;
-    const double local_rate_mbps = capacity_mbps / active_flow_count;
-    const double source_access_rate =
-        switches[terminals[flow.source_terminal].switch_id].terminal_bandwidth_mbps;
+    compute_max_min_allocations(requested, count, capacity_mbps, allocations);
+}
 
-    double advertised = std::min(local_rate_mbps, source_access_rate);
-    if (std::isfinite(flow.downstream_rate_mbps)) {
-        advertised = std::min(advertised, flow.downstream_rate_mbps);
+static double staged_mbit_on_port(const switch_state* ns, int port_id) {
+    if (port_id < 0 || port_id >= ns->num_ports) {
+        return 0.0;
     }
-    return std::max(0.0, advertised);
+    double total = 0.0;
+    for (const queued_flowlet& q : ns->staged_arrivals[port_id]) {
+        if (q.valid && q.remaining_mbit > EPS) {
+            total += q.remaining_mbit;
+        }
+    }
+    return total;
+}
+
+static const char* statistical_egress_phase_name(int event_type) {
+    if (event_type == SWITCH_EGRESS_EARLY) {
+        return "early";
+    }
+    if (event_type == SWITCH_EGRESS_LATE) {
+        return "late";
+    }
+    tw_error(TW_LOC, "invalid statistical egress event type %d", event_type);
+    return "invalid";
+}
+
+static double query_statistical_phase_egress_mbit(
+    const switch_state* ns, int port_id, int interval_id, int event_type,
+    double remaining_capacity_mbit, double eligible_data_mbit, int output_paused) {
+    const port_desc& port = ns->ports[port_id];
+    const double interval_capacity_mbit = port.capacity_mbit_per_interval;
+    const double expected_mbit =
+        output_paused ? 0.0 : std::min(remaining_capacity_mbit, eligible_data_mbit);
+
+#if !CODES_HAVE_ZEROMQ
+    (void)ns;
+    (void)port_id;
+    (void)interval_id;
+    (void)event_type;
+    (void)remaining_capacity_mbit;
+    (void)eligible_data_mbit;
+    (void)output_paused;
+    (void)interval_capacity_mbit;
+    (void)expected_mbit;
+    tw_error(TW_LOC, "fluid-flow-wan statistical egress model requires ZeroMQ support");
+    return 0.0;
+#else
+    const double buffered_mbit = queued_mbit_on_port(ns, port_id);
+    const double staged_mbit = staged_mbit_on_port(ns, port_id);
+    const char* phase = statistical_egress_phase_name(event_type);
+
+    std::ostringstream payload;
+    payload.precision(std::numeric_limits<double>::max_digits10);
+    payload << "schema_version,interval,egress_phase,switch,port,target_is_terminal,"
+            << "target_index,interval_seconds,interval_capacity_mbit,capacity_used_mbit,"
+            << "remaining_capacity_mbit,eligible_data_mbit,buffered_mbit,staged_mbit,"
+            << "shared_queued_mbit,shared_buffer_mbit,output_paused\n";
+    payload << "fluid-flow-wan-egress-v1" << ',' << interval_id << ',' << phase << ','
+            << ns->switch_id << ',' << port_id << ',' << port.is_terminal << ','
+            << port.target_index << ',' << cfg.interval_seconds << ','
+            << interval_capacity_mbit << ',' << ns->capacity_used_mbit[port_id] << ','
+            << remaining_capacity_mbit << ',' << eligible_data_mbit << ','
+            << buffered_mbit << ',' << staged_mbit << ',' << queued_mbit_on_switch(ns) << ','
+            << ns->shared_buffer_mbit << ',' << output_paused << '\n';
+
+    const std::vector<std::string> args = {"1", std::to_string(ns->switch_id)};
+    std::vector<std::string> reply;
+    try {
+        reply = zmqml_director_request("fluid-flow-wan", "statistical", "inference", args,
+                                       payload.str());
+    } catch (const std::exception& exc) {
+        tw_error(TW_LOC,
+                 "fluid-flow-wan statistical egress inference failed on switch %d port %d "
+                 "phase %s: %s",
+                 ns->switch_id, port_id, phase, exc.what());
+    } catch (...) {
+        tw_error(TW_LOC,
+                 "fluid-flow-wan statistical egress inference failed on switch %d port %d "
+                 "phase %s",
+                 ns->switch_id, port_id, phase);
+    }
+
+    if (reply.size() < 3 || reply[0] != "done") {
+        tw_error(TW_LOC,
+                 "fluid-flow-wan statistical egress inference returned an invalid reply on "
+                 "switch %d port %d phase %s",
+                 ns->switch_id, port_id, phase);
+    }
+
+    std::istringstream values(reply[2]);
+    double prediction = 0.0;
+    double extra = 0.0;
+    if (!(values >> prediction) || !std::isfinite(prediction) || (values >> extra)) {
+        tw_error(TW_LOC,
+                 "fluid-flow-wan statistical egress inference returned malformed prediction "
+                 "on switch %d port %d phase %s",
+                 ns->switch_id, port_id, phase);
+    }
+
+    const double tolerance =
+        1.0e-9 * std::max(1.0, std::max(interval_capacity_mbit, eligible_data_mbit));
+    if (prediction < -tolerance || prediction > expected_mbit + tolerance) {
+        tw_error(TW_LOC,
+                 "fluid-flow-wan statistical egress prediction %.17g Mbit is outside "
+                 "[0, %.17g] on switch %d port %d interval %d phase %s",
+                 prediction, expected_mbit, ns->switch_id, port_id, interval_id, phase);
+    }
+    if (std::fabs(prediction - expected_mbit) > tolerance) {
+        tw_error(TW_LOC,
+                 "fluid-flow-wan statistical egress mismatch on switch %d port %d interval %d "
+                 "phase %s: predicted %.17g Mbit expected %.17g Mbit",
+                 ns->switch_id, port_id, interval_id, phase, prediction, expected_mbit);
+    }
+
+    if (cfg.debug_prints) {
+        fprintf(stderr,
+                "[fluid-flow-wan statistical egress] switch=%d port=%d interval=%d "
+                "phase=%s remaining_capacity_mbit=%.12f eligible_data_mbit=%.12f "
+                "predicted_egress_mbit=%.12f\n",
+                ns->switch_id, port_id, interval_id, phase, remaining_capacity_mbit,
+                eligible_data_mbit, prediction);
+        fflush(stderr);
+    }
+    return prediction;
+#endif
 }
 
 static void observe_rate_flow(switch_state* ns, int port_id, const fluid_msg* m,
@@ -2692,7 +2829,8 @@ static void send_rate_feedback_upstream(switch_state* ns, const switch_rate_flow
     } else {
         schedule_switch_rate_feedback(delivery_interval, ingress.peer_index, ns->switch_id,
                                       flow.flow_id, flow.source_terminal, flow.destination_terminal,
-                                      rate_mbps, rate_epoch, scope_key_type, scope_key_index, lp);
+                                      rate_mbps, rate_epoch, scope_key_type, scope_key_index,
+                                      lp);
     }
 }
 
@@ -2701,24 +2839,22 @@ static void handle_switch_rate_feedback(switch_state* ns, fluid_msg* m, tw_lp* l
     m->rc_rate_flow_created = 0;
     m->rc_rate_flow_appended = 0;
     m->rc_rate_flow_index = -1;
-    int port_id = output_port_for_destination(ns, m->destination_terminal);
+    m->rc_rate_eval_request_created = 0;
+
+    const int port_id = output_port_for_destination(ns, m->destination_terminal);
     if (port_id < 0) {
         return;
     }
-    int idx = find_rate_flow_index(ns, port_id, m->flowlet_id);
+    const int idx = find_rate_flow_index(ns, port_id, m->flowlet_id);
     if (idx < 0) {
         return;
     }
 
     switch_rate_flow& flow = (ns->rate_flows[port_id])[idx];
-    const int active_count = active_rate_flow_count_on_port(ns, port_id);
-    const double old_effective_rate = rate_flow_is_active(ns, port_id, flow)
-                                          ? effective_rate_mbps(ns, port_id, flow, active_count)
-                                          : 0.0;
-
     m->rc_rate_flow_index = idx;
     m->rc_port_id = port_id;
     m->rc_rate_flow_before = flow;
+
     if (m->rate_epoch < flow.downstream_rate_epoch) {
         return;
     }
@@ -2731,15 +2867,13 @@ static void handle_switch_rate_feedback(switch_state* ns, fluid_msg* m, tw_lp* l
     }
     m->rc_rate_update_applied = 1;
 
-    if (!rate_flow_is_active(ns, port_id, flow)) {
-        return;
-    }
-
-    const double new_effective_rate = effective_rate_mbps(ns, port_id, flow, active_count);
-    if (fabs(new_effective_rate - old_effective_rate) > EPS) {
-        send_rate_feedback_upstream(ns, flow, new_effective_rate, m->rate_epoch,
-                                    m->rate_scope_key_type, m->rate_scope_key_index, m->interval_id,
-                                    lp);
+    /*
+     * A changed downstream cap can release capacity to every other active flow
+     * sharing this port. Reuse the existing port-wide SWITCH_RATE_EVAL event so
+     * the PDES controller recomputes and re-advertises the complete allocation.
+     */
+    if (rate_flow_is_active(ns, port_id, flow)) {
+        request_switch_rate_eval(ns, m->interval_id, port_id, lp, m);
     }
 }
 
@@ -2759,22 +2893,34 @@ static void handle_switch_rate_eval(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     interval_flag_set(&ns->scheduled_rate_eval[port_id], m->interval_id, false);
     m->rc_rate_eval_event_active = 1;
 
-    const int active_count = active_rate_flow_count_on_port(ns, port_id);
-    if (active_count <= 0) {
-        return;
-    }
+    const switch_rate_flow* active_flows[MAX_FLOW_ENTRIES_PER_PORT];
+    double allocations_mbps[MAX_FLOW_ENTRIES_PER_PORT];
+    int active_count = 0;
 
     for (const switch_rate_flow& flow : ns->rate_flows[port_id]) {
         if (!rate_flow_is_active(ns, port_id, flow)) {
             continue;
         }
-        const port_desc& port = ns->ports[port_id];
-        const int scope_key_type =
-            port.is_terminal ? RATE_CACHE_DESTINATION_TERMINAL : RATE_CACHE_SWITCH_PREFIX;
-        const int scope_key_index = port.target_index;
-        send_rate_feedback_upstream(ns, flow, effective_rate_mbps(ns, port_id, flow, active_count),
-                                    m->interval_id, scope_key_type, scope_key_index, m->interval_id,
-                                    lp);
+        if (active_count >= MAX_FLOW_ENTRIES_PER_PORT) {
+            tw_error(TW_LOC, "switch %d port %d has too many active rate flows", ns->switch_id,
+                     port_id);
+        }
+        active_flows[active_count++] = &flow;
+    }
+    if (active_count <= 0) {
+        return;
+    }
+
+    compute_port_rate_allocations(ns, port_id, active_flows, active_count, allocations_mbps);
+
+    const port_desc& port = ns->ports[port_id];
+    const int scope_key_type =
+        port.is_terminal ? RATE_CACHE_DESTINATION_TERMINAL : RATE_CACHE_SWITCH_PREFIX;
+    const int scope_key_index = port.target_index;
+
+    for (int i = 0; i < active_count; ++i) {
+        send_rate_feedback_upstream(ns, *active_flows[i], allocations_mbps[i], m->interval_id,
+                                    scope_key_type, scope_key_index, m->interval_id, lp);
     }
 }
 
@@ -2862,9 +3008,9 @@ static void switch_init(switch_state* ns, tw_lp* lp) {
      * PAUSE hysteresis is evaluated exactly once per switch and interval by a
      * periodic ETHERNET_PAUSE_EVAL event.
      *
-     * Rate evaluation is demand-driven. A port is reevaluated only when its
-     * active flow set changes; downstream feedback is forwarded only when it
-     * changes the effective end-to-end rate.
+     * Rate evaluation is demand-driven. A port is reevaluated when its active
+     * flow set changes or when downstream feedback changes one flow's demand
+     * cap, because full max-min allocation can change every flow on the port.
      */
     schedule_ethernet_pause_eval(0, lp);
 }
@@ -3044,13 +3190,29 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
 
     m->rc_prev_capacity_accounting_interval = ns->capacity_accounting_interval[port_id];
     m->rc_prev_capacity_used_mbit = ns->capacity_used_mbit[port_id];
+
     if (ns->capacity_accounting_interval[port_id] != m->interval_id) {
         ns->capacity_accounting_interval[port_id] = m->interval_id;
         ns->capacity_used_mbit[port_id] = 0.0;
     }
 
     const double capacity = p->capacity_mbit_per_interval;
-    double remaining_capacity = std::max(0.0, capacity - ns->capacity_used_mbit[port_id]);
+    const double remaining_physical_capacity =
+        std::max(0.0, capacity - ns->capacity_used_mbit[port_id]);
+    const double eligible_phase_data_mbit =
+        service_staged ? staged_mbit_on_port(ns, port_id) : queued_mbit_on_port(ns, port_id);
+    const int output_paused =
+        m->interval_id < ns->output_link_paused_until_interval[port_id] ? 1 : 0;
+    const double local_phase_egress_mbit =
+        output_paused ? 0.0
+                      : std::min(remaining_physical_capacity, eligible_phase_data_mbit);
+
+    double remaining_capacity = local_phase_egress_mbit;
+    if (configured_egress_model == FLUID_EGRESS_MODEL_STATISTICAL) {
+        remaining_capacity = query_statistical_phase_egress_mbit(
+            ns, port_id, m->interval_id, m->event_type, remaining_physical_capacity,
+            eligible_phase_data_mbit, output_paused);
+    }
     const double queued_before = queued_mbit_on_port(ns, port_id);
     const double shared_queued_before = queued_mbit_on_switch(ns);
 
@@ -3081,7 +3243,7 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     m->rc_log_active_after_entries = active_flowlet_count_on_port(ns, port_id);
     m->rc_pause_target_port = -1;
 
-    if (m->interval_id < ns->output_link_paused_until_interval[port_id]) {
+    if (output_paused) {
         if (active_before > 0) {
             ns->paused_egress_intervals++;
             m->rc_paused_interval_counted = 1;
@@ -3388,7 +3550,6 @@ static void rollback_switch_egress(switch_state* ns, fluid_msg* m) {
     interval_flag_set(scheduled, m->interval_id, true);
     ns->capacity_accounting_interval[port_id] = m->rc_prev_capacity_accounting_interval;
     ns->capacity_used_mbit[port_id] = m->rc_prev_capacity_used_mbit;
-
     if (m->rc_paused_interval_counted) {
         ns->paused_egress_intervals--;
     }
@@ -3532,6 +3693,7 @@ static void switch_rev_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp
         break;
 
     case SWITCH_RATE_FEEDBACK:
+        undo_requested_switch_rate_eval(ns, m);
         if (m->rc_rate_update_applied) {
             if (m->rc_port_id < 0 || m->rc_port_id >= ns->num_ports || m->rc_rate_flow_index < 0 ||
                 m->rc_rate_flow_index >= (int)ns->rate_flows[m->rc_port_id].size()) {
@@ -3575,6 +3737,7 @@ static void switch_commit_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp*
     case SWITCH_EGRESS_LATE:
         log_switch_egress_event(ns, m);
         break;
+
 
     default:
         break;
@@ -3707,7 +3870,6 @@ static void merge_all_log_buffers(MPI_Comm comm) {
     merge_log_buffer(cfg.terminal_log_path, terminal_log_buffer, comm);
     merge_log_buffer(cfg.switch_log_path, switch_log_buffer, comm);
     merge_log_buffer(cfg.flowlet_log_path, flowlet_log_buffer, comm);
-    merge_log_buffer(cfg.switch_training_log_path, switch_training_log_buffer, comm);
 }
 
 static void write_log_headers(int rank) {
@@ -3737,12 +3899,47 @@ static void write_log_headers(int rank) {
                    << unit << ",remaining_after_" << unit << ",dropped_" << unit << '\n';
     write_log_header_file(cfg.flowlet_log_path, flowlet_header.str().c_str());
 
-    std::ostringstream training_header;
-    training_header << "interval,switch,switch_name,port,target_type,target_index,"
-                    << "capacity_" << unit << ",queued_before_" << unit << ",sent_" << unit
-                    << ",queued_after_" << unit << ",dropped_" << unit
-                    << ",active_before,active_after,allocations\n";
-    write_log_header_file(cfg.switch_training_log_path, training_header.str().c_str());
+}
+
+static void configure_hybrid_server_debug(int rank) {
+#if CODES_HAVE_ZEROMQ
+    if (configured_egress_model == FLUID_EGRESS_MODEL_PDES) {
+        return;
+    }
+
+    /*
+     * FFW does not instantiate a Director LP, so director_init() never sends
+     * the FLUID_FLOW_WAN.debug_prints setting to zmqmlserver.py. Configure the
+     * shared server explicitly before any switch LP can issue an inference
+     * request. Send both enabled and disabled values because the server may be
+     * kept alive across multiple simulation runs.
+     */
+    if (rank == 0) {
+        const std::vector<std::string> args = {
+            "1", std::to_string(cfg.debug_prints != 0 ? 1 : 0)};
+        std::vector<std::string> reply;
+
+        try {
+            reply = zmqml_request("set-debug", args, "");
+        } catch (const std::exception& exc) {
+            tw_error(TW_LOC,
+                     "failed to configure fluid-flow-wan ZeroMQ server debug mode: %s",
+                     exc.what());
+        } catch (...) {
+            tw_error(TW_LOC,
+                     "failed to configure fluid-flow-wan ZeroMQ server debug mode");
+        }
+
+        if (reply.empty() || reply[0] != "done") {
+            tw_error(TW_LOC,
+                     "ZeroMQ server rejected fluid-flow-wan debug setting");
+        }
+    }
+
+    MPI_Barrier(MPI_COMM_CODES);
+#else
+    (void)rank;
+#endif
 }
 
 int main(int argc, char** argv) {
@@ -3763,6 +3960,7 @@ int main(int argc, char** argv) {
     MPI_Comm_rank(MPI_COMM_CODES, &rank);
     configuration_load(config_file, MPI_COMM_CODES, &config);
     load_config();
+    configure_hybrid_server_debug(rank);
     validate_ross_message_size_or_abort(rank);
 
     add_lp_types();
@@ -3786,13 +3984,13 @@ int main(int argc, char** argv) {
         printf("fluid-flow-wan config: switches=%zu terminals=%zu interval_seconds=%.6f "
                "num_send_intervals=%d num_drain_intervals=%d "
                "flow_generation_every_n_intervals=%d random_flow_min_%s=%.6f "
-               "random_flow_max_%s=%.6f output_data_unit=%s buffer_mode=shared csv_logs=%s "
-               "ross_message_size=%d fluid_msg_size=%zu\n",
+               "random_flow_max_%s=%.6f output_data_unit=%s buffer_mode=shared egress_model=%s "
+               "csv_logs=%s ross_message_size=%d fluid_msg_size=%zu\n",
                switches.size(), terminals.size(), cfg.interval_seconds, cfg.num_send_intervals,
                cfg.num_drain_intervals, cfg.flow_generation_every_n_intervals,
                output_data_field_suffix(), to_output_data_unit(cfg.random_flow_min_mbit),
                output_data_field_suffix(), to_output_data_unit(cfg.random_flow_max_mbit),
-               output_data_unit_symbol(),
+               output_data_unit_symbol(), cfg.egress_model,
                fluid_csv_forward_logs_enabled() ? "buffered-forward" : "buffered-commit",
                get_configured_message_size_bytes(), sizeof(fluid_msg));
     }
