@@ -122,7 +122,7 @@ jobs:
                 zmqml-event-time-hybrid-workflow.sh \
                 zmqml-fluid-flow-wan-statistical-workflow.sh
               do
-                grep -E "Test #[0-9]+: ${test_name}$" \
+                grep -F ": ${test_name}" \
                   /tmp/zmqml-ctest-list.txt
               done
 
