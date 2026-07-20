@@ -43,6 +43,7 @@ list(APPEND SRCS
 	workload/methods/codes-iomock-wrkld.c
 
     util/codes_mapping.c
+    util/codes-workload-config.cxx
     util/lp-type-lookup.c
     util/lp-io.c
 	util/lp-msg.c
@@ -101,6 +102,8 @@ list(APPEND SRCS
     # front-end is core, not an optional feature.
     modelconfig/config_compiler.h
     modelconfig/config_compiler.cxx
+    modelconfig/unit_convert.h
+    modelconfig/unit_convert.cxx
     modelconfig/config_emitter.h
     modelconfig/config_emitter.cxx
     modelconfig/yaml_configfile.h

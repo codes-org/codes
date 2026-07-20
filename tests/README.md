@@ -87,6 +87,18 @@ MPI. Reach for this compile-the-component-directly pattern when a component is
 deliberately self-contained; otherwise the link-`codes` recipe above is the
 default.
 
+That one binary is assembled from three per-area source files —
+[`codes-config-compiler-test.cxx`](codes-config-compiler-test.cxx) (the core
+`ConfigCompiler` suite), [`codes-unit-convert-test.cxx`](codes-unit-convert-test.cxx)
+(unit parsing/conversion), and
+[`codes-config-workload-test.cxx`](codes-config-workload-test.cxx) (the
+`simulation:` / `workload:` / `jobs:` config surface). GoogleTest registers
+tests across translation units, so all three compile into the single
+`codes-config-compiler-test` target and `--gtest_filter` still sees every suite;
+fixtures used by more than one of them live in
+[`config-compiler-test-util.h`](config-compiler-test-util.h). Split a large
+gtest source this way once it spans several independent areas.
+
 The test binary is a normal GoogleTest executable, so it takes the usual flags
 directly (`./codes-config-compiler-test --gtest_filter=ConfigCompiler.* --gtest_repeat=10`)
 when you want to run a subset outside CTest.
@@ -128,6 +140,14 @@ brief:
   (generate both config twins per run) and `REQUIRE` (a line that must appear in
   every run). Prefer the lp-io helper wherever the model's `lp-io` is
   reproducible — a per-LP diff is a strictly stronger check.
+- **`codes_add_config_tree_test`** — assert a `.conf` and its YAML twin compile
+  to the **same config tree**, through the production loader + `cf_equal_report`.
+  It runs **no model**, so it is far cheaper than the behavioral equivalence
+  tests and checks *every* section/key/value rather than a marker or lp-io side
+  effect — catching defaulting/derivation drift a short run can mask. Use it
+  **alongside** the lp-io / marker equivalence test for a twin, not instead of
+  it: this proves the two trees are identical, those prove the model behaves
+  identically.
 
 A handful of tests remain as per-scenario **shell scripts** (the
 `test-shell-files` list in `CMakeLists.txt`) because they do custom output
@@ -136,6 +156,30 @@ processing the helpers don't cover yet — `mapping_test.sh` (golden diff agains
 scripts (sed-normalized per-LP stdout diffs), and the `USE_UNION`
 `union-workload-test-surrogate*` set (labeled `nightly`, so PR/push CI skips
 them and only the scheduled full-lane build runs them).
+
+### Asserting a run aborts (the expected-failure pattern)
+
+The `codes_add_*` helpers all expect a **clean exit**, so none of them can
+express "this config *should* be rejected." A test that needs to prove a run
+correctly aborts instead uses a raw `add_test` running the binary, plus
+`set_tests_properties(... PROPERTIES PASS_REGULAR_EXPRESSION "<diagnostic>")`:
+CTest passes the test when the output **matches the regex** and, crucially,
+**ignores the process exit code entirely** — so an intentional abort still
+passes.
+
+Two tests on this branch use it: `config-tree-divergence` feeds
+`config-tree-equivalence-test` two configs that are *not* twins and matches
+`cf_equal_report`'s divergence text (`values differ` / `only in ... tree`), and
+`modelnet-synthetic-rejects-multi-job-config` runs a multi-job `jobs:` config
+the synthetic mains cannot execute and matches the guard's abort message.
+
+Reach for this whenever the thing under test is a **rejection** — a config that
+must be refused, a run that must abort with a clear diagnostic — which the
+clean-exit helpers cannot express. The one caveat: because
+`PASS_REGULAR_EXPRESSION` overrides exit-code checking outright, the regex must
+be specific enough to match **only** the intended diagnostic; a loose pattern
+would let any output containing those words — including an unrelated failure —
+count as a pass.
 
 ---
 
@@ -165,6 +209,13 @@ actually proves, so a passing suite isn't mistaken for full behavioral coverage:
   `lp-io` dir (the switch stats themselves *are* reproducible; that file isn't).
   Both compare the `Net Events Processed` marker instead — weaker than a per-LP
   diff, used only where the stronger check doesn't apply.
+- **Config-tree equivalence** (`codes_add_config_tree_test`) is a **static**
+  check: it loads a `.conf` and its YAML twin through the production loader and
+  asserts the compiled trees are identical (every section/key/value), running no
+  model. It catches defaulting/derivation drift a short behavioral run can mask,
+  but proves only that the two *configs* agree — not that the model behaves
+  correctly — so it runs **alongside** the behavioral checks above, never in
+  their place.
 
 ### The stdout-only coverage gap
 

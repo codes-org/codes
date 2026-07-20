@@ -24,13 +24,15 @@ enable and no configure-time option to set.
 
 ## Shape of a config
 
-A config has up to five top-level blocks:
+A config has up to seven top-level blocks:
 
 ```yaml
 schema_version: 1   # required; this build understands version 1
 components:          # named component configs referenced by the topology
 topology:            # flat network, parametric fabric, or explicit LP groups
+jobs:                # explicit multi-job workload placement (or an inline workload: on a component)
 sections:            # config a model reads directly, carried through verbatim
+simulation:          # run-level settings (end time, event-pool factor)
 include:             # other config files to reuse (base; this file overrides)
 ```
 
@@ -40,15 +42,24 @@ include:             # other config files to reuse (base; this file overrides)
 - **`components`** is a map of name → component. A **component** pairs a model
   (`model:`) with its parameters; a flat-network component also names the NIC
   model it runs over (`network:`). Components are referenced by name from the
-  topology. The key `type:` is reserved for a future schema version and is
-  rejected rather than passed through as a model param.
+  topology. The compute component may carry an inline `workload:` — the
+  single-workload shortcut, see "Workloads and jobs" below. The key `type:` is
+  reserved for a future schema version and is rejected rather than passed through
+  as a model param.
 - **`topology`** selects the layout, via one of three `format`s: `flat` is an
   all-to-all point-to-point network described by a component and a node count;
   `parametric` is an HPC fabric described by shape parameters; `groups` lays the
   LP groups out directly (the escape hatch for configs that aren't a single
   network). Each is documented in its own section below.
+- **`jobs`** places workloads on the topology's nodes — what the nodes run, as
+  opposed to what they are. The common single-workload case is instead an inline
+  `workload:` on the compute component; both are covered in "Workloads and jobs"
+  below.
 - **`sections`** carries config a model reads directly by name (DIRECTOR,
   NETWORK_SURROGATE, resource, …) through verbatim — see `sections:` below.
+- **`simulation`** carries run-level settings — the simulation end time and the
+  ROSS per-PE event-pool factor — that belong to the run rather than to the
+  topology or a model. See `simulation:` below.
 - **`include`** reuses other config files — see `include:` below.
 
 Validation is strict: unknown top-level keys, unknown topology keys, a block a
@@ -69,6 +80,117 @@ The compiler walks the friendly form and emits the `LPGROUPS` (LP layout) and
   `[workload, terminal, router]` LPs;
 - any scalar key the compiler doesn't special-case is **passed through verbatim**
   to `PARAMS`, so advanced model knobs need no compiler change.
+
+The compiler derives `modelnet_order` from the fabric/network model, so it must
+**not** be set by hand on a flat component or a parametric fabric — doing so would
+otherwise be silently ignored (the compiler-derived value wins), so it is rejected
+as a config error instead. (The explicit-groups form derives nothing, so there you
+write `modelnet_order` yourself under `params:`.)
+
+---
+
+# Units and dimensioned values
+
+A parameter that carries a physical dimension — a latency, a size, a bandwidth —
+may be written **either** as a bare number in the model's internal unit **or** as
+a unit-bearing string that the compiler converts to that unit before emitting it.
+
+```yaml
+    packet_size: 2KiB          # -> 2048   (bytes)
+    router_delay: 1.5us        # -> 1500   (nanoseconds)
+    cn_bandwidth: 100Gbps      # -> converted to the model's bandwidth unit
+```
+
+## Bare numbers: the default unit
+
+A bare number keeps a documented default unit:
+
+| Quantity | Bare number means |
+|----------|-------------------|
+| time / latency | **nanoseconds** |
+| size | **bytes** |
+| count (num_routers, num_vcs, …) | **unitless** |
+| bandwidth | **the model's internal unit** — see the table below |
+
+For time and size these defaults are exactly the units every model already reads,
+so a bare number and an explicit `ns`/`B` suffix produce the identical value — and
+every existing config keeps compiling unchanged. **Bandwidth is the exception:**
+CODES models do not agree on a bandwidth unit (some read GiB/s, one reads bytes/ns,
+simplenet reads MiB/s), so there is no safe universal default. A bare bandwidth
+number is passed through as the model's internal unit. **Writing bandwidth with an
+explicit unit is strongly recommended** — it says what you mean regardless of which
+model reads it.
+
+## Accepted unit suffixes
+
+The suffix is matched exactly and is **case-sensitive** — the bit/byte distinction
+rides on the case of `b`/`B` (`Gbps` is gigabit/s, `GBps` is gigabyte/s).
+
+| Quantity | Suffixes |
+|----------|----------|
+| time | `ns`, `us` (microseconds), `ms`, `s` |
+| size | `B`, `KiB`, `MiB`, `GiB` (binary, 1024-based); `KB`, `MB`, `GB` (decimal, 1000-based) |
+| bandwidth — bit rates | `bps`, `Kbps`, `Mbps`, `Gbps` (decimal, divided by 8 to bytes) |
+| bandwidth — byte rates | `Bps`, `KBps`, `MBps`, `GBps` (decimal); `KiBps`, `MiBps`, `GiBps` (binary) |
+
+Conversions are exact whenever the result is a whole number (`2KiB` → `2048`,
+`1.5us` → `1500`); otherwise the emitted value is a plain decimal (never
+scientific notation) that round-trips to the same double the model would compute.
+
+**Rejections** (each a config error naming the parameter):
+
+- an **unknown suffix** or trailing junk on a dimensioned parameter (`packet_size:
+  512qux`);
+- a unit of the **wrong quantity** (`packet_size: 5ms` — a time on a size);
+- a **negative** dimensioned value (`cn_bandwidth: -1Gbps`);
+- a unit on a parameter the compiler **cannot classify** (a plain count or an
+  opaque pass-through knob, e.g. `num_vcs: 4KiB`). The model would read such a
+  value with `atof`/`strtol` and silently keep only the leading number, so the
+  front-end rejects it: drop the unit and write the model's internal unit, or use
+  a recognized dimensioned parameter. (A clearly non-numeric value — a routing
+  name, a file path — still passes through untouched.)
+
+Units are applied to the friendly **component** and **fabric** parameters (flat
+and parametric topologies). The escape-hatch `format: groups` `params:` and the
+verbatim `sections:` blocks are passed through unchanged, so write internal-unit
+numbers there.
+
+## Bandwidth internal units per model
+
+A bare bandwidth number — and any value you convert — lands in the unit the model
+actually reads. These come from each model's own byte-time arithmetic:
+
+| Model(s) | Bandwidth parameter(s) | Internal unit (what a bare number means) |
+|----------|------------------------|------------------------------------------|
+| dragonfly, dragonfly-dally, dragonfly-plus, dragonfly-custom, slimfly | `local_bandwidth`, `global_bandwidth`, `cn_bandwidth` | **GiB/s** (1024³ bytes/s) |
+| torus | `link_bandwidth` | **GiB/s** |
+| express-mesh | `link_bandwidth`, `cn_bandwidth` | **GiB/s** |
+| fattree | `link_bandwidth`, `cn_bandwidth` | **bytes/ns** (= GB/s, decimal 10⁹) — **not** GiB/s |
+| simplenet | `net_bw_mbps` | **MiB/s** (1024² bytes/s) — despite the `mbps` name |
+| simplep2p | `net_bw_mbps_file` (per-pair matrix) | MiB/s, read from the referenced file (not a scalar, not converted) |
+| loggp | rates come from `net_config_file` | not a scalar parameter |
+
+The same string means different physical rates across models: `link_bandwidth:
+1GBps` is `1` in fattree (bytes/ns) but `≈0.931` in torus (GiB/s). Because a bare
+number is a raw pass-through, `link_bandwidth: 12.5` likewise means 12.5 GiB/s in
+torus and 12.5 bytes/ns in fattree — another reason to prefer explicit bandwidth
+units.
+
+## Time and size internal units
+
+Every size parameter (`packet_size`, `chunk_size`, `message_size`, `vc_size` and
+the `*_vc_size` variants, `buffer_size`, `credit_size`) is read in **bytes**, and
+the common latency knobs (`router_delay`, `soft_delay`, `net_startup_ns`) in
+**nanoseconds** — so a bare number needs no suffix. The one exception is the
+dragonfly QoS statistics window, read in **microseconds**:
+
+| Model(s) | Parameter(s) | Internal unit |
+|----------|--------------|---------------|
+| dragonfly-dally, dragonfly-custom | `counting_start`, `counting_interval` | **microseconds** |
+| dragonfly-plus | `counting_start`, `counting_interval`, `counting_end` | **microseconds** |
+
+A bare number there means microseconds (`counting_start: 100` is 100 µs); an
+explicit time unit is converted accordingly (`counting_start: 5ms` → `5000`).
 
 ---
 
@@ -608,7 +730,10 @@ topology:
 Each group names its `repetitions` and, under `lps`, the LP types with their
 per-repetition counts — a direct, validated transcription of a `.conf`
 `LPGROUPS`. There is no network to derive from, so `modelnet_order` and any other
-knobs come from whatever you put in `params`. `params:` follows the same
+knobs come from whatever you put in `params`. `modelnet_order` is **required** when
+your layout includes model-net LP types (e.g. `modelnet_dragonfly`) and lists the
+methods present; it is simply omitted for configs with no model-net models at all
+(a pure storage cluster or mapping test). `params:` follows the same
 scalar/list/nested-map rules as a `sections:` block (below): a scalar becomes a
 single-value key, a list a multi-value key, and a nested map a subsection. Group
 and LP-type names are free-form (they match what each model registers).
@@ -627,6 +752,151 @@ Combine this with `sections:` (below) for a model that also reads its own config
 section — e.g. a storage model's `lsm` or `resource` block.
 `tests/conf/lsm-test.yaml` and `tests/conf/buffer_test.yaml` are full twins doing
 exactly that.
+
+---
+
+# Workloads and jobs: what a node runs
+
+What a node **runs** is separate from what a node **is**. A topology gives you
+the node models and the network; a workload says what traffic those nodes
+generate. There are two spellings, and a config uses **one or the other, never
+both**.
+
+## The single-workload shortcut: inline `workload:`
+
+The common case — every compute node runs the same workload — is an inline
+`workload:` block on the topology's compute component:
+
+```yaml
+components:
+  compute_host:
+    model: nw-lp
+    network: { ... }          # (flat topologies) or omitted for a parametric fabric
+    workload:
+      type: synthetic
+      traffic: uniform        # a pattern name the synthetic model accepts
+      num_messages: 30        # positive integer
+      payload_size: "2KiB"    # size-valued: units apply (resolves to bytes)
+      arrival_time: "1us"     # time-valued: units apply (resolves to nanoseconds)
+```
+
+It desugars to a single job on **all** of that component's nodes. The compiler
+lowers it to a `WORKLOAD` section carrying the resolved params, which shows up in
+the resolved-config dump like anything else. A `workload:` may live **only** on
+the component the topology actually runs (the flat `component:` or the parametric
+`hosts.component`); putting one on any other component, or on an explicit-groups
+topology, is a config error.
+
+## Explicit multi-job: `jobs:`
+
+To place several workloads on disjoint sets of nodes, use a top-level `jobs:`
+list instead:
+
+```yaml
+jobs:
+  - id: production
+    workload: { type: synthetic, traffic: uniform, num_messages: 30 }
+    ranks: 256
+    placement: { policy: contiguous }
+  - id: background
+    workload: { type: synthetic, traffic: nearest_neighbor, arrival_time: "1us" }
+    ranks: 128
+    placement: { nodes: [ 384, 385, 386, ... ] }   # explicit node list — the escape hatch
+```
+
+Each job needs a unique non-empty `id`, exactly one `workload`, a positive
+`ranks` count, and a `placement` that is **exactly one** of:
+
+- `{ policy: contiguous }` — the job is assigned the next contiguous range of
+  node slots (jobs pack in declared order from node 0); or
+- `{ nodes: [ ... ] }` — an explicit list of node indices, whose length must
+  equal `ranks`.
+
+The compiler validates the whole allocation: every node index is in range
+(`0 .. total_slots-1`), no node is booked by two jobs, and the total rank count
+fits the topology. A single synthetic job placed contiguously on **every** node
+compiles to exactly the `WORKLOAD` section the inline shortcut produces — the two
+spellings are interchangeable for that case. Any richer placement compiles to a
+`JOBS` section: a `num_jobs` marker plus one subsection per job carrying its
+resolved workload, `ranks`, and the resolved `nodes` allocation.
+
+## Which workload types are wired
+
+Only `type: synthetic` is wired end to end. Other workload types (e.g. `dumpi`
+trace replay) and a job-level `qos:` key are **recognized** — the block shape is
+understood — but rejected with a clear "not yet configurable from this format"
+error; keep the legacy `.conf` path for those. Unknown keys anywhere in a
+`workload:` or `jobs:` block are rejected like everywhere else in the front-end.
+
+### Synthetic workload keys
+
+| key            | value                          | notes                                   |
+| -------------- | ------------------------------ | --------------------------------------- |
+| `type`         | `synthetic`                    | required; the discriminator             |
+| `traffic`      | a pattern name (`uniform`, …)  | mapped to the model's own traffic enum  |
+| `num_messages` | positive integer               | messages generated per terminal         |
+| `payload_size` | size-valued (`"2KiB"`, `2048`) | resolves to bytes                       |
+| `arrival_time` | time-valued (`"1us"`, `1000`)  | resolves to nanoseconds                 |
+
+`traffic` is left as a **verbatim name** the synthetic model maps to its own
+enum, because the pattern set and the enum values differ per model (only
+`uniform` is universally pattern 1). Each synthetic driver accepts the patterns
+its C enum defines — e.g. the dragonfly driver takes `uniform`, `nearest_group`,
+`nearest_neighbor`, `rand_perm`, `random_other_group`; fat-tree adds `bisection`;
+slim-fly adds `worst_case`, `gather`, `scatter`, and the `nearest_neighbor_1d/2d/
+3d` variants. An unrecognized name aborts at run time with a diagnostic naming
+the offending value.
+
+## Command-line precedence for synthetic params
+
+The synthetic drivers also expose these workload params as ROSS command-line
+options. The command-line spelling matches the config key — `traffic`,
+`num_messages`, `payload_size`, `arrival_time` — with one exception:
+`model-net-synthetic-dragonfly-all` spells its payload option `payload_sz` on
+the command line (the config key is always `payload_size`). Configuring them
+here does not take that away — the precedence is:
+
+```
+command line  >  config (workload:/jobs:)  >  the model's built-in default
+```
+
+A driver applies each config value only when the command line did not set that
+option, so a parameter sweep can share one config and vary a single knob on the
+command line. Detection works exactly like `end_time`'s (below): the option's
+global is compared to its registered default, so a value equal to the default
+passed on the command line is indistinguishable from omitting it (the config wins
+there) — the same one edge case, per knob. A legacy `.conf` carries no `WORKLOAD`
+section, so every apply is a no-op and `.conf` behavior is unchanged.
+
+Not every driver consumes every key. Which of the four workload keys each
+synthetic driver applies from the config:
+
+| driver                              | `traffic` | `num_messages` | `payload_size` | `arrival_time` |
+| ----------------------------------- | :-------: | :------------: | :------------: | :------------: |
+| `model-net-synthetic`               |     ✓     |       ✓        |       ✓        |       ✓        |
+| `model-net-synthetic-dragonfly-all` |     ✓     |       ✓        |       ✓        |       ✓        |
+| `model-net-synthetic-slimfly`       |     ✓     |       ✓        |       ✓        |       ✓        |
+| `model-net-synthetic-fattree`       |     ✓     |       —        |       ✓        |       ✓        |
+
+The one gap is `num_messages` on `model-net-synthetic-fattree`: it is an
+open-loop generator (each send schedules the next; the run is bounded only by
+the end time, not by a message count), so it registers no `num_messages` option
+and a configured `num_messages` is currently ignored there. A cap is planned
+alongside future traffic-policy work; until then, bound a fat-tree run with an
+`end_time` instead.
+
+## Multi-job execution status
+
+Multi-job placement **compiles and validates** today, but the synthetic drivers
+do **not execute** it yet: they generate a single global traffic pattern with no
+per-job destination dispatch. A driver that loads a multi-job `JOBS` config
+therefore **aborts** with a clear message rather than silently running global
+traffic and ignoring the placement. To run a multi-job workload today, use
+`model-net-mpi-replay` (trace replay with an `alloc_file`), or collapse the
+config to a single `workload:` (or a one-job `jobs:` entry on all nodes), which
+does execute. The compiled `JOBS` section — job count and per-job node
+allocation — is the inspectable artifact a future job-aware synthetic executor
+would consume.
 
 ---
 
@@ -704,6 +974,102 @@ cross-section consistency); otherwise Tier 1 is the answer.
 The compiler core is ROSS-free and unit-tested in isolation
 (`tests/codes-config-compiler-test.cxx`); add cases there for whatever a new
 section or tier introduces.
+
+---
+
+# Run-level settings: `simulation:`
+
+A few settings belong to the **run** rather than to the topology or any one
+model — how long to simulate, and how big to size ROSS's per-PE event pool. They
+go in a top-level `simulation:` block:
+
+```yaml
+simulation:
+  end_time: "100us"     # optional: simulation end time (see CLI precedence below)
+  pe_mem_factor: 512    # optional: advanced ROSS event-pool factor (most leave unset)
+```
+
+Both keys are optional, and any other key in the block is rejected — the same
+strict validation as everywhere else. The compiler resolves each to the `PARAMS`
+key the simulator already reads (`PARAMS/end_time`, `PARAMS/pe_mem_factor`), so
+they show up in the resolved-config dump like any other parameter, and a legacy
+`.conf` may carry the same `PARAMS` keys directly with identical effect (there is
+no compiler for a `.conf`, so a `.conf` user just writes them under `PARAMS`).
+Setting one of these keys **both** in `simulation:` and as a pass-through model
+parameter (on a component/fabric, or in an explicit-groups `params:`) is a config
+error rather than a silent drop — put it in one place.
+
+## `end_time`
+
+The simulation end time — how far in virtual time the run advances before it
+stops. It is **time-valued**: write a bare number (nanoseconds, the unit ROSS and
+every model use internally) or a value with a time unit (`"100us"`, `"2ms"`); a
+size or bandwidth unit, a non-positive value, or garbage is rejected. It must be
+positive.
+
+**Command line wins.** ROSS's own `--end=<ns>` option always takes precedence: if
+you pass `--end` on the command line, that value is used and the config's
+`end_time` is ignored. Only when `--end` is *not* given does the config value
+apply. If neither is set, behavior is exactly as before (ROSS's built-in
+default).
+
+**The one edge case.** ROSS records only the *value* of `--end`, not whether it
+was set, so the config front-end distinguishes "no `--end`" from "`--end` given"
+by comparing against ROSS's compiled-in default (`100000.0` ns). The consequence:
+passing `--end=100000` explicitly on the command line is **indistinguishable**
+from omitting it, so a config `end_time` would still override that particular
+value. Any other `--end` value is honored as the override it is. This only bites
+the exact default; pick any other number and precedence is unambiguous.
+
+**A model that sets its own end time still wins.** `end_time` is applied inside
+`codes_mapping_setup()`, the setup call every model makes between loading the
+config and running. A model is free to hardcode `g_tw_ts_end` *after* that call;
+if it does, its value stands and the config `end_time` has no effect. This is
+deliberate: the config front-end does not rewrite model `main()`s, so a model
+that insists on its own end time keeps it. Most models never set their own end
+time and honor the config value. The synthetic-traffic drivers
+(`model-net-synthetic`, `model-net-synthetic-dragonfly-all`) treat their built-in
+5-day span as a **fallback**: they apply it only when neither the config nor
+`--end` set an end time, so a config `end_time` (and a command-line `--end`) is
+honored. (This also fixed a prior bug where those two drivers unconditionally
+overwrote `g_tw_ts_end`, silently ignoring `--end`.)
+
+## `pe_mem_factor`
+
+An **advanced** knob that most users should leave unset. ROSS pre-allocates a
+pool of event structures per PE; `pe_mem_factor` scales that pool — the per-PE
+event count is `pe_mem_factor × (LPs mapped to that PE)`, with a default factor of
+`256`. Raise it if a run aborts having run out of events ("Out of events in
+GVT"), which happens when many events are in flight at once. It is a positive
+integer. (ROSS's `--extramem` is the *additive* term of the same pool — a flat
+number of extra events per PE — so the two compose: total ≈ `pe_mem_factor ×
+LPs + extramem`.)
+
+---
+
+# Dumping the resolved config
+
+Any run can print the **fully-resolved** config tree — every compiler-derived and
+defaulted value included — so a result is traceable to one complete
+configuration. Set the environment variable `CODES_RESOLVED_CONFIG_DUMP`:
+
+```bash
+# write the resolved tree to a file
+CODES_RESOLVED_CONFIG_DUMP=resolved.conf ./model-net-synthetic --sync=1 -- my-network.yaml
+
+# or to stdout
+CODES_RESOLVED_CONFIG_DUMP=- ./model-net-synthetic --sync=1 -- my-network.yaml
+```
+
+The value is a file path, or `-` (equivalently `stdout`) for standard output. The
+dump is written by **rank 0 only**, in the legacy `.conf` text format, at config
+load time. It is **opt-in and off by default**, so it never perturbs a normal run.
+
+This is about traceability of runs, not a YAML feature: it works for a legacy
+`.conf` run exactly the same way (the dump is taken from the in-memory config tree,
+which both formats produce). For a compiled YAML config it is the way to see what
+the friendly form expanded to — the derived `LPGROUPS`/`PARAMS`, including
+`modelnet_order` and the shape-derived LP counts.
 
 ---
 

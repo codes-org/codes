@@ -524,6 +524,25 @@ void codes_mapping_setup_with_seed_offset(int offset) {
         mem_factor = mem_factor_conf;
 
     g_tw_events_per_pe = mem_factor * codes_mapping_get_lps_for_pe();
+
+    // A config-provided simulation end time (PARAMS/end_time, in nanoseconds)
+    // sets g_tw_ts_end, but only when the command line did not. ROSS's --end
+    // option writes g_tw_ts_end directly and records no "was explicitly set"
+    // flag, so we compare against ROSS's compiled-in default (100000.0, see
+    // ross-global.c): an unchanged value means no --end was given and the config
+    // value takes over; any other value is treated as a command-line override and
+    // is left untouched. Passing --end=100000 explicitly is therefore
+    // indistinguishable from omitting it. A model that assigns g_tw_ts_end after
+    // this call (some synthetic mains hardcode their own) keeps its value; a model
+    // that never sets it honors the config. The key rides in PARAMS, so a legacy
+    // .conf can carry it too.
+    const double ross_default_ts_end = 100000.0;
+    double end_time_conf;
+    int end_rc =
+        configuration_get_value_double(&config, "PARAMS", "end_time", NULL, &end_time_conf);
+    if (end_rc == 0 && end_time_conf > 0.0 && g_tw_ts_end == ross_default_ts_end)
+        g_tw_ts_end = end_time_conf;
+
     configuration_get_value_int(&config, "PARAMS", "message_size", NULL, &message_size);
     if (!message_size) {
         message_size = 256;
