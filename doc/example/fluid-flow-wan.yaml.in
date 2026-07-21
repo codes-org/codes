@@ -46,11 +46,16 @@ sections:
     egress_model: pdes
     debug_prints: 0
 
+    # Backpressure control events are scheduled relative to the event that
+    # caused them rather than on the coarse interval phase grid. The terminal
+    # integrates transmission piecewise whenever a rate or PAUSE update arrives.
+    backpressure_delay_ms: 1.0
+
     # Per-ingress Ethernet PAUSE hysteresis using the shared switch buffer.
-    # Congested switches pause the largest ingress contributors first.
+    # Congested switches pause the largest ingress contributors first. The
+    # fluid model keeps PAUSE asserted until a low-watermark resume is sent.
     pause_high_watermark_fraction: 0.80
     pause_low_watermark_fraction: 0.50
-    pause_duration_intervals: 2
 
     terminal_log_path: logs/terminal-events.csv
     switch_log_path: logs/switch-events.csv

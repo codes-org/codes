@@ -42,6 +42,7 @@
 #include "codes/configuration.h"
 #include "codes/lp-type-lookup.h"
 #if CODES_HAVE_ZEROMQ
+#include "codes/surrogate/director-client.h"
 #include "zmqmlrequester.h"
 #endif
 
@@ -160,15 +161,10 @@ static void interval_flag_set(interval_flags* flags, int interval_id, bool value
 }
 
 static constexpr double PHASE_EARLY_SWITCH_EGRESS = 0.05;
-static constexpr double PHASE_TERMINAL_RATE_UPDATE = 0.08;
 static constexpr double PHASE_TERMINAL_WORKLOAD_GENERATE = 0.10;
 static constexpr double PHASE_TERMINAL_SEND = 0.15;
 static constexpr double PHASE_FLOWLET_ARRIVAL = 0.20;
-static constexpr double PHASE_SWITCH_RATE_FEEDBACK = 0.50;
 static constexpr double PHASE_LATE_SWITCH_EGRESS = 0.60;
-static constexpr double PHASE_SWITCH_RATE_EVAL = 0.65;
-static constexpr double PHASE_ETHERNET_PAUSE_EVAL = 0.70;
-static constexpr double PHASE_ETHERNET_PAUSE_FRAME_UPDATE = 0.75;
 
 struct link_info {
     int dst_switch;
@@ -205,7 +201,7 @@ struct sim_config {
     char flowlet_log_path[1024] = "";
     double pause_high_watermark_fraction = 0.80;
     double pause_low_watermark_fraction = 0.50;
-    int pause_duration_intervals = 2;
+    double backpressure_delay_ms = 1.0;
 };
 
 enum fluid_egress_model_mode {
@@ -268,7 +264,6 @@ struct ingress_desc {
     int peer_index;
     double queued_mbit;
     int pause_asserted;
-    int last_pause_frame_interval;
 };
 
 struct port_desc {
@@ -282,6 +277,8 @@ struct source_flow {
     int destination_terminal;
     int creation_interval;
     double remaining_source_mbit;
+    double pending_window_mbit;
+    tw_stime send_start_time_ns;
     double current_send_rate_mbps;
     int rate_epoch;
 };
@@ -322,11 +319,15 @@ struct terminal_state {
     double generated_mbit;
     double sent_to_switch_mbit;
     double received_mbit;
-    int link_paused_until_interval;
+    int tx_window_active;
+    int tx_window_interval;
+    tw_stime tx_last_update_time_ns;
+    int link_paused;
+    tw_stime pause_started_at_ns;
+    double total_pause_time_ns;
     unsigned long long pause_updates_received;
     unsigned long long pause_frames_received;
     unsigned long long resume_frames_received;
-    unsigned long long link_paused_intervals;
     int generated_flowlets;
     int received_fragments;
     unsigned long long rate_updates_received;
@@ -354,10 +355,14 @@ struct switch_state {
      */
     interval_flags scheduled_early_egress[MAX_PORTS_PER_SWITCH];
     interval_flags scheduled_late_egress[MAX_PORTS_PER_SWITCH];
-    interval_flags scheduled_rate_eval[MAX_PORTS_PER_SWITCH];
+    int rate_eval_pending[MAX_PORTS_PER_SWITCH];
+    int next_rate_epoch[MAX_PORTS_PER_SWITCH];
     int capacity_accounting_interval[MAX_PORTS_PER_SWITCH];
     double capacity_used_mbit[MAX_PORTS_PER_SWITCH];
-    int output_link_paused_until_interval[MAX_PORTS_PER_SWITCH];
+    int output_link_paused[MAX_PORTS_PER_SWITCH];
+    tw_stime output_link_pause_started_at_ns[MAX_PORTS_PER_SWITCH];
+    double output_link_total_pause_time_ns[MAX_PORTS_PER_SWITCH];
+    int pause_eval_pending;
 
     int num_ingress_links;
     ingress_desc ingress_links[MAX_PAUSE_INGRESS_LINKS];
@@ -369,7 +374,6 @@ struct switch_state {
     unsigned long long pause_updates_received;
     unsigned long long pause_frames_received;
     unsigned long long resume_frames_received;
-    unsigned long long paused_egress_intervals;
 
     double buffered_residual_mbit;
     double sent_mbit;
@@ -391,6 +395,23 @@ enum fluid_event_type {
     SWITCH_RATE_FEEDBACK = 9,
     TERMINAL_RATE_UPDATE = 10,
 };
+
+static const char* backpressure_event_name(int event_type) {
+    switch (event_type) {
+    case ETHERNET_PAUSE_EVAL:
+        return "ETHERNET_PAUSE_EVAL";
+    case ETHERNET_PAUSE_FRAME_UPDATE:
+        return "ETHERNET_PAUSE_FRAME_UPDATE";
+    case SWITCH_RATE_EVAL:
+        return "SWITCH_RATE_EVAL";
+    case SWITCH_RATE_FEEDBACK:
+        return "SWITCH_RATE_FEEDBACK";
+    case TERMINAL_RATE_UPDATE:
+        return "TERMINAL_RATE_UPDATE";
+    default:
+        return NULL;
+    }
+}
 
 struct rc_alloc_record {
     int valid;
@@ -450,14 +471,23 @@ struct fluid_msg {
     double rc_accepted_mbit;
     double rc_dropped_mbit;
     int rc_alloc_count;
-    int rc_prev_pause_until_interval;
     int rc_pause_target_port;
     int rc_ingress_id;
     int rc_pause_change_count;
     int rc_pause_ingress_id[MAX_PAUSE_INGRESS_LINKS];
     int rc_pause_prev_asserted[MAX_PAUSE_INGRESS_LINKS];
-    int rc_pause_prev_last_interval[MAX_PAUSE_INGRESS_LINKS];
     int rc_pause_sent_asserted[MAX_PAUSE_INGRESS_LINKS];
+
+    int rc_terminal_tx_active;
+    int rc_prev_tx_window_active;
+    int rc_prev_tx_window_interval;
+    tw_stime rc_prev_tx_last_update_time_ns;
+    int rc_prev_pause_asserted;
+    tw_stime rc_prev_pause_started_at_ns;
+    double rc_prev_total_pause_time_ns;
+
+    int rc_pause_eval_event_active;
+    int rc_pause_eval_request_created;
 
     int rc_egress_event_active;
     int rc_egress_request_created;
@@ -466,12 +496,12 @@ struct fluid_msg {
     int rc_egress_request_port;
     int rc_prev_capacity_accounting_interval;
     double rc_prev_capacity_used_mbit;
-    int rc_paused_interval_counted;
 
     int rc_rate_eval_event_active;
     int rc_rate_eval_request_created;
     int rc_rate_eval_request_interval;
     int rc_rate_eval_request_port;
+    int rc_prev_rate_epoch;
 
     int rc_log_target_is_terminal;
     int rc_log_target_index;
@@ -487,6 +517,27 @@ struct fluid_msg {
 
     rc_alloc_record rc_allocs[MAX_RC_ALLOCATIONS];
 };
+
+static void debug_backpressure_event(const char* lp_kind, int lp_id, const fluid_msg* m,
+                                     tw_lp* lp) {
+    if (!cfg.debug_prints) {
+        return;
+    }
+    const char* name = backpressure_event_name(m->event_type);
+    if (name == NULL) {
+        return;
+    }
+
+    const double sim_time_ns = tw_now(lp);
+    fprintf(stderr,
+            "[fluid-flow-wan backpressure] sim_time_ns=%.3f sim_time_ms=%.6f "
+            "lp=%s id=%d event=%s interval=%d flowlet_id=%llu rate_mbps=%.12f "
+            "rate_epoch=%d pause_asserted=%d pause_source_switch=%d\n",
+            sim_time_ns, sim_time_ns / 1.0e6, lp_kind, lp_id, name, m->interval_id,
+            (unsigned long long)m->flowlet_id, m->rate_mbps, m->rate_epoch,
+            m->pause_asserted, m->pause_source_switch);
+    fflush(stderr);
+}
 
 static_assert(std::is_trivially_copyable<terminal_state>::value,
               "terminal_state must remain trivially copyable for ROSS LP storage");
@@ -567,6 +618,10 @@ static double seconds_to_ns(double seconds) {
     return seconds * 1000.0 * 1000.0 * 1000.0;
 }
 
+static double milliseconds_to_ns(double milliseconds) {
+    return milliseconds * 1000.0 * 1000.0;
+}
+
 static double event_time_ns(int interval_id, double phase_seconds) {
     return seconds_to_ns(((double)interval_id * cfg.interval_seconds) + phase_seconds);
 }
@@ -578,6 +633,10 @@ static double delay_until_ns(int target_interval, double phase_seconds, tw_lp* l
         delta = g_tw_lookahead + 1.0;
     }
     return delta;
+}
+
+static double backpressure_delay_ns(void) {
+    return std::max(milliseconds_to_ns(cfg.backpressure_delay_ms), g_tw_lookahead + 1.0);
 }
 
 static std::string trim(const std::string& s) {
@@ -922,7 +981,7 @@ static void load_config(void) {
                       &cfg.pause_high_watermark_fraction);
     read_double_param("FLUID_FLOW_WAN", "pause_low_watermark_fraction",
                       &cfg.pause_low_watermark_fraction);
-    read_int_param("FLUID_FLOW_WAN", "pause_duration_intervals", &cfg.pause_duration_intervals);
+    read_double_param("FLUID_FLOW_WAN", "backpressure_delay_ms", &cfg.backpressure_delay_ms);
     read_double_param("FLUID_FLOW_WAN", "interval_seconds", &cfg.interval_seconds);
     read_int_param("FLUID_FLOW_WAN", "num_send_intervals", &cfg.num_send_intervals);
     read_int_param("FLUID_FLOW_WAN", "num_drain_intervals", &cfg.num_drain_intervals);
@@ -955,11 +1014,10 @@ static void load_config(void) {
     }
 #endif
 
-    if (cfg.pause_duration_intervals <= 0) {
-        tw_error(TW_LOC, "pause_duration_intervals must be positive, got %d",
-                 cfg.pause_duration_intervals);
+    if (cfg.backpressure_delay_ms <= 0.0) {
+        tw_error(TW_LOC, "backpressure_delay_ms must be positive, got %.6f",
+                 cfg.backpressure_delay_ms);
     }
-
     if (!(cfg.pause_low_watermark_fraction >= 0.0 &&
           cfg.pause_low_watermark_fraction < cfg.pause_high_watermark_fraction &&
           cfg.pause_high_watermark_fraction <= 1.0)) {
@@ -1482,7 +1540,7 @@ static void schedule_workload_generate(terminal_state* ns, int interval_id, tw_l
 
 static void schedule_terminal_send(int interval_id, tw_lp* lp) {
     const int total_intervals = cfg.num_send_intervals + cfg.num_drain_intervals;
-    if (interval_id < 0 || interval_id >= total_intervals) {
+    if (interval_id < 0 || interval_id > total_intervals) {
         return;
     }
     tw_event* e = tw_event_new(lp->gid, delay_until_ns(interval_id, PHASE_TERMINAL_SEND, lp), lp);
@@ -1498,8 +1556,7 @@ static void schedule_switch_rate_eval(int interval_id, int port_id, tw_lp* lp) {
     if (interval_id < 0 || interval_id >= total_intervals) {
         return;
     }
-    tw_event* e =
-        tw_event_new(lp->gid, delay_until_ns(interval_id, PHASE_SWITCH_RATE_EVAL, lp), lp);
+    tw_event* e = tw_event_new(lp->gid, backpressure_delay_ns(), lp);
     fluid_msg* m = (fluid_msg*)tw_event_data(e);
     memset(m, 0, sizeof(*m));
     m->event_type = SWITCH_RATE_EVAL;
@@ -1514,18 +1571,15 @@ static void undo_requested_switch_rate_eval(switch_state* ns, fluid_msg* m) {
     }
 
     const int port_id = m->rc_rate_eval_request_port;
-    const int interval_id = m->rc_rate_eval_request_interval;
-    if (port_id < 0 || port_id >= ns->num_ports || interval_id < 0 ||
-        interval_id >= MAX_SIMULATION_INTERVALS) {
-        tw_error(TW_LOC, "invalid rollback rate-eval request: switch %d port %d interval %d",
-                 ns->switch_id, port_id, interval_id);
+    if (port_id < 0 || port_id >= ns->num_ports) {
+        tw_error(TW_LOC, "invalid rollback rate-eval request: switch %d port %d",
+                 ns->switch_id, port_id);
     }
-    if (!interval_flag_is_set(ns->scheduled_rate_eval[port_id], interval_id)) {
-        tw_error(TW_LOC,
-                 "rollback expected scheduled rate-eval flag: switch %d port %d interval %d",
-                 ns->switch_id, port_id, interval_id);
+    if (!ns->rate_eval_pending[port_id]) {
+        tw_error(TW_LOC, "rollback expected pending rate-eval: switch %d port %d",
+                 ns->switch_id, port_id);
     }
-    interval_flag_set(&ns->scheduled_rate_eval[port_id], interval_id, false);
+    ns->rate_eval_pending[port_id] = 0;
 }
 
 static void request_switch_rate_eval(switch_state* ns, int interval_id, int port_id, tw_lp* lp,
@@ -1538,8 +1592,7 @@ static void request_switch_rate_eval(switch_state* ns, int interval_id, int port
         tw_error(TW_LOC, "invalid rate-eval request on switch %d port %d", ns->switch_id, port_id);
     }
 
-    interval_flags* scheduled = &ns->scheduled_rate_eval[port_id];
-    if (interval_flag_is_set(*scheduled, interval_id)) {
+    if (ns->rate_eval_pending[port_id]) {
         return;
     }
     if (cause_msg != NULL && cause_msg->rc_rate_eval_request_created) {
@@ -1547,7 +1600,7 @@ static void request_switch_rate_eval(switch_state* ns, int interval_id, int port
                  ns->switch_id);
     }
 
-    interval_flag_set(scheduled, interval_id, true);
+    ns->rate_eval_pending[port_id] = 1;
     schedule_switch_rate_eval(interval_id, port_id, lp);
 
     if (cause_msg != NULL) {
@@ -1565,8 +1618,7 @@ static void schedule_terminal_rate_update(int interval_id, int terminal_id,
     if (interval_id < 0 || interval_id >= total_intervals) {
         return;
     }
-    tw_event* e = tw_event_new(get_terminal_gid(terminal_id),
-                               delay_until_ns(interval_id, PHASE_TERMINAL_RATE_UPDATE, lp), lp);
+    tw_event* e = tw_event_new(get_terminal_gid(terminal_id), backpressure_delay_ns(), lp);
     fluid_msg* m = (fluid_msg*)tw_event_data(e);
     memset(m, 0, sizeof(*m));
     m->event_type = TERMINAL_RATE_UPDATE;
@@ -1590,8 +1642,7 @@ static void schedule_switch_rate_feedback(int interval_id, int upstream_switch,
     if (interval_id < 0 || interval_id >= total_intervals) {
         return;
     }
-    tw_event* e = tw_event_new(get_switch_gid(upstream_switch),
-                               delay_until_ns(interval_id, PHASE_SWITCH_RATE_FEEDBACK, lp), lp);
+    tw_event* e = tw_event_new(get_switch_gid(upstream_switch), backpressure_delay_ns(), lp);
     fluid_msg* m = (fluid_msg*)tw_event_data(e);
     memset(m, 0, sizeof(*m));
     m->event_type = SWITCH_RATE_FEEDBACK;
@@ -1699,9 +1750,7 @@ static void request_switch_egress(switch_state* ns, int event_type, int interval
 
 static void schedule_pause_update(int interval_id, tw_lpid dst_gid, int pause_asserted,
                                   int pause_source_switch, tw_lp* lp) {
-    tw_event* e =
-        tw_event_new(dst_gid, delay_until_ns(interval_id, PHASE_ETHERNET_PAUSE_FRAME_UPDATE, lp),
-                     lp);
+    tw_event* e = tw_event_new(dst_gid, backpressure_delay_ns(), lp);
     fluid_msg* m = (fluid_msg*)tw_event_data(e);
     memset(m, 0, sizeof(*m));
     m->event_type = ETHERNET_PAUSE_FRAME_UPDATE;
@@ -1748,19 +1797,39 @@ static void send_pause_update_for_ingress(switch_state* ns, int ingress_id, int 
     }
 }
 
-static void schedule_ethernet_pause_eval(int interval_id, tw_lp* lp) {
-    int total_intervals = cfg.num_send_intervals + cfg.num_drain_intervals;
-    if (interval_id < 0 || interval_id >= total_intervals) {
+static void request_ethernet_pause_eval(switch_state* ns, int interval_id, tw_lp* lp,
+                                        fluid_msg* cause_msg) {
+    if (ns->pause_eval_pending) {
         return;
     }
+    if (cause_msg != NULL && cause_msg->rc_pause_eval_request_created) {
+        tw_error(TW_LOC, "event attempted to create more than one PAUSE evaluation request on "
+                         "switch %d",
+                 ns->switch_id);
+    }
 
-    tw_event* e =
-        tw_event_new(lp->gid, delay_until_ns(interval_id, PHASE_ETHERNET_PAUSE_EVAL, lp), lp);
-    fluid_msg* m = (fluid_msg*)tw_event_data(e);
-    memset(m, 0, sizeof(*m));
-    m->event_type = ETHERNET_PAUSE_EVAL;
-    m->interval_id = interval_id;
+    ns->pause_eval_pending = 1;
+    tw_event* e = tw_event_new(lp->gid, backpressure_delay_ns(), lp);
+    fluid_msg* pause_msg = (fluid_msg*)tw_event_data(e);
+    memset(pause_msg, 0, sizeof(*pause_msg));
+    pause_msg->event_type = ETHERNET_PAUSE_EVAL;
+    pause_msg->interval_id = interval_id;
     tw_event_send(e);
+
+    if (cause_msg != NULL) {
+        cause_msg->rc_pause_eval_request_created = 1;
+    }
+}
+
+static void undo_requested_ethernet_pause_eval(switch_state* ns, fluid_msg* m) {
+    if (!m->rc_pause_eval_request_created) {
+        return;
+    }
+    if (!ns->pause_eval_pending) {
+        tw_error(TW_LOC, "rollback expected pending PAUSE evaluation on switch %d",
+                 ns->switch_id);
+    }
+    ns->pause_eval_pending = 0;
 }
 
 static void record_pause_change(fluid_msg* m, int ingress_id, const ingress_desc& ingress,
@@ -1771,12 +1840,18 @@ static void record_pause_change(fluid_msg* m, int ingress_id, const ingress_desc
     int i = m->rc_pause_change_count++;
     m->rc_pause_ingress_id[i] = ingress_id;
     m->rc_pause_prev_asserted[i] = ingress.pause_asserted;
-    m->rc_pause_prev_last_interval[i] = ingress.last_pause_frame_interval;
     m->rc_pause_sent_asserted[i] = sent_asserted;
 }
 
 static void handle_ethernet_pause_eval(switch_state* ns, fluid_msg* m, tw_lp* lp) {
+    m->rc_pause_eval_event_active = 0;
     m->rc_pause_change_count = 0;
+
+    if (!ns->pause_eval_pending) {
+        return;
+    }
+    ns->pause_eval_pending = 0;
+    m->rc_pause_eval_event_active = 1;
 
     const double shared_occupancy_mbit = queued_mbit_on_switch(ns);
 
@@ -1785,13 +1860,10 @@ static void handle_ethernet_pause_eval(switch_state* ns, fluid_msg* m, tw_lp* lp
      * high/low watermarks, while per-ingress queued_mbit is used only to choose
      * which directly connected senders should be throttled.
      *
-     * Hysteresis policy:
-     *   - at or below the low watermark, resume every paused ingress;
-     *   - at or above the high watermark, keep already-paused ingresses and
-     *     pause the largest unpaused contributors until their combined queued
-     *     traffic covers the occupancy above the high watermark;
-     *   - between the watermarks, preserve the current PAUSE set;
-     *   - refresh each asserted PAUSE only when its configured timer expires.
+     * PAUSE is represented as persistent asserted/resumed link state in this
+     * interval-fluid model. This avoids a millisecond polling/refresh event
+     * stream while still applying each state transition after the configured
+     * backpressure propagation delay.
      *
      * Contributor ordering is deterministic: descending queued bytes, then
      * ascending ingress id. This is required for sequential/optimistic parity.
@@ -1805,66 +1877,48 @@ static void handle_ethernet_pause_eval(switch_state* ns, fluid_msg* m, tw_lp* lp
 
             record_pause_change(m, ingress_id, ingress, 0);
             ingress.pause_asserted = 0;
-            ingress.last_pause_frame_interval = -1;
             send_pause_update_for_ingress(ns, ingress_id, m->interval_id, 0, lp);
         }
-    } else {
-        if (shared_occupancy_mbit + EPS >= ns->pause_high_watermark_mbit) {
-            double covered_mbit = 0.0;
-            bool has_paused_ingress = false;
-            int candidates[MAX_PAUSE_INGRESS_LINKS];
-            int candidate_count = 0;
+    } else if (shared_occupancy_mbit + EPS >= ns->pause_high_watermark_mbit) {
+        double covered_mbit = 0.0;
+        bool has_paused_ingress = false;
+        int candidates[MAX_PAUSE_INGRESS_LINKS];
+        int candidate_count = 0;
 
-            for (int ingress_id = 0; ingress_id < ns->num_ingress_links; ++ingress_id) {
-                const ingress_desc& ingress = ns->ingress_links[ingress_id];
-                if (ingress.pause_asserted) {
-                    has_paused_ingress = true;
-                    covered_mbit += ingress.queued_mbit;
-                } else if (ingress.queued_mbit > EPS) {
-                    candidates[candidate_count++] = ingress_id;
-                }
-            }
-
-            std::sort(candidates, candidates + candidate_count, [ns](int lhs, int rhs) {
-                const double lhs_mbit = ns->ingress_links[lhs].queued_mbit;
-                const double rhs_mbit = ns->ingress_links[rhs].queued_mbit;
-                if (std::fabs(lhs_mbit - rhs_mbit) > EPS) {
-                    return lhs_mbit > rhs_mbit;
-                }
-                return lhs < rhs;
-            });
-
-            const double excess_mbit = shared_occupancy_mbit - ns->pause_high_watermark_mbit;
-            for (int candidate = 0; candidate < candidate_count; ++candidate) {
-                const int ingress_id = candidates[candidate];
-                if (has_paused_ingress && covered_mbit + EPS >= excess_mbit) {
-                    break;
-                }
-
-                ingress_desc& ingress = ns->ingress_links[ingress_id];
-                record_pause_change(m, ingress_id, ingress, 1);
-                ingress.pause_asserted = 1;
-                ingress.last_pause_frame_interval = m->interval_id;
+        for (int ingress_id = 0; ingress_id < ns->num_ingress_links; ++ingress_id) {
+            const ingress_desc& ingress = ns->ingress_links[ingress_id];
+            if (ingress.pause_asserted) {
                 has_paused_ingress = true;
                 covered_mbit += ingress.queued_mbit;
-                send_pause_update_for_ingress(ns, ingress_id, m->interval_id, 1, lp);
+            } else if (ingress.queued_mbit > EPS) {
+                candidates[candidate_count++] = ingress_id;
             }
         }
 
-        for (int ingress_id = 0; ingress_id < ns->num_ingress_links; ++ingress_id) {
-            ingress_desc& ingress = ns->ingress_links[ingress_id];
-            if (!ingress.pause_asserted ||
-                m->interval_id < ingress.last_pause_frame_interval + cfg.pause_duration_intervals) {
-                continue;
+        std::sort(candidates, candidates + candidate_count, [ns](int lhs, int rhs) {
+            const double lhs_mbit = ns->ingress_links[lhs].queued_mbit;
+            const double rhs_mbit = ns->ingress_links[rhs].queued_mbit;
+            if (std::fabs(lhs_mbit - rhs_mbit) > EPS) {
+                return lhs_mbit > rhs_mbit;
+            }
+            return lhs < rhs;
+        });
+
+        const double excess_mbit = shared_occupancy_mbit - ns->pause_high_watermark_mbit;
+        for (int candidate = 0; candidate < candidate_count; ++candidate) {
+            const int ingress_id = candidates[candidate];
+            if (has_paused_ingress && covered_mbit + EPS >= excess_mbit) {
+                break;
             }
 
+            ingress_desc& ingress = ns->ingress_links[ingress_id];
             record_pause_change(m, ingress_id, ingress, 1);
-            ingress.last_pause_frame_interval = m->interval_id;
+            ingress.pause_asserted = 1;
+            has_paused_ingress = true;
+            covered_mbit += ingress.queued_mbit;
             send_pause_update_for_ingress(ns, ingress_id, m->interval_id, 1, lp);
         }
     }
-
-    schedule_ethernet_pause_eval(m->interval_id + 1, lp);
 }
 
 static void schedule_arrival(int interval_id, tw_lpid dst_gid, const fluid_msg* src_msg,
@@ -1907,7 +1961,8 @@ static std::uint64_t extend_path_hash(std::uint64_t hash, int switch_id) {
 
 static int find_reusable_source_flow_index(const terminal_state* ns) {
     for (int i = 0; i < ns->source_flows.size(); ++i) {
-        if (ns->source_flows[i].remaining_source_mbit <= EPS) {
+        if (ns->source_flows[i].remaining_source_mbit <= EPS &&
+            ns->source_flows[i].pending_window_mbit <= EPS) {
             return i;
         }
     }
@@ -2076,7 +2131,12 @@ static void terminal_init(terminal_state* ns, tw_lp* lp) {
     }
     ns->attached_switch = terminals[ns->terminal_id].switch_id;
     ns->next_flowlet_seq = 0;
-    ns->link_paused_until_interval = -1;
+    ns->tx_window_active = 0;
+    ns->tx_window_interval = -1;
+    ns->tx_last_update_time_ns = 0.0;
+    ns->link_paused = 0;
+    ns->pause_started_at_ns = 0.0;
+    ns->total_pause_time_ns = 0.0;
     schedule_workload_generate(ns, first_terminal_generate_interval(), lp);
     schedule_terminal_send(0, lp);
 }
@@ -2140,10 +2200,12 @@ static void log_terminal_generate_event(const terminal_state* ns, const fluid_ms
 }
 
 static void log_terminal_send_event(const terminal_state* ns, const fluid_msg* m) {
+    const int send_interval =
+        m->rc_prev_tx_window_active ? m->rc_prev_tx_window_interval : m->interval_id;
     for (int i = 0; i < m->rc_alloc_count; ++i) {
         const rc_alloc_record& rc = m->rc_allocs[i];
         if (rc.valid && rc.send_mbit > EPS) {
-            append_terminal_log(m->interval_id, "send", ns->terminal_id,
+            append_terminal_log(send_interval, "send", ns->terminal_id,
                                 rc.before.destination_terminal, rc.send_mbit);
         }
     }
@@ -2253,6 +2315,8 @@ static void handle_workload_generate(terminal_state* ns, fluid_msg* m, tw_lp* lp
         flow.destination_terminal = dst;
         flow.creation_interval = interval;
         flow.remaining_source_mbit = total_mbit;
+        flow.pending_window_mbit = 0.0;
+        flow.send_start_time_ns = event_time_ns(interval, PHASE_TERMINAL_SEND);
         flow.current_send_rate_mbps = cached_initial_rate_mbps(ns, dst);
         flow.rate_epoch = -1;
 
@@ -2278,62 +2342,145 @@ static void handle_workload_generate(terminal_state* ns, fluid_msg* m, tw_lp* lp
     schedule_workload_generate(ns, next_terminal_generate_interval_after(interval), lp);
 }
 
-static void handle_terminal_send(terminal_state* ns, fluid_msg* m, tw_lp* lp) {
+static void prepare_terminal_tx_rc(terminal_state* ns, fluid_msg* m) {
+    if (m->rc_terminal_tx_active) {
+        return;
+    }
+    m->rc_terminal_tx_active = 1;
     m->rc_alloc_count = 0;
-    m->rc_pause_target_port = -1;
+    m->rc_prev_tx_window_active = ns->tx_window_active;
+    m->rc_prev_tx_window_interval = ns->tx_window_interval;
+    m->rc_prev_tx_last_update_time_ns = ns->tx_last_update_time_ns;
+}
+
+static rc_alloc_record* record_terminal_flow_before(terminal_state* ns, fluid_msg* m,
+                                                    int flow_index) {
+    for (int i = 0; i < m->rc_alloc_count; ++i) {
+        if (m->rc_allocs[i].valid && m->rc_allocs[i].queue_index == flow_index) {
+            return &m->rc_allocs[i];
+        }
+    }
+    if (m->rc_alloc_count >= MAX_RC_ALLOCATIONS) {
+        tw_error(TW_LOC, "terminal %d exceeded MAX_RC_ALLOCATIONS=%d", ns->terminal_id,
+                 MAX_RC_ALLOCATIONS);
+    }
+    source_flow& flow = ns->source_flows[flow_index];
+    rc_alloc_record* rc = &m->rc_allocs[m->rc_alloc_count++];
+    memset(rc, 0, sizeof(*rc));
+    rc->valid = 1;
+    rc->queue_index = flow_index;
+    rc->before.flowlet_id = flow.flow_id;
+    rc->before.destination_terminal = flow.destination_terminal;
+    rc->before.creation_interval = flow.creation_interval;
+    rc->before.remaining_mbit = flow.remaining_source_mbit;
+    /* Terminal events reuse buffered_mbit as the pre-event pending-window value. */
+    rc->buffered_mbit = flow.pending_window_mbit;
+    return rc;
+}
+
+static void advance_terminal_transmission(terminal_state* ns, tw_stime now_ns, fluid_msg* m) {
+    prepare_terminal_tx_rc(ns, m);
+    if (!ns->tx_window_active || now_ns <= ns->tx_last_update_time_ns + EPS) {
+        ns->tx_last_update_time_ns = now_ns;
+        return;
+    }
+
+    const tw_stime active_start_ns = ns->tx_last_update_time_ns;
+    const double active_seconds =
+        ns->link_paused ? 0.0 : std::max(0.0, now_ns - active_start_ns) / 1.0e9;
+    if (active_seconds <= 0.0) {
+        ns->tx_last_update_time_ns = now_ns;
+        return;
+    }
 
     double requested[MAX_SOURCE_FLOWS_PER_TERMINAL] = {0.0};
-    int active_count = 0;
-    for (int i = 0; i < (int)ns->source_flows.size(); ++i) {
+    for (int i = 0; i < ns->source_flows.size(); ++i) {
         const source_flow& flow = ns->source_flows[i];
         if (flow.remaining_source_mbit <= EPS) {
             continue;
         }
+        const tw_stime flow_start_ns = std::max(active_start_ns, flow.send_start_time_ns);
+        const double flow_seconds = std::max(0.0, now_ns - flow_start_ns) / 1.0e9;
         requested[i] = std::min(flow.remaining_source_mbit,
-                                flow.current_send_rate_mbps * cfg.interval_seconds);
-        ++active_count;
-    }
-    if (active_count > MAX_RC_ALLOCATIONS) {
-        tw_error(TW_LOC, "terminal %d has %d active source flows, exceeding MAX_RC_ALLOCATIONS=%d",
-                 ns->terminal_id, active_count, MAX_RC_ALLOCATIONS);
+                                flow.current_send_rate_mbps * flow_seconds);
     }
 
-    if (m->interval_id < ns->link_paused_until_interval) {
-        if (active_count > 0) {
-            ns->link_paused_intervals++;
-            m->rc_pause_target_port = -2;
+    const double terminal_budget =
+        switches[ns->attached_switch].terminal_bandwidth_mbps * active_seconds;
+    double allocations[MAX_SOURCE_FLOWS_PER_TERMINAL] = {0.0};
+    compute_max_min_allocations(requested, ns->source_flows.size(), terminal_budget,
+                                allocations);
+
+    for (int i = 0; i < ns->source_flows.size(); ++i) {
+        const double send_mbit = allocations[i];
+        if (send_mbit <= EPS) {
+            continue;
         }
-    } else {
-        const double terminal_budget =
-            switches[ns->attached_switch].terminal_bandwidth_mbps * cfg.interval_seconds;
-        double allocations[MAX_SOURCE_FLOWS_PER_TERMINAL] = {0.0};
-        compute_max_min_allocations(requested, ns->source_flows.size(), terminal_budget,
-                                    allocations);
+        source_flow& flow = ns->source_flows[i];
+        rc_alloc_record* rc = record_terminal_flow_before(ns, m, i);
+        /* Terminal events reuse dropped_mbit as bytes integrated by this event. */
+        rc->dropped_mbit += send_mbit;
+        flow.remaining_source_mbit -= send_mbit;
+        if (flow.remaining_source_mbit < 0.0 && flow.remaining_source_mbit > -EPS) {
+            flow.remaining_source_mbit = 0.0;
+        }
+        flow.pending_window_mbit += send_mbit;
+        ns->sent_to_switch_mbit += send_mbit;
+    }
+    ns->tx_last_update_time_ns = now_ns;
+}
 
+static void rollback_terminal_transmission(terminal_state* ns, fluid_msg* m) {
+    if (!m->rc_terminal_tx_active) {
+        return;
+    }
+    for (int i = m->rc_alloc_count - 1; i >= 0; --i) {
+        const rc_alloc_record& rc = m->rc_allocs[i];
+        if (!rc.valid) {
+            continue;
+        }
+        source_flow& flow = ns->source_flows[rc.queue_index];
+        flow.remaining_source_mbit = rc.before.remaining_mbit;
+        flow.pending_window_mbit = rc.buffered_mbit;
+        ns->sent_to_switch_mbit -= rc.dropped_mbit;
+    }
+    ns->tx_window_active = m->rc_prev_tx_window_active;
+    ns->tx_window_interval = m->rc_prev_tx_window_interval;
+    ns->tx_last_update_time_ns = m->rc_prev_tx_last_update_time_ns;
+
+    /*
+     * A Time Warp event may execute, roll back, and execute again. Clear the
+     * event-local snapshot marker after reverse computation so the next
+     * forward execution records fresh terminal state and allocation deltas.
+     */
+    m->rc_terminal_tx_active = 0;
+    m->rc_alloc_count = 0;
+}
+
+static void handle_terminal_send(terminal_state* ns, fluid_msg* m, tw_lp* lp) {
+    m->rc_pause_target_port = -1;
+    prepare_terminal_tx_rc(ns, m);
+    advance_terminal_transmission(ns, tw_now(lp), m);
+
+    if (ns->tx_window_active) {
+        int active_count = 0;
         for (int i = 0; i < ns->source_flows.size(); ++i) {
-            const double send_mbit = allocations[i];
-            if (send_mbit <= EPS) {
+            source_flow& flow = ns->source_flows[i];
+            if (flow.remaining_source_mbit > EPS || flow.pending_window_mbit > EPS) {
+                ++active_count;
+            }
+            if (flow.pending_window_mbit <= EPS) {
                 continue;
             }
 
-            source_flow& flow = ns->source_flows[i];
-            rc_alloc_record& rc = m->rc_allocs[m->rc_alloc_count++];
-            memset(&rc, 0, sizeof(rc));
-            rc.valid = 1;
-            rc.queue_index = i;
-            rc.before.flowlet_id = flow.flow_id;
-            rc.before.destination_terminal = flow.destination_terminal;
-            rc.send_mbit = send_mbit;
-
-            flow.remaining_source_mbit -= send_mbit;
-            if (flow.remaining_source_mbit < 0.0 && flow.remaining_source_mbit > -EPS) {
-                flow.remaining_source_mbit = 0.0;
-            }
+            rc_alloc_record* rc = record_terminal_flow_before(ns, m, i);
+            const double send_mbit = flow.pending_window_mbit;
+            rc->send_mbit = send_mbit;
 
             fluid_msg out_msg;
             memset(&out_msg, 0, sizeof(out_msg));
             out_msg.event_type = FLOWLET_ARRIVAL;
-            out_msg.interval_id = m->interval_id + 1;
+            out_msg.interval_id = m->interval_id;
             out_msg.source_terminal = ns->terminal_id;
             out_msg.destination_terminal = flow.destination_terminal;
             out_msg.source_switch = ns->attached_switch;
@@ -2342,17 +2489,30 @@ static void handle_terminal_send(terminal_state* ns, fluid_msg* m, tw_lp* lp) {
             out_msg.final_segment_sent = flow.remaining_source_mbit <= EPS;
             out_msg.mbit = send_mbit;
 
-            schedule_arrival(m->interval_id + 1, get_switch_gid(ns->attached_switch), &out_msg,
+            schedule_arrival(m->interval_id, get_switch_gid(ns->attached_switch), &out_msg,
                              send_mbit, lp);
-            ns->sent_to_switch_mbit += send_mbit;
+            flow.pending_window_mbit = 0.0;
         }
+        /* PAUSE duration is accumulated at PAUSE/RESUME transition timestamps. */
+    }
+
+    const int total_intervals = cfg.num_send_intervals + cfg.num_drain_intervals;
+    if (m->interval_id < total_intervals) {
+        ns->tx_window_active = 1;
+        ns->tx_window_interval = m->interval_id;
+        ns->tx_last_update_time_ns = tw_now(lp);
+        schedule_terminal_send(m->interval_id + 1, lp);
+    } else {
+        ns->tx_window_active = 0;
+        ns->tx_window_interval = -1;
     }
 
     log_terminal_send_event(ns, m);
-    schedule_terminal_send(m->interval_id + 1, lp);
 }
 
-static void handle_terminal_rate_update(terminal_state* ns, fluid_msg* m) {
+static void handle_terminal_rate_update(terminal_state* ns, fluid_msg* m, tw_lp* lp) {
+    prepare_terminal_tx_rc(ns, m);
+    advance_terminal_transmission(ns, tw_now(lp), m);
     m->rc_rate_update_applied = 0;
     m->rc_terminal_flow_index = -1;
 
@@ -2388,6 +2548,7 @@ static void handle_terminal_arrival(terminal_state* ns, fluid_msg* m) {
 
 static void terminal_event(terminal_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp) {
     (void)b;
+    debug_backpressure_event("terminal", ns->terminal_id, m, lp);
     switch (m->event_type) {
     case TERMINAL_WORKLOAD_GENERATE:
         handle_workload_generate(ns, m, lp);
@@ -2396,20 +2557,27 @@ static void terminal_event(terminal_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp
         handle_terminal_send(ns, m, lp);
         break;
     case TERMINAL_RATE_UPDATE:
-        handle_terminal_rate_update(ns, m);
+        handle_terminal_rate_update(ns, m, lp);
         break;
     case FLOWLET_ARRIVAL:
         handle_terminal_arrival(ns, m);
         break;
-    case ETHERNET_PAUSE_FRAME_UPDATE:
-        m->rc_prev_pause_until_interval = ns->link_paused_until_interval;
-        if (m->pause_asserted) {
-            ns->link_paused_until_interval =
-                std::max(ns->link_paused_until_interval,
-                         m->interval_id + cfg.pause_duration_intervals + 1);
-        } else {
-            ns->link_paused_until_interval = m->interval_id;
+    case ETHERNET_PAUSE_FRAME_UPDATE: {
+        prepare_terminal_tx_rc(ns, m);
+        advance_terminal_transmission(ns, tw_now(lp), m);
+        m->rc_prev_pause_asserted = ns->link_paused;
+        m->rc_prev_pause_started_at_ns = ns->pause_started_at_ns;
+        m->rc_prev_total_pause_time_ns = ns->total_pause_time_ns;
+
+        const int new_paused = m->pause_asserted ? 1 : 0;
+        if (!ns->link_paused && new_paused) {
+            ns->pause_started_at_ns = tw_now(lp);
+        } else if (ns->link_paused && !new_paused) {
+            ns->total_pause_time_ns +=
+                std::max((tw_stime)0.0, tw_now(lp) - ns->pause_started_at_ns);
+            ns->pause_started_at_ns = 0.0;
         }
+        ns->link_paused = new_paused;
         ns->pause_updates_received++;
         if (m->pause_asserted) {
             ns->pause_frames_received++;
@@ -2417,6 +2585,7 @@ static void terminal_event(terminal_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp
             ns->resume_frames_received++;
         }
         break;
+    }
     default:
         tw_error(TW_LOC, "terminal received unknown event type %d", m->event_type);
     }
@@ -2447,18 +2616,7 @@ static void terminal_rev_event(terminal_state* ns, tw_bf* b, fluid_msg* m, tw_lp
         }
         break;
     case TERMINAL_SEND:
-        if (m->rc_pause_target_port == -2) {
-            ns->link_paused_intervals--;
-        }
-        for (int i = m->rc_alloc_count - 1; i >= 0; --i) {
-            const rc_alloc_record& rc = m->rc_allocs[i];
-            if (!rc.valid) {
-                continue;
-            }
-            source_flow& flow = ns->source_flows[rc.queue_index];
-            flow.remaining_source_mbit += rc.send_mbit;
-            ns->sent_to_switch_mbit -= rc.send_mbit;
-        }
+        rollback_terminal_transmission(ns, m);
         break;
     case TERMINAL_RATE_UPDATE:
         if (m->rc_rate_update_applied) {
@@ -2478,19 +2636,23 @@ static void terminal_rev_event(terminal_state* ns, tw_bf* b, fluid_msg* m, tw_lp
         if (m->rc_rate_update_applied || m->rc_rate_cache_changed) {
             ns->rate_updates_received--;
         }
+        rollback_terminal_transmission(ns, m);
         break;
     case FLOWLET_ARRIVAL:
         ns->received_mbit -= m->mbit;
         ns->received_fragments--;
         break;
     case ETHERNET_PAUSE_FRAME_UPDATE:
-        ns->link_paused_until_interval = m->rc_prev_pause_until_interval;
+        ns->link_paused = m->rc_prev_pause_asserted;
+        ns->pause_started_at_ns = m->rc_prev_pause_started_at_ns;
+        ns->total_pause_time_ns = m->rc_prev_total_pause_time_ns;
         ns->pause_updates_received--;
         if (m->pause_asserted) {
             ns->pause_frames_received--;
         } else {
             ns->resume_frames_received--;
         }
+        rollback_terminal_transmission(ns, m);
         break;
     default:
         tw_error(TW_LOC, "terminal reverse received unknown event type %d", m->event_type);
@@ -2530,19 +2692,25 @@ static void terminal_finalize(terminal_state* ns, tw_lp* lp) {
         }
     }
     const char* unit = output_data_field_suffix();
+    double total_pause_time_ns = ns->total_pause_time_ns;
+    if (ns->link_paused) {
+        total_pause_time_ns +=
+            std::max((tw_stime)0.0, tw_now(lp) - ns->pause_started_at_ns);
+    }
+    const double total_pause_time_ms = total_pause_time_ns / 1.0e6;
     printf("fluid-flow-wan-terminal gid=%llu terminal=%d switch=%d generated_%s=%.6f "
            "sent_%s=%.6f source_backlog_%s=%.6f active_source_flows=%d "
            "received_%s=%.6f rate_updates_received=%llu rate_cache_entries=%d "
            "pause_updates_received=%llu "
            "pause_frames_received=%llu resume_frames_received=%llu "
-           "link_paused_intervals=%llu generated_flows=%d received_fragments=%d\n",
+           "total_pause_time_ms=%.6f generated_flows=%d received_fragments=%d\n",
            (unsigned long long)lp->gid, ns->terminal_id, ns->attached_switch, unit,
            to_output_data_unit(ns->generated_mbit), unit,
            to_output_data_unit(ns->sent_to_switch_mbit), unit,
            to_output_data_unit(source_backlog_mbit), active_source_flows, unit,
            to_output_data_unit(ns->received_mbit), ns->rate_updates_received,
            ns->rate_cache_entry_count, ns->pause_updates_received, ns->pause_frames_received,
-           ns->resume_frames_received, ns->link_paused_intervals, ns->generated_flowlets,
+           ns->resume_frames_received, total_pause_time_ms, ns->generated_flowlets,
            ns->received_fragments);
 }
 
@@ -2690,6 +2858,7 @@ static double query_statistical_phase_egress_mbit(const switch_state* ns, int po
 
     const std::vector<std::string> args = {"1", std::to_string(ns->switch_id)};
     std::vector<std::string> reply;
+    const double request_start_sec = MPI_Wtime();
     try {
         reply = zmqml_director_request("fluid-flow-wan", "statistical", "inference", args,
                                        payload.str());
@@ -2703,6 +2872,43 @@ static double query_statistical_phase_egress_mbit(const switch_state* ns, int po
                  "fluid-flow-wan statistical egress inference failed on switch %d port %d "
                  "phase %s",
                  ns->switch_id, port_id, phase);
+    }
+
+    const double request_total_sec = MPI_Wtime() - request_start_sec;
+
+    double server_processing_sec = 0.0;
+    if (reply.size() > 1) {
+        char* endptr = NULL;
+        const double parsed = strtod(reply[1].c_str(), &endptr);
+        if (endptr != reply[1].c_str() && std::isfinite(parsed) && parsed >= 0.0) {
+            server_processing_sec = parsed;
+        } else if (cfg.debug_prints) {
+            fprintf(stderr,
+                    "[fluid-flow-wan zmq latency] warning: could not parse server processing "
+                    "time switch=%d port=%d interval=%d phase=%s ret[1]=%s\n",
+                    ns->switch_id, port_id, interval_id, phase, reply[1].c_str());
+            fflush(stderr);
+        }
+    } else if (cfg.debug_prints) {
+        fprintf(stderr,
+                "[fluid-flow-wan zmq latency] warning: reply has no server processing time "
+                "switch=%d port=%d interval=%d phase=%s reply_fields=%llu\n",
+                ns->switch_id, port_id, interval_id, phase,
+                (unsigned long long)reply.size());
+        fflush(stderr);
+    }
+
+    director_record_external_zmq_latency(server_processing_sec, request_total_sec);
+
+    const double client_transport_sec =
+        std::max(0.0, request_total_sec - server_processing_sec);
+    if (cfg.debug_prints) {
+        fprintf(stderr,
+                "[fluid-flow-wan zmq latency] switch=%d port=%d interval=%d phase=%s "
+                "processing_sec=%.9f total_sec=%.9f client_transport_sec=%.9f\n",
+                ns->switch_id, port_id, interval_id, phase, server_processing_sec,
+                request_total_sec, client_transport_sec);
+        fflush(stderr);
     }
 
     if (reply.size() < 3 || reply[0] != "done") {
@@ -2817,13 +3023,12 @@ static void send_rate_feedback_upstream(switch_state* ns, const switch_rate_flow
         tw_error(TW_LOC, "invalid rate-feedback ingress on switch %d", ns->switch_id);
     }
     const ingress_desc& ingress = ns->ingress_links[flow.ingress_id];
-    int delivery_interval = interval_id + 1;
     if (ingress.is_terminal) {
-        schedule_terminal_rate_update(delivery_interval, ingress.peer_index, flow.flow_id,
+        schedule_terminal_rate_update(interval_id, ingress.peer_index, flow.flow_id,
                                       flow.destination_terminal, rate_mbps, rate_epoch,
                                       scope_key_type, scope_key_index, lp);
     } else {
-        schedule_switch_rate_feedback(delivery_interval, ingress.peer_index, ns->switch_id,
+        schedule_switch_rate_feedback(interval_id, ingress.peer_index, ns->switch_id,
                                       flow.flow_id, flow.source_terminal, flow.destination_terminal,
                                       rate_mbps, rate_epoch, scope_key_type, scope_key_index, lp);
     }
@@ -2876,17 +3081,17 @@ static void handle_switch_rate_eval(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     m->rc_rate_eval_event_active = 0;
 
     const int port_id = m->port_id;
-    if (port_id < 0 || port_id >= ns->num_ports || m->interval_id < 0 ||
-        m->interval_id >= MAX_SIMULATION_INTERVALS) {
+    if (port_id < 0 || port_id >= ns->num_ports) {
         tw_error(TW_LOC, "invalid rate-eval event on switch %d port %d interval %d", ns->switch_id,
                  port_id, m->interval_id);
     }
-    if (!interval_flag_is_set(ns->scheduled_rate_eval[port_id], m->interval_id)) {
+    if (!ns->rate_eval_pending[port_id]) {
         return;
     }
 
-    interval_flag_set(&ns->scheduled_rate_eval[port_id], m->interval_id, false);
+    ns->rate_eval_pending[port_id] = 0;
     m->rc_rate_eval_event_active = 1;
+    m->rc_prev_rate_epoch = ns->next_rate_epoch[port_id];
 
     const switch_rate_flow* active_flows[MAX_FLOW_ENTRIES_PER_PORT];
     double allocations_mbps[MAX_FLOW_ENTRIES_PER_PORT];
@@ -2906,6 +3111,8 @@ static void handle_switch_rate_eval(switch_state* ns, fluid_msg* m, tw_lp* lp) {
         return;
     }
 
+    const int rate_epoch = ns->next_rate_epoch[port_id]++;
+
     compute_port_rate_allocations(ns, port_id, active_flows, active_count, allocations_mbps);
 
     const port_desc& port = ns->ports[port_id];
@@ -2914,7 +3121,7 @@ static void handle_switch_rate_eval(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     const int scope_key_index = port.target_index;
 
     for (int i = 0; i < active_count; ++i) {
-        send_rate_feedback_upstream(ns, *active_flows[i], allocations_mbps[i], m->interval_id,
+        send_rate_feedback_upstream(ns, *active_flows[i], allocations_mbps[i], rate_epoch,
                                     scope_key_type, scope_key_index, m->interval_id, lp);
     }
 }
@@ -2929,8 +3136,13 @@ static void switch_init(switch_state* ns, tw_lp* lp) {
     for (int p = 0; p < MAX_PORTS_PER_SWITCH; ++p) {
         ns->capacity_accounting_interval[p] = -1;
         ns->capacity_used_mbit[p] = 0.0;
-        ns->output_link_paused_until_interval[p] = -1;
+        ns->output_link_paused[p] = 0;
+        ns->output_link_pause_started_at_ns[p] = 0.0;
+        ns->output_link_total_pause_time_ns[p] = 0.0;
+        ns->rate_eval_pending[p] = 0;
+        ns->next_rate_epoch[p] = 0;
     }
+    ns->pause_eval_pending = 0;
 
     const switch_info& sw = switches[ns->switch_id];
 
@@ -2951,7 +3163,6 @@ static void switch_init(switch_state* ns, tw_lp* lp) {
         ingress.peer_index = sw.terminal_start + t;
         ingress.queued_mbit = 0.0;
         ingress.pause_asserted = 0;
-        ingress.last_pause_frame_interval = -1;
     }
     for (int upstream = 0; upstream < (int)switches.size(); ++upstream) {
         if (upstream == ns->switch_id || !switch_has_directed_link_to(upstream, ns->switch_id)) {
@@ -2965,7 +3176,6 @@ static void switch_init(switch_state* ns, tw_lp* lp) {
         ingress.peer_index = upstream;
         ingress.queued_mbit = 0.0;
         ingress.pause_asserted = 0;
-        ingress.last_pause_frame_interval = -1;
     }
     if (ns->num_ingress_links <= 0) {
         tw_error(TW_LOC, "switch %d has no ingress links", ns->switch_id);
@@ -3000,14 +3210,14 @@ static void switch_init(switch_state* ns, tw_lp* lp) {
      * arrival interval. Any residual bytes admitted to the physical buffer
      * schedule early egress in the following interval.
      *
-     * PAUSE hysteresis is evaluated exactly once per switch and interval by a
-     * periodic ETHERNET_PAUSE_EVAL event.
+     * PAUSE hysteresis is demand-driven. Buffer occupancy changes request a
+     * millisecond-scale ETHERNET_PAUSE_EVAL. Asserted PAUSE state persists
+     * until a later low-watermark evaluation sends RESUME.
      *
      * Rate evaluation is demand-driven. A port is reevaluated when its active
      * flow set changes or when downstream feedback changes one flow's demand
      * cap, because full max-min allocation can change every flow on the port.
      */
-    schedule_ethernet_pause_eval(0, lp);
 }
 
 
@@ -3156,7 +3366,7 @@ static void send_flowlet_fragment(switch_state* ns, int port_id, const queued_fl
 static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     m->rc_egress_request_created = 0;
     m->rc_rate_eval_request_created = 0;
-    m->rc_paused_interval_counted = 0;
+    m->rc_pause_eval_request_created = 0;
     m->rc_accepted_mbit = 0.0;
     m->rc_dropped_mbit = 0.0;
 
@@ -3196,8 +3406,7 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
         std::max(0.0, capacity - ns->capacity_used_mbit[port_id]);
     const double eligible_phase_data_mbit =
         service_staged ? staged_mbit_on_port(ns, port_id) : queued_mbit_on_port(ns, port_id);
-    const int output_paused =
-        m->interval_id < ns->output_link_paused_until_interval[port_id] ? 1 : 0;
+    const int output_paused = ns->output_link_paused[port_id];
     const double local_phase_egress_mbit =
         output_paused ? 0.0 : std::min(remaining_physical_capacity, eligible_phase_data_mbit);
 
@@ -3239,10 +3448,6 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     m->rc_pause_target_port = -1;
 
     if (output_paused) {
-        if (active_before > 0) {
-            ns->paused_egress_intervals++;
-            m->rc_paused_interval_counted = 1;
-        }
         remaining_capacity = 0.0;
     }
 
@@ -3403,9 +3608,12 @@ static void handle_switch_egress(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     if (rate_active_after != rate_active_before) {
         request_switch_rate_eval(ns, m->interval_id, port_id, lp, m);
     }
+    if (std::fabs(shared_queued_after - shared_queued_before) > EPS) {
+        request_ethernet_pause_eval(ns, m->interval_id, lp, m);
+    }
 }
 
-static void handle_switch_pause_update(switch_state* ns, fluid_msg* m) {
+static void handle_switch_pause_update(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     int port_id = find_switch_link_port(ns, m->pause_source_switch);
     if (port_id < 0) {
         tw_error(TW_LOC,
@@ -3414,14 +3622,20 @@ static void handle_switch_pause_update(switch_state* ns, fluid_msg* m) {
     }
 
     m->rc_pause_target_port = port_id;
-    m->rc_prev_pause_until_interval = ns->output_link_paused_until_interval[port_id];
-    if (m->pause_asserted) {
-        ns->output_link_paused_until_interval[port_id] =
-            std::max(ns->output_link_paused_until_interval[port_id],
-                     m->interval_id + cfg.pause_duration_intervals + 1);
-    } else {
-        ns->output_link_paused_until_interval[port_id] = m->interval_id;
+    m->rc_prev_pause_asserted = ns->output_link_paused[port_id];
+    m->rc_prev_pause_started_at_ns = ns->output_link_pause_started_at_ns[port_id];
+    m->rc_prev_total_pause_time_ns = ns->output_link_total_pause_time_ns[port_id];
+
+    const int new_paused = m->pause_asserted ? 1 : 0;
+    if (!ns->output_link_paused[port_id] && new_paused) {
+        ns->output_link_pause_started_at_ns[port_id] = tw_now(lp);
+    } else if (ns->output_link_paused[port_id] && !new_paused) {
+        ns->output_link_total_pause_time_ns[port_id] +=
+            std::max((tw_stime)0.0,
+                     tw_now(lp) - ns->output_link_pause_started_at_ns[port_id]);
+        ns->output_link_pause_started_at_ns[port_id] = 0.0;
     }
+    ns->output_link_paused[port_id] = new_paused;
     ns->pause_updates_received++;
     if (m->pause_asserted) {
         ns->pause_frames_received++;
@@ -3432,6 +3646,7 @@ static void handle_switch_pause_update(switch_state* ns, fluid_msg* m) {
 
 static void switch_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp) {
     (void)b;
+    debug_backpressure_event("switch", ns->switch_id, m, lp);
     switch (m->event_type) {
     case FLOWLET_ARRIVAL:
         handle_switch_arrival(ns, m, lp);
@@ -3441,7 +3656,7 @@ static void switch_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp) {
         handle_switch_egress(ns, m, lp);
         break;
     case ETHERNET_PAUSE_FRAME_UPDATE:
-        handle_switch_pause_update(ns, m);
+        handle_switch_pause_update(ns, m, lp);
         break;
     case ETHERNET_PAUSE_EVAL:
         handle_ethernet_pause_eval(ns, m, lp);
@@ -3460,8 +3675,8 @@ static void switch_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp) {
 static void rollback_switch_arrival(switch_state* ns, fluid_msg* m) {
     ns->received_fragments--;
 
-    undo_requested_switch_egress(ns, m);
     undo_requested_switch_rate_eval(ns, m);
+    undo_requested_switch_egress(ns, m);
 
     if (m->rc_no_route) {
         ns->dropped_mbit -= m->rc_dropped_mbit;
@@ -3534,6 +3749,7 @@ static void rollback_switch_egress(switch_state* ns, fluid_msg* m) {
         tw_error(TW_LOC, "invalid rollback egress port %d on switch %d", port_id, ns->switch_id);
     }
 
+    undo_requested_ethernet_pause_eval(ns, m);
     undo_requested_switch_egress(ns, m);
     undo_requested_switch_rate_eval(ns, m);
 
@@ -3545,10 +3761,6 @@ static void rollback_switch_egress(switch_state* ns, fluid_msg* m) {
     interval_flag_set(scheduled, m->interval_id, true);
     ns->capacity_accounting_interval[port_id] = m->rc_prev_capacity_accounting_interval;
     ns->capacity_used_mbit[port_id] = m->rc_prev_capacity_used_mbit;
-    if (m->rc_paused_interval_counted) {
-        ns->paused_egress_intervals--;
-    }
-
     fixed_vector<queued_flowlet, MAX_FLOW_ENTRIES_PER_PORT>& qv = ns->queues[port_id];
     fixed_vector<queued_flowlet, MAX_FLOW_ENTRIES_PER_PORT>& staged = ns->staged_arrivals[port_id];
     const port_desc* p = &ns->ports[port_id];
@@ -3662,11 +3874,11 @@ static void switch_rev_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp
         break;
 
     case ETHERNET_PAUSE_EVAL:
+        undo_requested_ethernet_pause_eval(ns, m);
         for (int i = m->rc_pause_change_count - 1; i >= 0; --i) {
             int ingress_id = m->rc_pause_ingress_id[i];
             ingress_desc& ingress = ns->ingress_links[ingress_id];
             ingress.pause_asserted = m->rc_pause_prev_asserted[i];
-            ingress.last_pause_frame_interval = m->rc_pause_prev_last_interval[i];
             ns->pause_updates_sent--;
             if (m->rc_pause_sent_asserted[i]) {
                 ns->pause_frames_sent--;
@@ -3674,11 +3886,17 @@ static void switch_rev_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp
                 ns->resume_frames_sent--;
             }
         }
+        if (m->rc_pause_eval_event_active) {
+            ns->pause_eval_pending = 1;
+        }
         break;
 
     case ETHERNET_PAUSE_FRAME_UPDATE:
-        ns->output_link_paused_until_interval[m->rc_pause_target_port] =
-            m->rc_prev_pause_until_interval;
+        ns->output_link_paused[m->rc_pause_target_port] = m->rc_prev_pause_asserted;
+        ns->output_link_pause_started_at_ns[m->rc_pause_target_port] =
+            m->rc_prev_pause_started_at_ns;
+        ns->output_link_total_pause_time_ns[m->rc_pause_target_port] =
+            m->rc_prev_total_pause_time_ns;
         ns->pause_updates_received--;
         if (m->pause_asserted) {
             ns->pause_frames_received--;
@@ -3700,11 +3918,11 @@ static void switch_rev_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp
 
     case SWITCH_RATE_EVAL:
         if (m->rc_rate_eval_event_active) {
-            if (m->port_id < 0 || m->port_id >= ns->num_ports || m->interval_id < 0 ||
-                m->interval_id >= MAX_SIMULATION_INTERVALS) {
+            if (m->port_id < 0 || m->port_id >= ns->num_ports) {
                 tw_error(TW_LOC, "invalid rate-eval rollback state");
             }
-            interval_flag_set(&ns->scheduled_rate_eval[m->port_id], m->interval_id, true);
+            ns->rate_eval_pending[m->port_id] = 1;
+            ns->next_rate_epoch[m->port_id] = m->rc_prev_rate_epoch;
         }
         break;
 
@@ -3751,12 +3969,24 @@ static void switch_finalize(switch_state* ns, tw_lp* lp) {
         queued += queued_mbit_on_port(ns, p);
     }
     const char* unit = output_data_field_suffix();
+    /* Sum paused duration across outputs; concurrent paused outputs count independently. */
+    double total_pause_time_ns = 0.0;
+    for (int p = 0; p < ns->num_ports; ++p) {
+        double port_pause_time_ns = ns->output_link_total_pause_time_ns[p];
+        if (ns->output_link_paused[p]) {
+            port_pause_time_ns +=
+                std::max((tw_stime)0.0,
+                         tw_now(lp) - ns->output_link_pause_started_at_ns[p]);
+        }
+        total_pause_time_ns += port_pause_time_ns;
+    }
+    const double total_pause_time_ms = total_pause_time_ns / 1.0e6;
     printf("fluid-flow-wan gid=%llu switch=%d name=%s ports=%d shared_buffer_%s=%.6f "
            "received_fragments=%d sent_fragments=%d buffered_residual_%s=%.6f "
            "sent_%s=%.6f local_delivery_%s=%.6f dropped_%s=%.6f ready_queue_%s=%.6f "
            "shared_buffer_occupied_%s=%.6f pause_asserted=%d pause_updates_sent=%llu "
            "pause_frames_sent=%llu resume_frames_sent=%llu pause_updates_received=%llu "
-           "pause_frames_received=%llu resume_frames_received=%llu paused_egress_intervals=%llu\n",
+           "pause_frames_received=%llu resume_frames_received=%llu total_pause_time_ms=%.6f\n",
            (unsigned long long)lp->gid, ns->switch_id, switches[ns->switch_id].name.c_str(),
            ns->num_ports, unit, to_output_data_unit(ns->shared_buffer_mbit), ns->received_fragments,
            ns->sent_fragments, unit, to_output_data_unit(ns->buffered_residual_mbit), unit,
@@ -3764,7 +3994,7 @@ static void switch_finalize(switch_state* ns, tw_lp* lp) {
            unit, to_output_data_unit(ns->dropped_mbit), unit, to_output_data_unit(queued), unit,
            to_output_data_unit(queued), any_pause_asserted, ns->pause_updates_sent,
            ns->pause_frames_sent, ns->resume_frames_sent, ns->pause_updates_received,
-           ns->pause_frames_received, ns->resume_frames_received, ns->paused_egress_intervals);
+           ns->pause_frames_received, ns->resume_frames_received, total_pause_time_ms);
 }
 
 const tw_optdef app_opt[] = {TWOPT_GROUP("interval-fluid switch/terminal workload"), TWOPT_END()};
@@ -3973,11 +4203,13 @@ int main(int argc, char** argv) {
     if (rank == 0) {
         printf("fluid-flow-wan config: switches=%zu terminals=%zu interval_seconds=%.6f "
                "num_send_intervals=%d num_drain_intervals=%d "
+               "backpressure_delay_ms=%.6f "
                "flow_generation_every_n_intervals=%d random_flow_min_%s=%.6f "
                "random_flow_max_%s=%.6f output_data_unit=%s buffer_mode=shared egress_model=%s "
                "csv_logs=%s ross_message_size=%d fluid_msg_size=%zu\n",
                switches.size(), terminals.size(), cfg.interval_seconds, cfg.num_send_intervals,
-               cfg.num_drain_intervals, cfg.flow_generation_every_n_intervals,
+               cfg.num_drain_intervals, cfg.backpressure_delay_ms,
+               cfg.flow_generation_every_n_intervals,
                output_data_field_suffix(), to_output_data_unit(cfg.random_flow_min_mbit),
                output_data_field_suffix(), to_output_data_unit(cfg.random_flow_max_mbit),
                output_data_unit_symbol(), cfg.egress_model,
@@ -3986,6 +4218,11 @@ int main(int argc, char** argv) {
     }
 
     tw_run();
+#if CODES_HAVE_ZEROMQ
+    if (configured_egress_model == FLUID_EGRESS_MODEL_STATISTICAL) {
+        director_print_external_zmq_latency_stats();
+    }
+#endif
     merge_all_log_buffers(MPI_COMM_CODES);
     tw_end();
     return 0;
