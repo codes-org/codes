@@ -1,9 +1,13 @@
 
 /*
- * Standalone interval-fluid switch/terminal workload model.
+ * Shared interval-fluid switch/terminal implementation for:
+ *   model-net-fluid-flow-wan-random-traffic
+ *   model-net-fluid-flow-wan-trace-traffic
  *
- * Terminal LPs generate persistent stochastic flows, retain unsent bytes at
- * the source, and inject interval-sized segments at delayed advertised rates.
+ * The random-traffic workload generates persistent stochastic flows. The
+ * trace-traffic workload adds measured/offered per-interval volume to persistent
+ * flow ids from a CSV trace. Both retain unsent bytes at the source and inject
+ * interval-sized segments at delayed advertised rates.
  * Switch LPs stage arrivals, service buffered residuals first, advertise full
  * max-min per-flow rates hop by hop, and buffer only unsent arrival residuals.
  * In statistical-hybrid mode, each switch queries a no-training per-switch
@@ -29,6 +33,7 @@
 #include <limits>
 #include <map>
 #include <queue>
+#include <set>
 #include <sstream>
 #include <string>
 #include <type_traits>
@@ -49,6 +54,21 @@
 static const char* GROUP_NAME = "FLUID_FLOW_WAN_GRP";
 static const char* TERMINAL_LP_NAME = "fluid-flow-wan-terminal-lp";
 static const char* SWITCH_LP_NAME = "fluid-flow-wan-switch-lp";
+
+enum fluid_workload_mode {
+    FLUID_WORKLOAD_RANDOM_TRAFFIC = 0,
+    FLUID_WORKLOAD_TRACE_TRAFFIC = 1,
+};
+
+#if defined(FLUID_FLOW_WAN_RANDOM_TRAFFIC) && defined(FLUID_FLOW_WAN_TRACE_TRAFFIC)
+#error "select exactly one fluid-flow WAN workload mode"
+#elif defined(FLUID_FLOW_WAN_TRACE_TRAFFIC)
+static constexpr fluid_workload_mode configured_workload_mode = FLUID_WORKLOAD_TRACE_TRAFFIC;
+static constexpr const char* configured_workload_name = "trace-traffic";
+#else
+static constexpr fluid_workload_mode configured_workload_mode = FLUID_WORKLOAD_RANDOM_TRAFFIC;
+static constexpr const char* configured_workload_name = "random-traffic";
+#endif
 
 static constexpr int MAX_PORTS_PER_SWITCH = 128;
 /*
@@ -163,6 +183,12 @@ static void interval_flag_set(interval_flags* flags, int interval_id, bool value
 static constexpr double PHASE_EARLY_SWITCH_EGRESS = 0.05;
 static constexpr double PHASE_TERMINAL_WORKLOAD_GENERATE = 0.10;
 static constexpr double PHASE_TERMINAL_SEND = 0.15;
+/*
+ * Trace offers are released immediately after the interval send boundary.
+ * The 1 ns separation avoids same-timestamp ordering ambiguity while making
+ * the trace interval effectively identical to the configured data interval.
+ */
+static constexpr double PHASE_TERMINAL_TRACE_OFFER = PHASE_TERMINAL_SEND + 1.0e-9;
 static constexpr double PHASE_FLOWLET_ARRIVAL = 0.20;
 static constexpr double PHASE_LATE_SWITCH_EGRESS = 0.60;
 
@@ -185,6 +211,18 @@ struct terminal_info {
     std::string name;
 };
 
+struct trace_traffic_record {
+    int interval = -1;
+    unsigned long long flow_id = 0;
+    int source_terminal = -1;
+    int destination_terminal = -1;
+    double offered_mbit = 0.0;
+    int creation_interval = -1;
+    int final_offer = 0;
+};
+
+static std::vector<trace_traffic_record> traffic_trace_records;
+
 struct sim_config {
     double interval_seconds = 1.0;
     int num_send_intervals = 20;
@@ -196,6 +234,7 @@ struct sim_config {
     int debug_prints = 0;
     char egress_model[32] = "pdes";
     char topology_yaml_file[1024] = "";
+    char traffic_trace_file[1024] = "";
     char terminal_log_path[1024] = "";
     char switch_log_path[1024] = "";
     char flowlet_log_path[1024] = "";
@@ -281,6 +320,7 @@ struct source_flow {
     tw_stime send_start_time_ns;
     double current_send_rate_mbps;
     int rate_epoch;
+    int workload_complete;
 };
 
 enum rate_cache_key_type {
@@ -872,8 +912,10 @@ static void load_topology_yaml(const char* path) {
         tw_error(TW_LOC, "num_send_intervals must be positive");
     if (cfg.num_drain_intervals < 0)
         cfg.num_drain_intervals = 0;
-    if (cfg.flow_generation_every_n_intervals <= 0)
+    if (configured_workload_mode == FLUID_WORKLOAD_RANDOM_TRAFFIC &&
+        cfg.flow_generation_every_n_intervals <= 0) {
         cfg.flow_generation_every_n_intervals = 3;
+    }
     const int total_intervals = cfg.num_send_intervals + cfg.num_drain_intervals;
     if (total_intervals > MAX_SIMULATION_INTERVALS) {
         tw_error(TW_LOC,
@@ -881,10 +923,201 @@ static void load_topology_yaml(const char* path) {
                  "MAX_SIMULATION_INTERVALS=%d",
                  total_intervals, MAX_SIMULATION_INTERVALS);
     }
-    if (cfg.random_flow_min_mbit < 0.0)
-        tw_error(TW_LOC, "random_flow_min must be nonnegative");
-    if (cfg.random_flow_max_mbit < cfg.random_flow_min_mbit)
-        tw_error(TW_LOC, "random_flow_max must be greater than or equal to random_flow_min");
+    if (configured_workload_mode == FLUID_WORKLOAD_RANDOM_TRAFFIC) {
+        if (cfg.random_flow_min_mbit < 0.0)
+            tw_error(TW_LOC, "random_flow_min must be nonnegative");
+        if (cfg.random_flow_max_mbit < cfg.random_flow_min_mbit)
+            tw_error(TW_LOC,
+                     "random_flow_max must be greater than or equal to random_flow_min");
+    }
+}
+
+static std::vector<std::string> split_trace_csv_line(const std::string& line) {
+    std::vector<std::string> fields;
+    std::string current;
+    for (char ch : line) {
+        if (ch == ',') {
+            fields.push_back(trim(current));
+            current.clear();
+        } else {
+            current.push_back(ch);
+        }
+    }
+    fields.push_back(trim(current));
+    return fields;
+}
+
+static void load_traffic_trace_csv(const char* path) {
+    traffic_trace_records.clear();
+
+    std::ifstream in(path);
+    if (!in.good()) {
+        tw_error(TW_LOC, "could not open traffic trace CSV file: %s", path);
+    }
+
+    std::string line;
+    int line_number = 0;
+    bool header_seen = false;
+    double volume_scale_to_mbit = 1.0;
+
+    struct trace_flow_meta {
+        int source_terminal = -1;
+        int destination_terminal = -1;
+        int creation_interval = -1;
+        int last_interval = -1;
+        int record_count = 0;
+    };
+    std::map<unsigned long long, trace_flow_meta> flow_meta;
+    std::set<std::pair<unsigned long long, int>> seen_flow_intervals;
+
+    while (std::getline(in, line)) {
+        ++line_number;
+        const std::string stripped = trim(remove_inline_comment(line));
+        if (stripped.empty()) {
+            continue;
+        }
+
+        const std::vector<std::string> fields = split_trace_csv_line(stripped);
+        if (!header_seen) {
+            if (fields.size() != 5 || fields[0] != "interval" || fields[1] != "flow_id" ||
+                fields[2] != "source_terminal" || fields[3] != "destination_terminal" ||
+                (fields[4] != "offered_mbit" && fields[4] != "offered_gbit")) {
+                tw_error(TW_LOC,
+                         "traffic trace header must be exactly: interval,flow_id,source_terminal,"
+                         "destination_terminal,offered_mbit (or offered_gbit)");
+            }
+            if (fields[4] == "offered_gbit") {
+                volume_scale_to_mbit = 1000.0;
+                configured_units.observe_giga();
+            } else {
+                configured_units.observe_mega();
+            }
+            header_seen = true;
+            continue;
+        }
+
+        if (fields.size() != 5) {
+            tw_error(TW_LOC, "traffic trace %s line %d has %zu fields; expected 5", path,
+                     line_number, fields.size());
+        }
+
+        char* end = NULL;
+        errno = 0;
+        long interval_long = std::strtol(fields[0].c_str(), &end, 10);
+        if (errno != 0 || end == fields[0].c_str() || *end != '\0' || interval_long < 0 ||
+            interval_long >= cfg.num_send_intervals) {
+            tw_error(TW_LOC,
+                     "traffic trace %s line %d has invalid interval '%s'; expected [0,%d)", path,
+                     line_number, fields[0].c_str(), cfg.num_send_intervals);
+        }
+
+        errno = 0;
+        end = NULL;
+        unsigned long long flow_id = std::strtoull(fields[1].c_str(), &end, 10);
+        if (errno != 0 || end == fields[1].c_str() || *end != '\0') {
+            tw_error(TW_LOC, "traffic trace %s line %d has invalid flow_id '%s'", path,
+                     line_number, fields[1].c_str());
+        }
+
+        errno = 0;
+        end = NULL;
+        long src_long = std::strtol(fields[2].c_str(), &end, 10);
+        if (errno != 0 || end == fields[2].c_str() || *end != '\0' || src_long < 0 ||
+            src_long >= (long)terminals.size()) {
+            tw_error(TW_LOC, "traffic trace %s line %d has invalid source_terminal '%s'", path,
+                     line_number, fields[2].c_str());
+        }
+
+        errno = 0;
+        end = NULL;
+        long dst_long = std::strtol(fields[3].c_str(), &end, 10);
+        if (errno != 0 || end == fields[3].c_str() || *end != '\0' || dst_long < 0 ||
+            dst_long >= (long)terminals.size() || dst_long == src_long) {
+            tw_error(TW_LOC, "traffic trace %s line %d has invalid destination_terminal '%s'",
+                     path, line_number, fields[3].c_str());
+        }
+
+        errno = 0;
+        end = NULL;
+        double offered = std::strtod(fields[4].c_str(), &end);
+        if (errno != 0 || end == fields[4].c_str() || *end != '\0' || !std::isfinite(offered) ||
+            offered <= 0.0) {
+            tw_error(TW_LOC, "traffic trace %s line %d has invalid offered volume '%s'", path,
+                     line_number, fields[4].c_str());
+        }
+
+        const auto flow_interval_key = std::make_pair(flow_id, (int)interval_long);
+        if (!seen_flow_intervals.insert(flow_interval_key).second) {
+            tw_error(TW_LOC,
+                     "traffic trace %s line %d duplicates flow_id %llu in interval %ld", path,
+                     line_number, flow_id, interval_long);
+        }
+
+        trace_traffic_record record;
+        record.interval = (int)interval_long;
+        record.flow_id = flow_id;
+        record.source_terminal = (int)src_long;
+        record.destination_terminal = (int)dst_long;
+        record.offered_mbit = offered * volume_scale_to_mbit;
+        traffic_trace_records.push_back(record);
+
+        auto it = flow_meta.find(flow_id);
+        if (it == flow_meta.end()) {
+            trace_flow_meta meta;
+            meta.source_terminal = record.source_terminal;
+            meta.destination_terminal = record.destination_terminal;
+            meta.creation_interval = record.interval;
+            meta.last_interval = record.interval;
+            meta.record_count = 1;
+            flow_meta[flow_id] = meta;
+        } else {
+            trace_flow_meta& meta = it->second;
+            if (meta.source_terminal != record.source_terminal ||
+                meta.destination_terminal != record.destination_terminal) {
+                tw_error(TW_LOC,
+                         "traffic trace flow_id %llu changes source/destination across records",
+                         flow_id);
+            }
+            meta.creation_interval = std::min(meta.creation_interval, record.interval);
+            meta.last_interval = std::max(meta.last_interval, record.interval);
+            meta.record_count++;
+        }
+    }
+
+    if (!header_seen) {
+        tw_error(TW_LOC, "traffic trace CSV file is empty or missing a header: %s", path);
+    }
+    if (traffic_trace_records.empty()) {
+        tw_error(TW_LOC, "traffic trace CSV file contains no traffic records: %s", path);
+    }
+
+    for (const auto& item : flow_meta) {
+        const trace_flow_meta& meta = item.second;
+        const int expected_records = meta.last_interval - meta.creation_interval + 1;
+        if (meta.record_count != expected_records) {
+            tw_error(TW_LOC,
+                     "traffic trace flow_id %llu must have one positive-volume row for every "
+                     "interval from %d through %d",
+                     item.first, meta.creation_interval, meta.last_interval);
+        }
+    }
+
+    std::sort(traffic_trace_records.begin(), traffic_trace_records.end(),
+              [](const trace_traffic_record& lhs, const trace_traffic_record& rhs) {
+                  if (lhs.interval != rhs.interval) {
+                      return lhs.interval < rhs.interval;
+                  }
+                  if (lhs.source_terminal != rhs.source_terminal) {
+                      return lhs.source_terminal < rhs.source_terminal;
+                  }
+                  return lhs.flow_id < rhs.flow_id;
+              });
+
+    for (trace_traffic_record& record : traffic_trace_records) {
+        const trace_flow_meta& meta = flow_meta[record.flow_id];
+        record.creation_interval = meta.creation_interval;
+        record.final_offer = record.interval == meta.last_interval ? 1 : 0;
+    }
 }
 
 static void compute_routes(void) {
@@ -971,6 +1204,10 @@ static void load_config(void) {
 
     read_relpath_param("FLUID_FLOW_WAN", "topology_yaml_file", cfg.topology_yaml_file,
                        sizeof(cfg.topology_yaml_file));
+    if (configured_workload_mode == FLUID_WORKLOAD_TRACE_TRAFFIC) {
+        read_relpath_param("FLUID_FLOW_WAN", "traffic_trace_file", cfg.traffic_trace_file,
+                           sizeof(cfg.traffic_trace_file));
+    }
     read_relpath_param("FLUID_FLOW_WAN", "terminal_log_path", cfg.terminal_log_path,
                        sizeof(cfg.terminal_log_path));
     read_relpath_param("FLUID_FLOW_WAN", "switch_log_path", cfg.switch_log_path,
@@ -986,10 +1223,14 @@ static void load_config(void) {
     read_int_param("FLUID_FLOW_WAN", "num_send_intervals", &cfg.num_send_intervals);
     read_int_param("FLUID_FLOW_WAN", "num_drain_intervals", &cfg.num_drain_intervals);
     read_int_param("FLUID_FLOW_WAN", "rng_seed", &cfg.rng_seed);
-    read_int_param("FLUID_FLOW_WAN", "flow_generation_every_n_intervals",
-                   &cfg.flow_generation_every_n_intervals);
-    read_data_quantity_param("FLUID_FLOW_WAN", "random_flow_min", &cfg.random_flow_min_mbit);
-    read_data_quantity_param("FLUID_FLOW_WAN", "random_flow_max", &cfg.random_flow_max_mbit);
+    if (configured_workload_mode == FLUID_WORKLOAD_RANDOM_TRAFFIC) {
+        read_int_param("FLUID_FLOW_WAN", "flow_generation_every_n_intervals",
+                       &cfg.flow_generation_every_n_intervals);
+        read_data_quantity_param("FLUID_FLOW_WAN", "random_flow_min",
+                                 &cfg.random_flow_min_mbit);
+        read_data_quantity_param("FLUID_FLOW_WAN", "random_flow_max",
+                                 &cfg.random_flow_max_mbit);
+    }
     read_int_param("FLUID_FLOW_WAN", "debug_prints", &cfg.debug_prints);
     read_string_param("FLUID_FLOW_WAN", "egress_model", cfg.egress_model, sizeof(cfg.egress_model));
 
@@ -1030,6 +1271,13 @@ static void load_config(void) {
         tw_error(TW_LOC, "FLUID_FLOW_WAN.topology_yaml_file is required");
     }
     load_topology_yaml(cfg.topology_yaml_file);
+    if (configured_workload_mode == FLUID_WORKLOAD_TRACE_TRAFFIC) {
+        if (cfg.traffic_trace_file[0] == '\0') {
+            tw_error(TW_LOC,
+                     "FLUID_FLOW_WAN.traffic_trace_file is required for trace-traffic workload");
+        }
+        load_traffic_trace_csv(cfg.traffic_trace_file);
+    }
     compute_routes();
 }
 
@@ -1538,6 +1786,46 @@ static void schedule_workload_generate(terminal_state* ns, int interval_id, tw_l
     tw_event_send(e);
 }
 
+static void schedule_trace_offers(const terminal_state* ns, tw_lp* lp) {
+    int previous_interval = -1;
+    int same_interval_ordinal = 0;
+
+    for (const trace_traffic_record& record : traffic_trace_records) {
+        if (record.source_terminal != ns->terminal_id) {
+            continue;
+        }
+        if (record.interval != previous_interval) {
+            previous_interval = record.interval;
+            same_interval_ordinal = 0;
+        }
+
+        const double offer_phase =
+            PHASE_TERMINAL_TRACE_OFFER + (double)same_interval_ordinal * 1.0e-9;
+        ++same_interval_ordinal;
+        if (offer_phase >= PHASE_FLOWLET_ARRIVAL) {
+            tw_error(TW_LOC,
+                     "terminal %d has too many trace flows in interval %d to assign unique "
+                     "trace-offer timestamps",
+                     ns->terminal_id, record.interval);
+        }
+
+        tw_event* e =
+            tw_event_new(lp->gid, delay_until_ns(record.interval, offer_phase, lp), lp);
+        fluid_msg* m = (fluid_msg*)tw_event_data(e);
+        memset(m, 0, sizeof(*m));
+        m->event_type = TERMINAL_WORKLOAD_GENERATE;
+        m->interval_id = record.interval;
+        m->source_terminal = record.source_terminal;
+        m->destination_terminal = record.destination_terminal;
+        m->creation_interval = record.creation_interval;
+        m->flowlet_id = record.flow_id;
+        m->mbit = record.offered_mbit;
+        /* Reused on trace-offer events to indicate that no later offer exists. */
+        m->final_segment_sent = record.final_offer;
+        tw_event_send(e);
+    }
+}
+
 static void schedule_terminal_send(int interval_id, tw_lp* lp) {
     const int total_intervals = cfg.num_send_intervals + cfg.num_drain_intervals;
     if (interval_id < 0 || interval_id > total_intervals) {
@@ -1961,7 +2249,8 @@ static std::uint64_t extend_path_hash(std::uint64_t hash, int switch_id) {
 
 static int find_reusable_source_flow_index(const terminal_state* ns) {
     for (int i = 0; i < ns->source_flows.size(); ++i) {
-        if (ns->source_flows[i].remaining_source_mbit <= EPS &&
+        if (ns->source_flows[i].workload_complete &&
+            ns->source_flows[i].remaining_source_mbit <= EPS &&
             ns->source_flows[i].pending_window_mbit <= EPS) {
             return i;
         }
@@ -2137,7 +2426,11 @@ static void terminal_init(terminal_state* ns, tw_lp* lp) {
     ns->link_paused = 0;
     ns->pause_started_at_ns = 0.0;
     ns->total_pause_time_ns = 0.0;
-    schedule_workload_generate(ns, first_terminal_generate_interval(), lp);
+    if (configured_workload_mode == FLUID_WORKLOAD_RANDOM_TRAFFIC) {
+        schedule_workload_generate(ns, first_terminal_generate_interval(), lp);
+    } else {
+        schedule_trace_offers(ns, lp);
+    }
     schedule_terminal_send(0, lp);
 }
 
@@ -2194,8 +2487,11 @@ static void compute_max_min_allocations(const double* requested, int count, doub
 
 static void log_terminal_generate_event(const terminal_state* ns, const fluid_msg* m) {
     if (m->rc_generated) {
-        append_terminal_log(m->interval_id, "generate_flow", ns->terminal_id,
-                            m->destination_terminal, m->mbit);
+        append_terminal_log(m->interval_id,
+                            configured_workload_mode == FLUID_WORKLOAD_TRACE_TRAFFIC
+                                ? "trace_offer"
+                                : "generate_flow",
+                            ns->terminal_id, m->destination_terminal, m->mbit);
     }
 }
 
@@ -2288,7 +2584,7 @@ static void log_switch_egress_event(const switch_state* ns, const fluid_msg* m) 
                       m->rc_dropped_mbit, m->rc_log_active_after_entries);
 }
 
-static void handle_workload_generate(terminal_state* ns, fluid_msg* m, tw_lp* lp) {
+static void handle_random_workload_generate(terminal_state* ns, fluid_msg* m, tw_lp* lp) {
     const int interval = m->interval_id;
     m->rc_rng_count = 0;
     m->rc_generated = 0;
@@ -2319,6 +2615,7 @@ static void handle_workload_generate(terminal_state* ns, fluid_msg* m, tw_lp* lp
         flow.send_start_time_ns = event_time_ns(interval, PHASE_TERMINAL_SEND);
         flow.current_send_rate_mbps = cached_initial_rate_mbps(ns, dst);
         flow.rate_epoch = -1;
+        flow.workload_complete = 1;
 
         if (flow_index >= 0) {
             m->rc_terminal_flow_before = ns->source_flows[flow_index];
@@ -2340,6 +2637,71 @@ static void handle_workload_generate(terminal_state* ns, fluid_msg* m, tw_lp* lp
     }
 
     schedule_workload_generate(ns, next_terminal_generate_interval_after(interval), lp);
+}
+
+static void handle_trace_workload_generate(terminal_state* ns, fluid_msg* m, tw_lp* lp) {
+    (void)lp;
+    m->rc_rng_count = 0;
+    m->rc_generated = 0;
+    m->rc_terminal_flow_index = -1;
+    m->rc_terminal_flow_appended = 0;
+
+    int flow_index = find_source_flow_index(ns, m->flowlet_id);
+    if (flow_index < 0) {
+        if (ns->source_flows.size() >= MAX_SOURCE_FLOWS_PER_TERMINAL) {
+            tw_error(TW_LOC,
+                     "terminal %d has %d trace flows, exceeding "
+                     "MAX_SOURCE_FLOWS_PER_TERMINAL=%d",
+                     ns->terminal_id, ns->source_flows.size(),
+                     MAX_SOURCE_FLOWS_PER_TERMINAL);
+        }
+
+        source_flow flow;
+        memset(&flow, 0, sizeof(flow));
+        flow.flow_id = m->flowlet_id;
+        flow.destination_terminal = m->destination_terminal;
+        flow.creation_interval = m->creation_interval;
+        flow.remaining_source_mbit = 0.0;
+        flow.pending_window_mbit = 0.0;
+        flow.send_start_time_ns = tw_now(lp);
+        flow.current_send_rate_mbps = cached_initial_rate_mbps(ns, m->destination_terminal);
+        flow.rate_epoch = -1;
+        flow.workload_complete = 0;
+        ns->source_flows.push_back(flow);
+        flow_index = ns->source_flows.size() - 1;
+        m->rc_terminal_flow_appended = 1;
+        ns->generated_flowlets++;
+    } else {
+        source_flow& existing = ns->source_flows[flow_index];
+        if (existing.destination_terminal != m->destination_terminal) {
+            tw_error(TW_LOC,
+                     "trace flow %llu changed destination at terminal %d",
+                     m->flowlet_id, ns->terminal_id);
+        }
+        m->rc_terminal_flow_before = existing;
+        if (existing.remaining_source_mbit <= EPS && existing.pending_window_mbit <= EPS) {
+            existing.send_start_time_ns = tw_now(lp);
+        }
+    }
+
+    source_flow& flow = ns->source_flows[flow_index];
+    flow.remaining_source_mbit += m->mbit;
+    if (m->final_segment_sent) {
+        flow.workload_complete = 1;
+    }
+
+    ns->generated_mbit += m->mbit;
+    m->rc_generated = 1;
+    m->rc_terminal_flow_index = flow_index;
+    log_terminal_generate_event(ns, m);
+}
+
+static void handle_workload_generate(terminal_state* ns, fluid_msg* m, tw_lp* lp) {
+    if (configured_workload_mode == FLUID_WORKLOAD_TRACE_TRAFFIC) {
+        handle_trace_workload_generate(ns, m, lp);
+    } else {
+        handle_random_workload_generate(ns, m, lp);
+    }
 }
 
 static void prepare_terminal_tx_rc(terminal_state* ns, fluid_msg* m) {
@@ -2485,7 +2847,8 @@ static void handle_terminal_send(terminal_state* ns, fluid_msg* m, tw_lp* lp) {
             out_msg.source_switch = ns->attached_switch;
             out_msg.creation_interval = flow.creation_interval;
             out_msg.flowlet_id = flow.flow_id;
-            out_msg.final_segment_sent = flow.remaining_source_mbit <= EPS;
+            out_msg.final_segment_sent =
+                flow.workload_complete && flow.remaining_source_mbit <= EPS;
             out_msg.mbit = send_mbit;
 
             schedule_arrival(m->interval_id, get_switch_gid(ns->attached_switch), &out_msg,
@@ -2522,7 +2885,8 @@ static void handle_terminal_rate_update(terminal_state* ns, fluid_msg* m, tw_lp*
     m->rc_terminal_flow_index = find_source_flow_index(ns, m->flowlet_id);
     if (m->rc_terminal_flow_index >= 0) {
         source_flow& flow = ns->source_flows[m->rc_terminal_flow_index];
-        if (flow.remaining_source_mbit > EPS && m->rate_epoch >= flow.rate_epoch) {
+        if ((flow.remaining_source_mbit > EPS || !flow.workload_complete) &&
+            m->rate_epoch >= flow.rate_epoch) {
             m->rc_terminal_flow_before = flow;
             if (m->rate_epoch == flow.rate_epoch) {
                 flow.current_send_rate_mbps = std::min(flow.current_send_rate_mbps, new_rate);
@@ -2604,11 +2968,18 @@ static void terminal_rev_event(terminal_state* ns, tw_bf* b, fluid_msg* m, tw_lp
                 ns->source_flows[m->rc_terminal_flow_index] = m->rc_terminal_flow_before;
             }
             ns->generated_mbit -= m->mbit;
-            ns->generated_flowlets--;
-            if (ns->next_flowlet_seq == 0) {
-                tw_error(TW_LOC, "terminal %d flow sequence underflow", ns->terminal_id);
+
+            if (configured_workload_mode == FLUID_WORKLOAD_TRACE_TRAFFIC) {
+                if (m->rc_terminal_flow_appended) {
+                    ns->generated_flowlets--;
+                }
+            } else {
+                ns->generated_flowlets--;
+                if (ns->next_flowlet_seq == 0) {
+                    tw_error(TW_LOC, "terminal %d flow sequence underflow", ns->terminal_id);
+                }
+                ns->next_flowlet_seq--;
             }
-            ns->next_flowlet_seq--;
         }
         for (int i = 0; i < m->rc_rng_count; ++i) {
             tw_rand_reverse_unif(lp->rng);
@@ -4195,18 +4566,26 @@ int main(int argc, char** argv) {
     MPI_Barrier(MPI_COMM_CODES);
 
     if (rank == 0) {
-        printf("fluid-flow-wan config: switches=%zu terminals=%zu interval_seconds=%.6f "
-               "num_send_intervals=%d num_drain_intervals=%d "
-               "backpressure_delay_ms=%.6f "
-               "flow_generation_every_n_intervals=%d random_flow_min_%s=%.6f "
-               "random_flow_max_%s=%.6f output_data_unit=%s buffer_mode=shared egress_model=%s "
-               "csv_logs=%s ross_message_size=%d fluid_msg_size=%zu\n",
-               switches.size(), terminals.size(), cfg.interval_seconds, cfg.num_send_intervals,
-               cfg.num_drain_intervals, cfg.backpressure_delay_ms,
-               cfg.flow_generation_every_n_intervals, output_data_field_suffix(),
-               to_output_data_unit(cfg.random_flow_min_mbit), output_data_field_suffix(),
-               to_output_data_unit(cfg.random_flow_max_mbit), output_data_unit_symbol(),
-               cfg.egress_model,
+        printf("fluid-flow-wan config: workload=%s switches=%zu terminals=%zu "
+               "interval_seconds=%.6f num_send_intervals=%d num_drain_intervals=%d "
+               "backpressure_delay_ms=%.6f ",
+               configured_workload_name, switches.size(), terminals.size(), cfg.interval_seconds,
+               cfg.num_send_intervals, cfg.num_drain_intervals, cfg.backpressure_delay_ms);
+
+        if (configured_workload_mode == FLUID_WORKLOAD_RANDOM_TRAFFIC) {
+            printf("flow_generation_every_n_intervals=%d random_flow_min_%s=%.6f "
+                   "random_flow_max_%s=%.6f ",
+                   cfg.flow_generation_every_n_intervals, output_data_field_suffix(),
+                   to_output_data_unit(cfg.random_flow_min_mbit), output_data_field_suffix(),
+                   to_output_data_unit(cfg.random_flow_max_mbit));
+        } else {
+            printf("trace_records=%zu traffic_trace_file=%s ", traffic_trace_records.size(),
+                   cfg.traffic_trace_file);
+        }
+
+        printf("output_data_unit=%s buffer_mode=shared egress_model=%s csv_logs=%s "
+               "ross_message_size=%d fluid_msg_size=%zu\n",
+               output_data_unit_symbol(), cfg.egress_model,
                fluid_csv_forward_logs_enabled() ? "buffered-forward" : "buffered-commit",
                get_configured_message_size_bytes(), sizeof(fluid_msg));
     }

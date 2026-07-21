@@ -111,7 +111,7 @@ jobs:
             -e ZMQML_CTL_TIMEOUT=30 \
             "$ZMQML_IMAGE" \
             bash -euxo pipefail -c '
-              test_regex="^zmqml-(iteration-time-hybrid|event-time-hybrid|fluid-flow-wan-statistical)-workflow[.]sh$"
+              test_regex="^zmqml-(iteration-time-hybrid|event-time-hybrid|fluid-flow-wan-random-traffic-statistical)-workflow[.]sh$"
 
               ctest --test-dir build -N \
                 -R "$test_regex" \
@@ -120,7 +120,7 @@ jobs:
               for test_name in \
                 zmqml-iteration-time-hybrid-workflow.sh \
                 zmqml-event-time-hybrid-workflow.sh \
-                zmqml-fluid-flow-wan-statistical-workflow.sh
+                zmqml-fluid-flow-wan-random-traffic-statistical-workflow.sh
               do
                 grep -F ": ${test_name}" \
                   /tmp/zmqml-ctest-list.txt

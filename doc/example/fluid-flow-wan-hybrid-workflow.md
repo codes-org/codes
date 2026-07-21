@@ -6,6 +6,10 @@ one output port. A changed downstream cap schedules another port-wide
 `SWITCH_RATE_EVAL`, so released capacity is redistributed and all affected rates
 are re-advertised upstream.
 
+Both `model-net-fluid-flow-wan-random-traffic` and
+`model-net-fluid-flow-wan-trace-traffic` use this same egress path. Only the
+source workload differs.
+
 The selectable hybrid component controls only switch egress volume:
 
 ```yaml
@@ -49,9 +53,9 @@ Then run from the build directory:
 ```bash
 cd ~/codes/build
 mpirun -np 1 \
-  ./src/model-net-fluid-flow-wan \
+  ./src/model-net-fluid-flow-wan-random-traffic \
   --sync=1 -- \
-  doc/example/fluid-flow-wan.yaml
+  doc/example/fluid-flow-wan-random-traffic.yaml
 ```
 
 The ZeroMQ server is not required.
@@ -87,9 +91,9 @@ Then run:
 ```bash
 cd ~/codes/build
 mpirun -np 1 \
-  ./src/model-net-fluid-flow-wan \
+  ./src/model-net-fluid-flow-wan-random-traffic \
   --sync=1 -- \
-  doc/example/fluid-flow-wan.yaml
+  doc/example/fluid-flow-wan-random-traffic.yaml
 ```
 
 The current statistical backend is an exact analytical reference model for

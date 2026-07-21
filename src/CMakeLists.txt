@@ -232,7 +232,10 @@ add_executable(model-net-synthetic network-workloads/model-net-synthetic.c)
 add_executable(model-net-synthetic-slimfly network-workloads/model-net-synthetic-slimfly.c)
 add_executable(model-net-synthetic-fattree network-workloads/model-net-synthetic-fattree.c)
 add_executable(model-net-synthetic-dragonfly-all network-workloads/model-net-synthetic-dragonfly-all.c)
-add_executable(model-net-fluid-flow-wan network-workloads/model-net-fluid-flow-wan.cxx)
+add_executable(model-net-fluid-flow-wan-random-traffic network-workloads/model-net-fluid-flow-wan.cxx)
+target_compile_definitions(model-net-fluid-flow-wan-random-traffic PRIVATE FLUID_FLOW_WAN_RANDOM_TRAFFIC=1)
+add_executable(model-net-fluid-flow-wan-trace-traffic network-workloads/model-net-fluid-flow-wan.cxx)
+target_compile_definitions(model-net-fluid-flow-wan-trace-traffic PRIVATE FLUID_FLOW_WAN_TRACE_TRAFFIC=1)
 
 set(CODES_TARGETS
     topology-test
@@ -241,7 +244,8 @@ set(CODES_TARGETS
     model-net-synthetic-slimfly
     model-net-synthetic-fattree
     model-net-synthetic-dragonfly-all
-    model-net-fluid-flow-wan
+    model-net-fluid-flow-wan-random-traffic
+    model-net-fluid-flow-wan-trace-traffic
 )
 
 if(USE_DUMPI)

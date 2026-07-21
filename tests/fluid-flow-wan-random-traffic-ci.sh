@@ -3,7 +3,7 @@ set -euo pipefail
 
 synch="${1:?synch mode required: 1 or 3}"
 np="${2:?MPI rank count required}"
-case_name="${3:-fluid-flow-wan-synch${synch}}"
+case_name="${3:-fluid-flow-wan-random-traffic-synch${synch}}"
 mpi_exec="${4:-mpirun}"
 mpi_np_flag="${5:--np}"
 
@@ -12,8 +12,8 @@ if [[ -z "${bindir:-}" || -z "${srcdir:-}" ]]; then
     exit 1
 fi
 
-binary="$bindir/src/model-net-fluid-flow-wan"
-base_yaml="$bindir/doc/example/fluid-flow-wan.yaml"
+binary="$bindir/src/model-net-fluid-flow-wan-random-traffic"
+base_yaml="$bindir/doc/example/fluid-flow-wan-random-traffic.yaml"
 topology="$bindir/doc/example/fluid-flow-wan-topology.yaml"
 [[ -f "$topology" ]] || topology="$srcdir/doc/example/fluid-flow-wan-topology.yaml"
 
@@ -25,21 +25,21 @@ rm -rf "$case_name"
 mkdir -p "$case_name/logs"
 cp "$topology" "$case_name/fluid-flow-wan-topology.yaml"
 
-cp "$base_yaml" "$case_name/fluid-flow-wan.yaml"
+cp "$base_yaml" "$case_name/fluid-flow-wan-random-traffic.yaml"
 
 if ! (
     cd "$case_name"
-    "$mpi_exec" "$mpi_np_flag" "$np" "$binary" --sync="$synch" -- fluid-flow-wan.yaml \
+    "$mpi_exec" "$mpi_np_flag" "$np" "$binary" --sync="$synch" -- fluid-flow-wan-random-traffic.yaml \
         > model-output.txt 2> model-output-error.txt
 ); then
-    echo "fluid-flow-wan model run failed"
+    echo "fluid-flow-wan random-traffic model run failed"
     cat "$case_name/model-output.txt" || true
     cat "$case_name/model-output-error.txt" || true
     exit 1
 fi
 
 out="$case_name/model-output.txt"
-grep "fluid-flow-wan config:" "$out"
+grep "fluid-flow-wan config: workload=random-traffic" "$out"
 grep "Net Events Processed" "$out"
 grep -Eq "source_backlog_(mbit|gbit)=" "$out"
 grep -Eq "rate_updates_received=[1-9][0-9]*" "$out"

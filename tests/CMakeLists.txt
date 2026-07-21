@@ -425,7 +425,7 @@ if(USE_ZEROMQ AND CODES_ENABLE_ZMQML_HYBRID_TESTS)
     list(APPEND test-shell-files
         zmqml-iteration-time-hybrid-workflow.sh
         zmqml-event-time-hybrid-workflow.sh
-        zmqml-fluid-flow-wan-statistical-workflow.sh
+        zmqml-fluid-flow-wan-random-traffic-statistical-workflow.sh
     )
 endif()
 
@@ -444,41 +444,43 @@ if(USE_UNION)
 endif()
 
 
-# Fluid-flow WAN smoke tests. The model has one deterministic max-min service
-# rule; no FIFO or round-robin scheduler variants are configured.
-foreach(_ffw_mode sequential optimistic)
-    if(_ffw_mode STREQUAL "sequential")
-        set(_ffw_synch 1)
-        set(_ffw_np 1)
-    else()
-        set(_ffw_synch 3)
-        set(_ffw_np 2)
-    endif()
+# Fluid-flow WAN smoke tests. Both workload frontends share the same switch,
+# terminal, max-min, PAUSE, rollback, and statistical-egress implementation.
+foreach(_ffw_workload random-traffic trace-traffic)
+    foreach(_ffw_mode sequential optimistic)
+        if(_ffw_mode STREQUAL "sequential")
+            set(_ffw_synch 1)
+            set(_ffw_np 1)
+        else()
+            set(_ffw_synch 3)
+            set(_ffw_np 2)
+        endif()
 
-    set(_ffw_test "fluid-flow-wan-${_ffw_mode}")
-    add_test(NAME ${_ffw_test}
+        set(_ffw_test "fluid-flow-wan-${_ffw_workload}-${_ffw_mode}")
+        add_test(NAME ${_ffw_test}
+            COMMAND "${CMAKE_CURRENT_BINARY_DIR}/run-test.sh"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/fluid-flow-wan-${_ffw_workload}-ci.sh"
+                    "${_ffw_synch}"
+                    "${_ffw_np}"
+                    "${_ffw_test}"
+                    "${MPIEXEC_EXECUTABLE}"
+                    "${MPIEXEC_NUMPROC_FLAG}"
+            WORKING_DIRECTORY "${CODES_BINARY_DIR}")
+        set_tests_properties(${_ffw_test} PROPERTIES TIMEOUT 120)
+    endforeach()
+
+    # Cross-mode equivalence: the optimistic run must exercise rollback and
+    # still commit exactly the same CSVs and net event count as sequential.
+    set(_ffw_equiv "fluid-flow-wan-${_ffw_workload}-seq-opt-equivalence")
+    add_test(NAME ${_ffw_equiv}
         COMMAND "${CMAKE_CURRENT_BINARY_DIR}/run-test.sh"
-                "${CMAKE_CURRENT_SOURCE_DIR}/fluid-flow-wan-ci.sh"
-                "${_ffw_synch}"
-                "${_ffw_np}"
-                "${_ffw_test}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/fluid-flow-wan-${_ffw_workload}-equivalence.sh"
+                "${_ffw_equiv}"
                 "${MPIEXEC_EXECUTABLE}"
                 "${MPIEXEC_NUMPROC_FLAG}"
         WORKING_DIRECTORY "${CODES_BINARY_DIR}")
-    set_tests_properties(${_ffw_test} PROPERTIES TIMEOUT 120)
+    set_tests_properties(${_ffw_equiv} PROPERTIES TIMEOUT 240 PROCESSORS 2)
 endforeach()
-
-# Cross-mode equivalence: the optimistic run must exercise rollback and still
-# commit exactly the same switch, terminal, and event-count state as sequential.
-add_test(NAME fluid-flow-wan-seq-opt-equivalence
-    COMMAND "${CMAKE_CURRENT_BINARY_DIR}/run-test.sh"
-            "${CMAKE_CURRENT_SOURCE_DIR}/fluid-flow-wan-equivalence.sh"
-            "fluid-flow-wan-seq-opt-equivalence"
-            "${MPIEXEC_EXECUTABLE}"
-            "${MPIEXEC_NUMPROC_FLAG}"
-    WORKING_DIRECTORY "${CODES_BINARY_DIR}")
-set_tests_properties(fluid-flow-wan-seq-opt-equivalence
-    PROPERTIES TIMEOUT 240 PROCESSORS 2)
 
 # Equivalence / determinism tests (replacing per-scenario shell scripts).
 # example-ping-pong-determinism.sh: run the optimistic sim twice, compare

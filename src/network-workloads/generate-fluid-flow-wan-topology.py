@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate a WAN-like topology YAML file for model-net-fluid-flow-wan.
+Generate a WAN-like topology YAML file for the fluid-flow WAN workloads.
 
 The generated graph is intentionally not a symmetric supercomputer-style
 topology. It starts with a bidirectional ring to guarantee strong connectivity,
@@ -48,7 +48,7 @@ def positive_float(value: str) -> float:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Generate a random WAN-like topology YAML for model-net-fluid-flow-wan."
+        description="Generate a random WAN-like topology YAML for the fluid-flow WAN workloads."
     )
 
     parser.add_argument(

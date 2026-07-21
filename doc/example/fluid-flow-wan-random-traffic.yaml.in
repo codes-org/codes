@@ -1,6 +1,6 @@
 # Interval-fluid switch/terminal pure-PDES example.
 # Run from the build directory, for example:
-#   mpirun -np 1 ./src/model-net-fluid-flow-wan --sync=1 -- doc/example/fluid-flow-wan.yaml
+#   mpirun -np 1 ./src/model-net-fluid-flow-wan-random-traffic --sync=1 -- doc/example/fluid-flow-wan-random-traffic.yaml
 
 schema_version: 1
 

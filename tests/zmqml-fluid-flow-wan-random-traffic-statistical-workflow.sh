@@ -7,24 +7,24 @@ if [[ -z "${bindir:-}" || -z "${srcdir:-}" ]]; then
 fi
 
 endpoint="${ZMQML_ENDPOINT:-tcp://localhost:5555}"
-artifacts="$PWD/zmqml-fluid-flow-wan-statistical-artifacts"
+artifacts="$PWD/zmqml-fluid-flow-wan-random-traffic-statistical-artifacts"
 rm -rf "$artifacts"
 mkdir -p "$artifacts"/{pdes,statistical}
 
-binary="$bindir/src/model-net-fluid-flow-wan"
-base_yaml="$bindir/doc/example/fluid-flow-wan.yaml"
+binary="$bindir/src/model-net-fluid-flow-wan-random-traffic"
+base_yaml="$bindir/doc/example/fluid-flow-wan-random-traffic.yaml"
 topology="$bindir/doc/example/fluid-flow-wan-topology.yaml"
 [[ -f "$topology" ]] || topology="$srcdir/doc/example/fluid-flow-wan-topology.yaml"
 
 make_case() {
     local mode="$1"
     local workdir="$artifacts/$mode"
-    cp "$base_yaml" "$workdir/fluid-flow-wan.yaml"
+    cp "$base_yaml" "$workdir/fluid-flow-wan-random-traffic.yaml"
     cp "$topology" "$workdir/fluid-flow-wan-topology.yaml"
     sed -i -E "s/^([[:space:]]*)egress_model:[[:space:]].*/\1egress_model: $mode/" \
-        "$workdir/fluid-flow-wan.yaml"
+        "$workdir/fluid-flow-wan-random-traffic.yaml"
     sed -i -E "s/^([[:space:]]*)debug_prints:[[:space:]].*/\1debug_prints: 1/" \
-        "$workdir/fluid-flow-wan.yaml"
+        "$workdir/fluid-flow-wan-random-traffic.yaml"
     mkdir -p "$workdir/logs"
 }
 
@@ -34,7 +34,7 @@ run_case() {
     (
         cd "$workdir"
         ZMQML_ENDPOINT="$endpoint" \
-        mpirun -np 1 "$binary" --sync=1 -- fluid-flow-wan.yaml
+        mpirun -np 1 "$binary" --sync=1 -- fluid-flow-wan-random-traffic.yaml
     ) > "$artifacts/$mode.out" 2> "$artifacts/$mode.err"
     grep 'Net Events Processed' "$artifacts/$mode.out"
     grep "egress_model=$mode" "$artifacts/$mode.out"
@@ -78,4 +78,4 @@ python3 "$srcdir/src/surrogate/zmqml/zmqmlctl.py" \
     > "$artifacts/statistical-status-after.json"
 grep '"model_count":' "$artifacts/statistical-status-after.json"
 
-echo "fluid-flow-wan pure-PDES and statistical egress workflow passed"
+echo "fluid-flow-wan random-traffic pure-PDES and statistical egress workflow passed"
