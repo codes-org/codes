@@ -534,8 +534,8 @@ static void debug_backpressure_event(const char* lp_kind, int lp_id, const fluid
             "lp=%s id=%d event=%s interval=%d flowlet_id=%llu rate_mbps=%.12f "
             "rate_epoch=%d pause_asserted=%d pause_source_switch=%d\n",
             sim_time_ns, sim_time_ns / 1.0e6, lp_kind, lp_id, name, m->interval_id,
-            (unsigned long long)m->flowlet_id, m->rate_mbps, m->rate_epoch,
-            m->pause_asserted, m->pause_source_switch);
+            (unsigned long long)m->flowlet_id, m->rate_mbps, m->rate_epoch, m->pause_asserted,
+            m->pause_source_switch);
     fflush(stderr);
 }
 
@@ -1572,12 +1572,12 @@ static void undo_requested_switch_rate_eval(switch_state* ns, fluid_msg* m) {
 
     const int port_id = m->rc_rate_eval_request_port;
     if (port_id < 0 || port_id >= ns->num_ports) {
-        tw_error(TW_LOC, "invalid rollback rate-eval request: switch %d port %d",
-                 ns->switch_id, port_id);
+        tw_error(TW_LOC, "invalid rollback rate-eval request: switch %d port %d", ns->switch_id,
+                 port_id);
     }
     if (!ns->rate_eval_pending[port_id]) {
-        tw_error(TW_LOC, "rollback expected pending rate-eval: switch %d port %d",
-                 ns->switch_id, port_id);
+        tw_error(TW_LOC, "rollback expected pending rate-eval: switch %d port %d", ns->switch_id,
+                 port_id);
     }
     ns->rate_eval_pending[port_id] = 0;
 }
@@ -1803,8 +1803,9 @@ static void request_ethernet_pause_eval(switch_state* ns, int interval_id, tw_lp
         return;
     }
     if (cause_msg != NULL && cause_msg->rc_pause_eval_request_created) {
-        tw_error(TW_LOC, "event attempted to create more than one PAUSE evaluation request on "
-                         "switch %d",
+        tw_error(TW_LOC,
+                 "event attempted to create more than one PAUSE evaluation request on "
+                 "switch %d",
                  ns->switch_id);
     }
 
@@ -1826,8 +1827,7 @@ static void undo_requested_ethernet_pause_eval(switch_state* ns, fluid_msg* m) {
         return;
     }
     if (!ns->pause_eval_pending) {
-        tw_error(TW_LOC, "rollback expected pending PAUSE evaluation on switch %d",
-                 ns->switch_id);
+        tw_error(TW_LOC, "rollback expected pending PAUSE evaluation on switch %d", ns->switch_id);
     }
     ns->pause_eval_pending = 0;
 }
@@ -2401,15 +2401,14 @@ static void advance_terminal_transmission(terminal_state* ns, tw_stime now_ns, f
         }
         const tw_stime flow_start_ns = std::max(active_start_ns, flow.send_start_time_ns);
         const double flow_seconds = std::max(0.0, now_ns - flow_start_ns) / 1.0e9;
-        requested[i] = std::min(flow.remaining_source_mbit,
-                                flow.current_send_rate_mbps * flow_seconds);
+        requested[i] =
+            std::min(flow.remaining_source_mbit, flow.current_send_rate_mbps * flow_seconds);
     }
 
     const double terminal_budget =
         switches[ns->attached_switch].terminal_bandwidth_mbps * active_seconds;
     double allocations[MAX_SOURCE_FLOWS_PER_TERMINAL] = {0.0};
-    compute_max_min_allocations(requested, ns->source_flows.size(), terminal_budget,
-                                allocations);
+    compute_max_min_allocations(requested, ns->source_flows.size(), terminal_budget, allocations);
 
     for (int i = 0; i < ns->source_flows.size(); ++i) {
         const double send_mbit = allocations[i];
@@ -2694,8 +2693,7 @@ static void terminal_finalize(terminal_state* ns, tw_lp* lp) {
     const char* unit = output_data_field_suffix();
     double total_pause_time_ns = ns->total_pause_time_ns;
     if (ns->link_paused) {
-        total_pause_time_ns +=
-            std::max((tw_stime)0.0, tw_now(lp) - ns->pause_started_at_ns);
+        total_pause_time_ns += std::max((tw_stime)0.0, tw_now(lp) - ns->pause_started_at_ns);
     }
     const double total_pause_time_ms = total_pause_time_ns / 1.0e6;
     printf("fluid-flow-wan-terminal gid=%llu terminal=%d switch=%d generated_%s=%.6f "
@@ -2893,15 +2891,13 @@ static double query_statistical_phase_egress_mbit(const switch_state* ns, int po
         fprintf(stderr,
                 "[fluid-flow-wan zmq latency] warning: reply has no server processing time "
                 "switch=%d port=%d interval=%d phase=%s reply_fields=%llu\n",
-                ns->switch_id, port_id, interval_id, phase,
-                (unsigned long long)reply.size());
+                ns->switch_id, port_id, interval_id, phase, (unsigned long long)reply.size());
         fflush(stderr);
     }
 
     director_record_external_zmq_latency(server_processing_sec, request_total_sec);
 
-    const double client_transport_sec =
-        std::max(0.0, request_total_sec - server_processing_sec);
+    const double client_transport_sec = std::max(0.0, request_total_sec - server_processing_sec);
     if (cfg.debug_prints) {
         fprintf(stderr,
                 "[fluid-flow-wan zmq latency] switch=%d port=%d interval=%d phase=%s "
@@ -3028,9 +3024,9 @@ static void send_rate_feedback_upstream(switch_state* ns, const switch_rate_flow
                                       flow.destination_terminal, rate_mbps, rate_epoch,
                                       scope_key_type, scope_key_index, lp);
     } else {
-        schedule_switch_rate_feedback(interval_id, ingress.peer_index, ns->switch_id,
-                                      flow.flow_id, flow.source_terminal, flow.destination_terminal,
-                                      rate_mbps, rate_epoch, scope_key_type, scope_key_index, lp);
+        schedule_switch_rate_feedback(interval_id, ingress.peer_index, ns->switch_id, flow.flow_id,
+                                      flow.source_terminal, flow.destination_terminal, rate_mbps,
+                                      rate_epoch, scope_key_type, scope_key_index, lp);
     }
 }
 
@@ -3631,8 +3627,7 @@ static void handle_switch_pause_update(switch_state* ns, fluid_msg* m, tw_lp* lp
         ns->output_link_pause_started_at_ns[port_id] = tw_now(lp);
     } else if (ns->output_link_paused[port_id] && !new_paused) {
         ns->output_link_total_pause_time_ns[port_id] +=
-            std::max((tw_stime)0.0,
-                     tw_now(lp) - ns->output_link_pause_started_at_ns[port_id]);
+            std::max((tw_stime)0.0, tw_now(lp) - ns->output_link_pause_started_at_ns[port_id]);
         ns->output_link_pause_started_at_ns[port_id] = 0.0;
     }
     ns->output_link_paused[port_id] = new_paused;
@@ -3975,8 +3970,7 @@ static void switch_finalize(switch_state* ns, tw_lp* lp) {
         double port_pause_time_ns = ns->output_link_total_pause_time_ns[p];
         if (ns->output_link_paused[p]) {
             port_pause_time_ns +=
-                std::max((tw_stime)0.0,
-                         tw_now(lp) - ns->output_link_pause_started_at_ns[p]);
+                std::max((tw_stime)0.0, tw_now(lp) - ns->output_link_pause_started_at_ns[p]);
         }
         total_pause_time_ns += port_pause_time_ns;
     }
@@ -4209,10 +4203,10 @@ int main(int argc, char** argv) {
                "csv_logs=%s ross_message_size=%d fluid_msg_size=%zu\n",
                switches.size(), terminals.size(), cfg.interval_seconds, cfg.num_send_intervals,
                cfg.num_drain_intervals, cfg.backpressure_delay_ms,
-               cfg.flow_generation_every_n_intervals,
-               output_data_field_suffix(), to_output_data_unit(cfg.random_flow_min_mbit),
-               output_data_field_suffix(), to_output_data_unit(cfg.random_flow_max_mbit),
-               output_data_unit_symbol(), cfg.egress_model,
+               cfg.flow_generation_every_n_intervals, output_data_field_suffix(),
+               to_output_data_unit(cfg.random_flow_min_mbit), output_data_field_suffix(),
+               to_output_data_unit(cfg.random_flow_max_mbit), output_data_unit_symbol(),
+               cfg.egress_model,
                fluid_csv_forward_logs_enabled() ? "buffered-forward" : "buffered-commit",
                get_configured_message_size_bytes(), sizeof(fluid_msg));
     }
