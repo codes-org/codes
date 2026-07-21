@@ -927,8 +927,7 @@ static void load_topology_yaml(const char* path) {
         if (cfg.random_flow_min_mbit < 0.0)
             tw_error(TW_LOC, "random_flow_min must be nonnegative");
         if (cfg.random_flow_max_mbit < cfg.random_flow_min_mbit)
-            tw_error(TW_LOC,
-                     "random_flow_max must be greater than or equal to random_flow_min");
+            tw_error(TW_LOC, "random_flow_max must be greater than or equal to random_flow_min");
     }
 }
 
@@ -1006,17 +1005,16 @@ static void load_traffic_trace_csv(const char* path) {
         long interval_long = std::strtol(fields[0].c_str(), &end, 10);
         if (errno != 0 || end == fields[0].c_str() || *end != '\0' || interval_long < 0 ||
             interval_long >= cfg.num_send_intervals) {
-            tw_error(TW_LOC,
-                     "traffic trace %s line %d has invalid interval '%s'; expected [0,%d)", path,
-                     line_number, fields[0].c_str(), cfg.num_send_intervals);
+            tw_error(TW_LOC, "traffic trace %s line %d has invalid interval '%s'; expected [0,%d)",
+                     path, line_number, fields[0].c_str(), cfg.num_send_intervals);
         }
 
         errno = 0;
         end = NULL;
         unsigned long long flow_id = std::strtoull(fields[1].c_str(), &end, 10);
         if (errno != 0 || end == fields[1].c_str() || *end != '\0') {
-            tw_error(TW_LOC, "traffic trace %s line %d has invalid flow_id '%s'", path,
-                     line_number, fields[1].c_str());
+            tw_error(TW_LOC, "traffic trace %s line %d has invalid flow_id '%s'", path, line_number,
+                     fields[1].c_str());
         }
 
         errno = 0;
@@ -1033,8 +1031,8 @@ static void load_traffic_trace_csv(const char* path) {
         long dst_long = std::strtol(fields[3].c_str(), &end, 10);
         if (errno != 0 || end == fields[3].c_str() || *end != '\0' || dst_long < 0 ||
             dst_long >= (long)terminals.size() || dst_long == src_long) {
-            tw_error(TW_LOC, "traffic trace %s line %d has invalid destination_terminal '%s'",
-                     path, line_number, fields[3].c_str());
+            tw_error(TW_LOC, "traffic trace %s line %d has invalid destination_terminal '%s'", path,
+                     line_number, fields[3].c_str());
         }
 
         errno = 0;
@@ -1048,9 +1046,8 @@ static void load_traffic_trace_csv(const char* path) {
 
         const auto flow_interval_key = std::make_pair(flow_id, (int)interval_long);
         if (!seen_flow_intervals.insert(flow_interval_key).second) {
-            tw_error(TW_LOC,
-                     "traffic trace %s line %d duplicates flow_id %llu in interval %ld", path,
-                     line_number, flow_id, interval_long);
+            tw_error(TW_LOC, "traffic trace %s line %d duplicates flow_id %llu in interval %ld",
+                     path, line_number, flow_id, interval_long);
         }
 
         trace_traffic_record record;
@@ -1226,10 +1223,8 @@ static void load_config(void) {
     if (configured_workload_mode == FLUID_WORKLOAD_RANDOM_TRAFFIC) {
         read_int_param("FLUID_FLOW_WAN", "flow_generation_every_n_intervals",
                        &cfg.flow_generation_every_n_intervals);
-        read_data_quantity_param("FLUID_FLOW_WAN", "random_flow_min",
-                                 &cfg.random_flow_min_mbit);
-        read_data_quantity_param("FLUID_FLOW_WAN", "random_flow_max",
-                                 &cfg.random_flow_max_mbit);
+        read_data_quantity_param("FLUID_FLOW_WAN", "random_flow_min", &cfg.random_flow_min_mbit);
+        read_data_quantity_param("FLUID_FLOW_WAN", "random_flow_max", &cfg.random_flow_max_mbit);
     }
     read_int_param("FLUID_FLOW_WAN", "debug_prints", &cfg.debug_prints);
     read_string_param("FLUID_FLOW_WAN", "egress_model", cfg.egress_model, sizeof(cfg.egress_model));
@@ -1809,8 +1804,7 @@ static void schedule_trace_offers(const terminal_state* ns, tw_lp* lp) {
                      ns->terminal_id, record.interval);
         }
 
-        tw_event* e =
-            tw_event_new(lp->gid, delay_until_ns(record.interval, offer_phase, lp), lp);
+        tw_event* e = tw_event_new(lp->gid, delay_until_ns(record.interval, offer_phase, lp), lp);
         fluid_msg* m = (fluid_msg*)tw_event_data(e);
         memset(m, 0, sizeof(*m));
         m->event_type = TERMINAL_WORKLOAD_GENERATE;
@@ -2652,8 +2646,7 @@ static void handle_trace_workload_generate(terminal_state* ns, fluid_msg* m, tw_
             tw_error(TW_LOC,
                      "terminal %d has %d trace flows, exceeding "
                      "MAX_SOURCE_FLOWS_PER_TERMINAL=%d",
-                     ns->terminal_id, ns->source_flows.size(),
-                     MAX_SOURCE_FLOWS_PER_TERMINAL);
+                     ns->terminal_id, ns->source_flows.size(), MAX_SOURCE_FLOWS_PER_TERMINAL);
         }
 
         source_flow flow;
@@ -2674,9 +2667,8 @@ static void handle_trace_workload_generate(terminal_state* ns, fluid_msg* m, tw_
     } else {
         source_flow& existing = ns->source_flows[flow_index];
         if (existing.destination_terminal != m->destination_terminal) {
-            tw_error(TW_LOC,
-                     "trace flow %llu changed destination at terminal %d",
-                     m->flowlet_id, ns->terminal_id);
+            tw_error(TW_LOC, "trace flow %llu changed destination at terminal %d", m->flowlet_id,
+                     ns->terminal_id);
         }
         m->rc_terminal_flow_before = existing;
         if (existing.remaining_source_mbit <= EPS && existing.pending_window_mbit <= EPS) {
