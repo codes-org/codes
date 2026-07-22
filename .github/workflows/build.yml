@@ -409,9 +409,6 @@ jobs:
           ref: ${{ github.event_name == 'schedule' && 'master' || env.ROSS_REF }}
           path: ross
 
-      # No dependency-install step: the codes-ci-ubuntu24-mpich container already ships
-      # the toolchain, cmake/ninja, flex/bison, lcov, and our source-built mpich.
-
       - name: Configure ROSS
         run: >
           cmake -S ross -B ross/build -G Ninja

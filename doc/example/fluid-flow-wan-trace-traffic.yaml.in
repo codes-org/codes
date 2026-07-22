@@ -1,0 +1,40 @@
+# Interval-fluid WAN trace-replay example.
+# Run from the build directory, for example:
+#   mpirun -np 1 ./src/model-net-fluid-flow-wan-trace-traffic --sync=1 -- doc/example/fluid-flow-wan-trace-traffic.yaml
+
+schema_version: 1
+
+topology:
+  format: groups
+  params:
+    message_size: 32768
+    pe_mem_factor: 1024
+  groups:
+    FLUID_FLOW_WAN_GRP:
+      repetitions: 1
+      lps:
+        fluid-flow-wan-switch-lp: 3
+        fluid-flow-wan-terminal-lp: 6
+
+sections:
+  fluid_flow_wan:
+    topology_yaml_file: fluid-flow-wan-topology.yaml
+    traffic_trace_file: fluid-flow-wan-trace-traffic.csv
+
+    # Each CSV row contributes observed/offered fluid demand for one persistent
+    # flow during one interval. The same flow_id across rows preserves rate
+    # feedback and PAUSE state across the complete transfer.
+    interval_seconds: 1
+    num_send_intervals: 6
+    num_drain_intervals: 10
+
+    egress_model: pdes
+    debug_prints: 0
+    backpressure_delay_ms: 1.0
+
+    pause_high_watermark_fraction: 0.80
+    pause_low_watermark_fraction: 0.50
+
+    terminal_log_path: logs/terminal-events.csv
+    switch_log_path: logs/switch-events.csv
+    flowlet_log_path: logs/flowlet-events.csv

@@ -111,15 +111,23 @@ jobs:
             -e ZMQML_CTL_TIMEOUT=30 \
             "$ZMQML_IMAGE" \
             bash -euxo pipefail -c '
+              test_regex="^zmqml-(iteration-time-hybrid|event-time-hybrid|fluid-flow-wan-random-traffic-statistical)-workflow[.]sh$"
+
               ctest --test-dir build -N \
-                -R "zmqml-(iteration-time|event-time)-hybrid-workflow.sh" \
+                -R "$test_regex" \
                 | tee /tmp/zmqml-ctest-list.txt
 
-              grep -E "Test #[0-9]+: zmqml-(iteration-time|event-time)-hybrid-workflow.sh" \
-                /tmp/zmqml-ctest-list.txt
+              for test_name in \
+                zmqml-iteration-time-hybrid-workflow.sh \
+                zmqml-event-time-hybrid-workflow.sh \
+                zmqml-fluid-flow-wan-random-traffic-statistical-workflow.sh
+              do
+                grep -F ": ${test_name}" \
+                  /tmp/zmqml-ctest-list.txt
+              done
 
               ctest --test-dir build \
-                -R "zmqml-(iteration-time|event-time)-hybrid-workflow.sh" \
+                -R "$test_regex" \
                 --output-on-failure \
                 --timeout 1200 \
                 -VV
@@ -154,6 +162,9 @@ jobs:
 
           require_log '\[event-time inference\].*predictions=' \
             'event-time inference reached the server and returned predictions'
+
+          require_log '\[fluid-flow-wan egress inference\].*backend=statistical' \
+            'fluid-flow-wan statistical egress inference reached the server'
 
           test -s "$PWD/zmqml-artifacts/iteration-records.csv"
           test -s "$PWD/zmqml-artifacts/event-time-records.csv"
