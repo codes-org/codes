@@ -346,6 +346,15 @@ struct switch_rate_flow {
     int final_segment_seen;
     double downstream_rate_mbps;
     int downstream_rate_epoch;
+
+    /*
+     * Last local max-min allocation actually advertised upstream.  Rate
+     * evaluations may be triggered repeatedly while a feedback wave is
+     * converging; retaining the last advertised value lets us suppress
+     * numerically identical feedback and prevents control-event amplification.
+     */
+    double last_advertised_rate_mbps;
+    int last_advertised_rate_valid;
 };
 
 struct terminal_state {
@@ -3125,6 +3134,26 @@ static int active_rate_flow_count_on_port(const switch_state* ns, int port_id) {
     return active;
 }
 
+static bool rate_mbps_materially_changed(double before_mbps, double after_mbps) {
+    const bool before_finite = std::isfinite(before_mbps);
+    const bool after_finite = std::isfinite(after_mbps);
+    if (before_finite != after_finite) {
+        return true;
+    }
+    if (!before_finite) {
+        return false;
+    }
+
+    /*
+     * Ignore only floating-point noise.  At a 100 Gbps rate this relative
+     * tolerance is 1e-4 Mbps (100 bit/s), far below the fluid model's useful
+     * resolution while still terminating identical feedback waves.
+     */
+    const double scale = std::max(1.0, std::max(std::fabs(before_mbps), std::fabs(after_mbps)));
+    const double tolerance = std::max(EPS, 1.0e-9 * scale);
+    return std::fabs(after_mbps - before_mbps) > tolerance;
+}
+
 static double rate_demand_cap_mbps(const switch_rate_flow& flow) {
     double demand = switches[terminals[flow.source_terminal].switch_id].terminal_bandwidth_mbps;
     if (std::isfinite(flow.downstream_rate_mbps)) {
@@ -3338,6 +3367,8 @@ static void observe_rate_flow(switch_state* ns, int port_id, const fluid_msg* m,
     new_flow.final_segment_seen = m->final_segment_sent;
     new_flow.downstream_rate_mbps = std::numeric_limits<double>::infinity();
     new_flow.downstream_rate_epoch = -1;
+    new_flow.last_advertised_rate_mbps = 0.0;
+    new_flow.last_advertised_rate_valid = 0;
 
     if (flows.size() < MAX_FLOW_ENTRIES_PER_PORT) {
         /* Keep completed entries while space remains so late downstream
@@ -3417,27 +3448,43 @@ static void handle_switch_rate_feedback(switch_state* ns, fluid_msg* m, tw_lp* l
     if (m->rate_epoch < flow.downstream_rate_epoch) {
         return;
     }
+
+    const double previous_rate_mbps = flow.downstream_rate_mbps;
+    const int previous_rate_epoch = flow.downstream_rate_epoch;
+    double updated_rate_mbps = std::max(0.0, m->rate_mbps);
+    int updated_rate_epoch = m->rate_epoch;
+
     if (m->rate_epoch == flow.downstream_rate_epoch) {
-        flow.downstream_rate_mbps =
-            std::min(flow.downstream_rate_mbps, std::max(0.0, m->rate_mbps));
-    } else {
-        flow.downstream_rate_mbps = std::max(0.0, m->rate_mbps);
-        flow.downstream_rate_epoch = m->rate_epoch;
+        updated_rate_mbps = std::min(flow.downstream_rate_mbps, updated_rate_mbps);
+        updated_rate_epoch = flow.downstream_rate_epoch;
     }
-    m->rc_rate_update_applied = 1;
+
+    const bool rate_changed = rate_mbps_materially_changed(previous_rate_mbps, updated_rate_mbps);
+    const bool epoch_changed = updated_rate_epoch != previous_rate_epoch;
+    if (!rate_changed && !epoch_changed) {
+        return;
+    }
 
     /*
-     * A changed downstream cap can release capacity to every other active flow
-     * sharing this port. Reuse the existing port-wide SWITCH_RATE_EVAL event so
-     * the PDES controller recomputes and re-advertises the complete allocation.
+     * Always consume a newer epoch, even when it carries the same numerical
+     * rate, so a delayed older feedback message cannot become authoritative
+     * later.  Only a material rate change needs another max-min evaluation.
      */
-    if (rate_flow_is_active(ns, port_id, flow)) {
+    flow.downstream_rate_mbps = updated_rate_mbps;
+    flow.downstream_rate_epoch = updated_rate_epoch;
+    m->rc_rate_update_applied = 1;
+
+    if (rate_changed && rate_flow_is_active(ns, port_id, flow)) {
         request_switch_rate_eval(ns, m->interval_id, port_id, lp, m);
     }
 }
 
 static void handle_switch_rate_eval(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     m->rc_rate_eval_event_active = 0;
+    /* rc_allocs are otherwise unused by SWITCH_RATE_EVAL; reuse them to make
+     * last-advertised-rate suppression rollback-safe without increasing the
+     * already-large fluid_msg footprint. */
+    m->rc_alloc_count = 0;
 
     const int port_id = m->port_id;
     if (port_id < 0 || port_id >= ns->num_ports) {
@@ -3453,10 +3500,13 @@ static void handle_switch_rate_eval(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     m->rc_prev_rate_epoch = ns->next_rate_epoch[port_id];
 
     const switch_rate_flow* active_flows[MAX_FLOW_ENTRIES_PER_PORT];
+    int active_flow_indices[MAX_FLOW_ENTRIES_PER_PORT];
     double allocations_mbps[MAX_FLOW_ENTRIES_PER_PORT];
     int active_count = 0;
 
-    for (const switch_rate_flow& flow : ns->rate_flows[port_id]) {
+    fixed_vector<switch_rate_flow, MAX_FLOW_ENTRIES_PER_PORT>& rate_flows = ns->rate_flows[port_id];
+    for (int flow_index = 0; flow_index < rate_flows.size(); ++flow_index) {
+        const switch_rate_flow& flow = rate_flows[flow_index];
         if (!rate_flow_is_active(ns, port_id, flow)) {
             continue;
         }
@@ -3464,15 +3514,31 @@ static void handle_switch_rate_eval(switch_state* ns, fluid_msg* m, tw_lp* lp) {
             tw_error(TW_LOC, "switch %d port %d has too many active rate flows", ns->switch_id,
                      port_id);
         }
-        active_flows[active_count++] = &flow;
+        active_flows[active_count] = &flow;
+        active_flow_indices[active_count] = flow_index;
+        ++active_count;
     }
     if (active_count <= 0) {
         return;
     }
 
-    const int rate_epoch = ns->next_rate_epoch[port_id]++;
-
     compute_port_rate_allocations(ns, port_id, active_flows, active_count, allocations_mbps);
+
+    int changed_count = 0;
+    for (int i = 0; i < active_count; ++i) {
+        const switch_rate_flow& flow = rate_flows[active_flow_indices[i]];
+        if (!flow.last_advertised_rate_valid ||
+            rate_mbps_materially_changed(flow.last_advertised_rate_mbps, allocations_mbps[i])) {
+            ++changed_count;
+        }
+    }
+    if (changed_count <= 0) {
+        return;
+    }
+
+    /* A new epoch represents an actually advertised rate wave, not merely an
+     * internal reevaluation whose allocations were unchanged. */
+    const int rate_epoch = ns->next_rate_epoch[port_id]++;
 
     const port_desc& port = ns->ports[port_id];
     const int scope_key_type =
@@ -3480,8 +3546,34 @@ static void handle_switch_rate_eval(switch_state* ns, fluid_msg* m, tw_lp* lp) {
     const int scope_key_index = port.target_index;
 
     for (int i = 0; i < active_count; ++i) {
-        send_rate_feedback_upstream(ns, *active_flows[i], allocations_mbps[i], rate_epoch,
-                                    scope_key_type, scope_key_index, m->interval_id, lp);
+        const int flow_index = active_flow_indices[i];
+        switch_rate_flow& flow = rate_flows[flow_index];
+        if (flow.last_advertised_rate_valid &&
+            !rate_mbps_materially_changed(flow.last_advertised_rate_mbps, allocations_mbps[i])) {
+            continue;
+        }
+
+        if (m->rc_alloc_count >= MAX_RC_ALLOCATIONS) {
+            tw_error(TW_LOC,
+                     "switch %d port %d rate evaluation changed more than "
+                     "MAX_RC_ALLOCATIONS=%d flows",
+                     ns->switch_id, port_id, MAX_RC_ALLOCATIONS);
+        }
+        rc_alloc_record* rc = &m->rc_allocs[m->rc_alloc_count++];
+        memset(rc, 0, sizeof(*rc));
+        rc->valid = 1;
+        /* SWITCH_RATE_EVAL reinterpretation of these otherwise-unused fields:
+         * source_is_staged -> previous last-advertised-valid
+         * queue_index      -> rate-flow index
+         * send_mbit        -> previous last-advertised rate */
+        rc->source_is_staged = flow.last_advertised_rate_valid;
+        rc->queue_index = flow_index;
+        rc->send_mbit = flow.last_advertised_rate_mbps;
+
+        flow.last_advertised_rate_mbps = allocations_mbps[i];
+        flow.last_advertised_rate_valid = 1;
+        send_rate_feedback_upstream(ns, flow, allocations_mbps[i], rate_epoch, scope_key_type,
+                                    scope_key_index, m->interval_id, lp);
     }
 }
 
@@ -4278,6 +4370,17 @@ static void switch_rev_event(switch_state* ns, tw_bf* b, fluid_msg* m, tw_lp* lp
         if (m->rc_rate_eval_event_active) {
             if (m->port_id < 0 || m->port_id >= ns->num_ports) {
                 tw_error(TW_LOC, "invalid rate-eval rollback state");
+            }
+            fixed_vector<switch_rate_flow, MAX_FLOW_ENTRIES_PER_PORT>& rate_flows =
+                ns->rate_flows[m->port_id];
+            for (int r = m->rc_alloc_count - 1; r >= 0; --r) {
+                const rc_alloc_record& rc = m->rc_allocs[r];
+                if (!rc.valid || rc.queue_index < 0 || rc.queue_index >= rate_flows.size()) {
+                    tw_error(TW_LOC, "invalid rate-eval advertised-rate rollback state");
+                }
+                switch_rate_flow& flow = rate_flows[rc.queue_index];
+                flow.last_advertised_rate_valid = rc.source_is_staged;
+                flow.last_advertised_rate_mbps = rc.send_mbit;
             }
             ns->rate_eval_pending[m->port_id] = 1;
             ns->next_rate_epoch[m->port_id] = m->rc_prev_rate_epoch;
