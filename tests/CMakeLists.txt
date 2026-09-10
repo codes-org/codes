@@ -482,6 +482,36 @@ foreach(_ffw_workload random-traffic trace-traffic)
     set_tests_properties(${_ffw_equiv} PROPERTIES TIMEOUT 240 PROCESSORS 2)
 endforeach()
 
+# ROSS instrumentation model-stats smoke tests for the fluid-flow WAN model: custom
+# assertions on the binary stats output (file presence, reference-parser round trip,
+# payload content sanity, and that instrumentation leaves the model's event count
+# alone), so they are scripts rather than codes_add_run_test() cases. The sequential
+# case covers virtual-time sampling; the optimistic case adds GVT/real-time sampling
+# and event tracing and exercises the rollback path of the VT sample callbacks.
+foreach(_ffw_stats_mode sequential optimistic)
+    if(_ffw_stats_mode STREQUAL "sequential")
+        set(_ffw_stats_synch 1)
+        set(_ffw_stats_np 1)
+    else()
+        set(_ffw_stats_synch 3)
+        set(_ffw_stats_np 2)
+    endif()
+
+    set(_ffw_stats_test "fluid-flow-wan-trace-traffic-model-stats-${_ffw_stats_mode}")
+    add_test(NAME ${_ffw_stats_test}
+        COMMAND "${CMAKE_CURRENT_BINARY_DIR}/run-test.sh"
+                "${CMAKE_CURRENT_SOURCE_DIR}/fluid-flow-wan-trace-traffic-model-stats.sh"
+                "${_ffw_stats_synch}"
+                "${_ffw_stats_np}"
+                "${_ffw_stats_test}"
+                "${MPIEXEC_EXECUTABLE}"
+                "${MPIEXEC_NUMPROC_FLAG}"
+        WORKING_DIRECTORY "${CODES_BINARY_DIR}")
+    set_tests_properties(${_ffw_stats_test} PROPERTIES TIMEOUT 240)
+endforeach()
+set_tests_properties(fluid-flow-wan-trace-traffic-model-stats-optimistic
+    PROPERTIES PROCESSORS 2)
+
 # Equivalence / determinism tests (replacing per-scenario shell scripts).
 # example-ping-pong-determinism.sh: run the optimistic sim twice, compare
 # committed-event counts (reproducibility).

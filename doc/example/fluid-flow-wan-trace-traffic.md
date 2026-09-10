@@ -29,3 +29,49 @@ offer in source backlog for later intervals.
 `flow_id` values must be globally unique within the trace and must keep the same
 source and destination terminals in every row. Terminal indices refer to the
 terminal ordering induced by the topology YAML.
+
+## ROSS instrumentation
+
+Besides its own CSV logs, the model can emit per-LP time series through the ROSS
+instrumentation layer (`--model-stats`, `--event-trace`). Terminal LPs report
+generated/sent/received volume, source backlog, the sum of advertised send rates,
+and PAUSE counters; switch LPs report shared-buffer occupancy, egress volume, drops,
+PAUSE counters, and per-output-port capacity/queue/egress/pause-time arrays.
+
+Copy the example inputs into a working directory first — the model resolves
+`topology_yaml_file` and `traffic_trace_file` relative to the current directory. Run
+this from your build directory (e.g. `build/debug`):
+
+```bash
+mkdir -p ffw-stats-demo/logs && cd ffw-stats-demo
+cp ../doc/example/fluid-flow-wan-topology.yaml .
+cp ../doc/example/fluid-flow-wan-trace-traffic.csv .
+cp ../doc/example/fluid-flow-wan-trace-traffic.yaml .
+
+mpirun -np 1 ../src/model-net-fluid-flow-wan-trace-traffic --sync=1 \
+    --model-stats=3 --vt-interval=1e8 --vt-samp-end=1.7e10 \
+    --stats-path=model-stats-out \
+    -- fluid-flow-wan-trace-traffic.yaml
+```
+
+`--vt-samp-end` is **required** here. It defaults to `g_tw_ts_end`, which the model
+sets to a year of virtual time, so without it the analysis LPs keep scheduling
+sample events for simulated centuries after the traffic ends. The example config
+runs `num_send_intervals + num_drain_intervals` = 16 intervals of 1 s, i.e. it
+finishes at 1.6e10 ns; `--vt-interval=1e8` gives ten samples per fluid interval and
+`--vt-samp-end=1.7e10` stops just past the end.
+
+Virtual-time samples land in `model-stats-out/ross-stats-analysis-lps.bin`. Use
+`--model-stats=1` (GVT) or `--model-stats=4` (everything) to also fill
+`ross-stats-model.bin`; GVT mode needs a parallel run (`--sync=3`) because it samples
+at intermediate GVTs. Decode either file with the reference parser:
+
+```bash
+python3 <codes-source-dir>/scripts/parse-ross-model-stats.py \
+    model-stats-out/ross-stats-analysis-lps.bin --csv-prefix ffw
+# writes ffw-ffw-terminal.csv and ffw-ffw-switch.csv
+```
+
+All data volumes in the binary payloads are raw Mbit, regardless of whether the
+topology YAML used Mb or Gb units. The exact byte layouts are in
+[../model-stats-binary-format.md](../model-stats-binary-format.md).

@@ -417,6 +417,37 @@ struct terminal_state {
     int generated_fluid_segments;
     int received_fragments;
     unsigned long long rate_updates_received;
+
+    /*
+     * ROSS instrumentation-layer snapshots (see the "ROSS instrumentation layer"
+     * block further down). Every counter reported to the instrumentation layer
+     * is already a lifetime total above; the sampling callbacks report
+     * total - last_sampled_total and then refresh the snapshot. That keeps the
+     * per-interval deltas rollback-safe without threading extra accumulators
+     * through the forward/reverse handlers.
+     *
+     * The GVT/real-time path (mstat_last_*) and the virtual-time analysis-LP
+     * path (vt_last_*) keep independent snapshots because --model-stats=4 runs
+     * both concurrently and a shared snapshot would let one mode steal the
+     * other's deltas.
+     */
+    double mstat_last_generated_mbit;
+    double mstat_last_sent_to_switch_mbit;
+    double mstat_last_received_mbit;
+    double mstat_last_total_pause_time_ns;
+    unsigned long long mstat_last_pause_frames_received;
+    unsigned long long mstat_last_resume_frames_received;
+    unsigned long long mstat_last_pause_updates_received;
+    unsigned long long mstat_last_rate_updates_received;
+
+    double vt_last_generated_mbit;
+    double vt_last_sent_to_switch_mbit;
+    double vt_last_received_mbit;
+    double vt_last_total_pause_time_ns;
+    unsigned long long vt_last_pause_frames_received;
+    unsigned long long vt_last_resume_frames_received;
+    unsigned long long vt_last_pause_updates_received;
+    unsigned long long vt_last_rate_updates_received;
 };
 
 struct switch_state {
@@ -464,10 +495,45 @@ struct switch_state {
 
     double buffered_residual_mbit;
     double sent_mbit;
+    /*
+     * Per-output-port egress volume. This mirrors sent_mbit exactly (same
+     * increment sites, same reverse decrements); sent_mbit is the aggregate and
+     * this is its per-port decomposition, which is what per-link utilization
+     * reporting needs. Only entries [0, num_ports) are ever written.
+     */
+    double port_sent_mbit[MAX_PORTS_PER_SWITCH];
     double delivered_local_mbit;
     double dropped_mbit;
     int received_fragments;
     int sent_fragments;
+
+    /*
+     * ROSS instrumentation-layer snapshots; see the matching comment in
+     * terminal_state and the "ROSS instrumentation layer" block further down.
+     */
+    double mstat_last_sent_mbit;
+    double mstat_last_delivered_local_mbit;
+    double mstat_last_dropped_mbit;
+    unsigned long long mstat_last_pause_frames_sent;
+    unsigned long long mstat_last_resume_frames_sent;
+    unsigned long long mstat_last_pause_updates_sent;
+    unsigned long long mstat_last_pause_frames_received;
+    unsigned long long mstat_last_resume_frames_received;
+    unsigned long long mstat_last_pause_updates_received;
+    double mstat_last_port_sent_mbit[MAX_PORTS_PER_SWITCH];
+    double mstat_last_port_pause_time_ns[MAX_PORTS_PER_SWITCH];
+
+    double vt_last_sent_mbit;
+    double vt_last_delivered_local_mbit;
+    double vt_last_dropped_mbit;
+    unsigned long long vt_last_pause_frames_sent;
+    unsigned long long vt_last_resume_frames_sent;
+    unsigned long long vt_last_pause_updates_sent;
+    unsigned long long vt_last_pause_frames_received;
+    unsigned long long vt_last_resume_frames_received;
+    unsigned long long vt_last_pause_updates_received;
+    double vt_last_port_sent_mbit[MAX_PORTS_PER_SWITCH];
+    double vt_last_port_pause_time_ns[MAX_PORTS_PER_SWITCH];
 };
 
 enum fluid_event_type {
@@ -4075,6 +4141,7 @@ static void switch_init(switch_state* ns, tw_lp* lp) {
         ns->output_link_total_pause_time_ns[p] = 0.0;
         ns->rate_eval_pending[p] = 0;
         ns->next_rate_epoch[p] = 0;
+        ns->port_sent_mbit[p] = 0.0;
     }
     ns->pause_eval_pending = 0;
 
@@ -4352,6 +4419,7 @@ static void send_fluid_segment_fragment(switch_state* ns, int port_id,
         schedule_arrival(interval_id + 1, sw_gid, &out_msg, send_mbit, lp);
     }
     ns->sent_mbit += send_mbit;
+    ns->port_sent_mbit[port_id] += send_mbit;
     ns->sent_fragments++;
 }
 
@@ -4987,6 +5055,7 @@ static void rollback_switch_egress(switch_state* ns, fluid_msg* m) {
 
         if (rc->send_mbit > EPS) {
             ns->sent_mbit -= rc->send_mbit;
+            ns->port_sent_mbit[port_id] -= rc->send_mbit;
             ns->sent_fragments--;
             if (p->is_terminal) {
                 ns->delivered_local_mbit -= rc->send_mbit;
@@ -5018,6 +5087,7 @@ static void rollback_switch_egress(switch_state* ns, fluid_msg* m) {
 
         ns->ingress_links[rc->before.ingress_id].queued_mbit += rc->send_mbit;
         ns->sent_mbit -= rc->send_mbit;
+        ns->port_sent_mbit[port_id] -= rc->send_mbit;
         ns->sent_fragments--;
         if (p->is_terminal) {
             ns->delivered_local_mbit -= rc->send_mbit;
@@ -5073,6 +5143,7 @@ static void rollback_switch_egress_drain(switch_state* ns, fluid_msg* m) {
 
         ns->ingress_links[rc->before.ingress_id].queued_mbit += rc->send_mbit;
         ns->sent_mbit -= rc->send_mbit;
+        ns->port_sent_mbit[port_id] -= rc->send_mbit;
         ns->sent_fragments--;
         if (p->is_terminal) {
             ns->delivered_local_mbit -= rc->send_mbit;
@@ -5241,6 +5312,520 @@ static void switch_finalize(switch_state* ns, tw_lp* lp) {
            ns->pause_frames_sent, ns->resume_frames_sent, ns->pause_updates_received,
            ns->pause_frames_received, ns->resume_frames_received, total_pause_time_ms);
 }
+
+/* ---- ROSS instrumentation layer: model-level stats + event tracing -----------------------
+ *
+ * These callbacks let the ROSS instrumentation layer collect fluid-flow-WAN model data
+ * alongside its simulation-engine data. They are entirely separate from the model's own CSV
+ * logs (terminal_log_path / switch_log_path / fluid_segment_log_path), which are unchanged.
+ * Nothing here runs unless instrumentation is requested on the command line, e.g.:
+ *
+ *   --model-stats=1              collect model data at GVT (every --num-gvt GVTs, default 10)
+ *   --model-stats=2              collect at real-time intervals (--rt-interval, ms)
+ *   --model-stats=3              collect at virtual-time intervals via analysis LPs
+ *                                (--vt-interval / --vt-samp-end). NOTE: pass an explicit
+ *                                --vt-samp-end for this model! It defaults to g_tw_ts_end,
+ *                                which main() sets to one year of virtual time, so the
+ *                                analysis LPs would keep scheduling sample events for
+ *                                simulated centuries after the traffic ends. A run of
+ *                                num_send_intervals + num_drain_intervals intervals of
+ *                                interval_seconds each finishes at
+ *                                (send + drain) * interval_seconds * 1e9 ns; set
+ *                                --vt-samp-end just past that.
+ *   --model-stats=4              all of the above
+ *   --event-trace=1              trace events (fluid_flow_wan_event_collect below)
+ *   --stats-path=<dir>           output directory (default: stats-output)
+ *
+ * GVT/RT-mode records go to <stats-path>/ross-stats-model.bin, virtual-time samples to
+ * <stats-path>/ross-stats-analysis-lps.bin. See doc/model-stats-binary-format.md for the
+ * exact record layouts and a reference parser (scripts/parse-ross-model-stats.py).
+ *
+ * Units: every data volume in these payloads is raw Mbit, straight out of the *_mbit state
+ * fields. The optional Gbit rescaling that to_output_data_unit() applies to the CSV logs and
+ * the finalize lines is deliberately NOT applied here, so a consumer never has to know which
+ * unit the topology YAML happened to use.
+ *
+ * Delta mechanism: the state structs already carry lifetime totals for everything reported,
+ * so a sampling callback reports total - last_sampled_total and then refreshes its snapshot
+ * (mstat_last_* for the GVT/RT path, vt_last_* for the virtual-time path). No accumulator is
+ * threaded through the forward/reverse event handlers. GVT/RT collection needs no reversal:
+ * because the deltas are differences of lifetime totals they telescope exactly, so a
+ * rollback after a sample shows up as one slightly negative delta, never as lost volume.
+ * Virtual-time sampling gets an exact reversal instead: each VT payload carries a trailing
+ * block of prev_* fields holding the snapshot values from before the sample, and the reverse
+ * callback restores vt_last_* from them bit-exactly, so VT deltas are never negative.
+ */
+
+/* Max ports over all switches in the loaded topology. Fixed at registration time (after
+ * load_config()) and used to size both switch payloads, so every switch LP emits the same
+ * record size with entries beyond its own num_ports zero-filled. */
+static int ffw_stats_max_ports = 0;
+
+/* Scalar-header sizes; the per-port block adds FFW_STAT_PORT_STRIDE bytes per port. */
+#define FFW_TERMINAL_MSTAT_SZ ((size_t)104)
+#define FFW_TERMINAL_VT_SAMPLE_SZ ((size_t)176)
+#define FFW_TERMINAL_VT_TRAILER_SZ ((size_t)64)
+#define FFW_SWITCH_MSTAT_HEADER_SZ ((size_t)112)
+#define FFW_SWITCH_VT_HEADER_SZ ((size_t)120)
+#define FFW_SWITCH_VT_TRAILER_SZ ((size_t)72)
+/* 4 doubles + 4 int32 per port, in both payloads */
+#define FFW_STAT_PORT_STRIDE ((size_t)48)
+/* the VT trailer additionally carries 2 per-port double arrays */
+#define FFW_SWITCH_VT_PORT_TRAILER_STRIDE ((size_t)16)
+
+static size_t ffw_switch_mstat_sz(int max_ports) {
+    return FFW_SWITCH_MSTAT_HEADER_SZ + (size_t)max_ports * FFW_STAT_PORT_STRIDE;
+}
+
+static size_t ffw_switch_vt_sample_sz(int max_ports) {
+    return FFW_SWITCH_VT_HEADER_SZ + (size_t)max_ports * FFW_STAT_PORT_STRIDE +
+           FFW_SWITCH_VT_TRAILER_SZ + (size_t)max_ports * FFW_SWITCH_VT_PORT_TRAILER_STRIDE;
+}
+
+/*
+ * Byte-serial payload writers. Every payload is written field by field with memcpy so the
+ * on-disk record has no struct padding holes and a fixed, documented layout regardless of
+ * compiler or ABI. The switch payloads are variable length (they carry per-port arrays sized
+ * by the topology), so they cannot be plain C structs anyway.
+ */
+static size_t ffw_put_f64(char* buffer, size_t index, double value) {
+    memcpy(&buffer[index], &value, sizeof(value));
+    return index + sizeof(value);
+}
+
+static size_t ffw_put_u64(char* buffer, size_t index, unsigned long long value) {
+    const std::uint64_t narrowed = (std::uint64_t)value;
+    memcpy(&buffer[index], &narrowed, sizeof(narrowed));
+    return index + sizeof(narrowed);
+}
+
+static size_t ffw_put_i32(char* buffer, size_t index, int value) {
+    const std::int32_t narrowed = (std::int32_t)value;
+    memcpy(&buffer[index], &narrowed, sizeof(narrowed));
+    return index + sizeof(narrowed);
+}
+
+/* Event-type collection for ROSS event tracing (--event-trace); shared by both LP types
+ * because both are driven by the same fluid_msg. */
+static void fluid_flow_wan_event_collect(fluid_msg* m, tw_lp* lp, char* buffer, int* collect_flag) {
+    (void)lp;
+    (void)collect_flag;
+    const int type = m->event_type;
+    memcpy(buffer, &type, sizeof(type));
+}
+
+/* Gauges read straight off terminal state at sampling time. "Active" means a source flow
+ * that still has data left to inject (remaining_source_mbit > EPS) -- the same predicate
+ * terminal_finalize uses for its active_source_flows line. */
+static void ffw_terminal_flow_gauges(const terminal_state* ns, int* active_flows_out,
+                                     double* backlog_mbit_out, double* rate_sum_mbps_out) {
+    int active_flows = 0;
+    double backlog_mbit = 0.0;
+    double rate_sum_mbps = 0.0;
+    for (int i = 0; i < ns->source_flows.size(); ++i) {
+        const source_flow& flow = ns->source_flows[i];
+        if (flow.remaining_source_mbit <= EPS) {
+            continue;
+        }
+        ++active_flows;
+        backlog_mbit += flow.remaining_source_mbit;
+        rate_sum_mbps += flow.current_send_rate_mbps;
+    }
+    *active_flows_out = active_flows;
+    *backlog_mbit_out = backlog_mbit;
+    *rate_sum_mbps_out = rate_sum_mbps;
+}
+
+/* GVT- and real-time-mode collection callback for terminal LPs (--model-stats=1 or 2).
+ * Refreshing mstat_last_* here needs no reverse handler: the reported values are
+ * differences of lifetime totals, so if a sample is taken ahead of the commit point and
+ * some of that work is later rolled back, the next delta simply comes out slightly
+ * negative and the running sum stays exact. */
+static void ffw_terminal_model_stat_collect(terminal_state* ns, tw_lp* lp, char* buffer) {
+    (void)lp;
+    int active_flows = 0;
+    double backlog_mbit = 0.0;
+    double rate_sum_mbps = 0.0;
+    ffw_terminal_flow_gauges(ns, &active_flows, &backlog_mbit, &rate_sum_mbps);
+
+    size_t index = 0;
+    index = ffw_put_u64(buffer, index, (unsigned long long)ns->terminal_id);
+    index = ffw_put_i32(buffer, index, ns->attached_switch);
+    index = ffw_put_i32(buffer, index, active_flows);
+    index = ffw_put_i32(buffer, index, ns->link_paused);
+    index = ffw_put_i32(buffer, index, 0); /* reserved */
+
+    index = ffw_put_f64(buffer, index, ns->generated_mbit - ns->mstat_last_generated_mbit);
+    index =
+        ffw_put_f64(buffer, index, ns->sent_to_switch_mbit - ns->mstat_last_sent_to_switch_mbit);
+    index = ffw_put_f64(buffer, index, ns->received_mbit - ns->mstat_last_received_mbit);
+    index = ffw_put_f64(buffer, index, backlog_mbit);
+    index = ffw_put_f64(buffer, index, rate_sum_mbps);
+    index =
+        ffw_put_f64(buffer, index, ns->total_pause_time_ns - ns->mstat_last_total_pause_time_ns);
+
+    index = ffw_put_u64(buffer, index,
+                        ns->pause_frames_received - ns->mstat_last_pause_frames_received);
+    index = ffw_put_u64(buffer, index,
+                        ns->resume_frames_received - ns->mstat_last_resume_frames_received);
+    index = ffw_put_u64(buffer, index,
+                        ns->pause_updates_received - ns->mstat_last_pause_updates_received);
+    index = ffw_put_u64(buffer, index,
+                        ns->rate_updates_received - ns->mstat_last_rate_updates_received);
+
+    if (index != FFW_TERMINAL_MSTAT_SZ) {
+        tw_error(TW_LOC, "fluid-flow-wan terminal mstat payload is %zu bytes, expected %zu", index,
+                 FFW_TERMINAL_MSTAT_SZ);
+    }
+
+    ns->mstat_last_generated_mbit = ns->generated_mbit;
+    ns->mstat_last_sent_to_switch_mbit = ns->sent_to_switch_mbit;
+    ns->mstat_last_received_mbit = ns->received_mbit;
+    ns->mstat_last_total_pause_time_ns = ns->total_pause_time_ns;
+    ns->mstat_last_pause_frames_received = ns->pause_frames_received;
+    ns->mstat_last_resume_frames_received = ns->resume_frames_received;
+    ns->mstat_last_pause_updates_received = ns->pause_updates_received;
+    ns->mstat_last_rate_updates_received = ns->rate_updates_received;
+}
+
+/* Virtual-time-mode sampling callback for terminal LPs (--model-stats=3): the analysis LP
+ * for this KP calls this at each --vt-interval with a buffer of sample_struct_sz bytes.
+ * The trailing prev_* block records the pre-sample vt_last_* snapshot so the reverse
+ * callback can restore it exactly; consumers may ignore it. */
+static void ffw_terminal_sample_fn(terminal_state* ns, tw_bf* b, tw_lp* lp, void* sample) {
+    (void)b;
+    char* buffer = (char*)sample;
+    int active_flows = 0;
+    double backlog_mbit = 0.0;
+    double rate_sum_mbps = 0.0;
+    ffw_terminal_flow_gauges(ns, &active_flows, &backlog_mbit, &rate_sum_mbps);
+
+    size_t index = 0;
+    index = ffw_put_u64(buffer, index, (unsigned long long)ns->terminal_id);
+    index = ffw_put_f64(buffer, index, ns->generated_mbit - ns->vt_last_generated_mbit);
+    index = ffw_put_f64(buffer, index, ns->sent_to_switch_mbit - ns->vt_last_sent_to_switch_mbit);
+    index = ffw_put_f64(buffer, index, ns->received_mbit - ns->vt_last_received_mbit);
+    index = ffw_put_f64(buffer, index, backlog_mbit);
+    index = ffw_put_f64(buffer, index, rate_sum_mbps);
+    index = ffw_put_f64(buffer, index, ns->total_pause_time_ns - ns->vt_last_total_pause_time_ns);
+    index =
+        ffw_put_u64(buffer, index, ns->pause_frames_received - ns->vt_last_pause_frames_received);
+    index =
+        ffw_put_u64(buffer, index, ns->resume_frames_received - ns->vt_last_resume_frames_received);
+    index =
+        ffw_put_u64(buffer, index, ns->pause_updates_received - ns->vt_last_pause_updates_received);
+    index =
+        ffw_put_u64(buffer, index, ns->rate_updates_received - ns->vt_last_rate_updates_received);
+    index = ffw_put_f64(buffer, index, tw_now(lp));
+    index = ffw_put_i32(buffer, index, ns->attached_switch);
+    index = ffw_put_i32(buffer, index, active_flows);
+    index = ffw_put_i32(buffer, index, ns->link_paused);
+    index = ffw_put_i32(buffer, index, 0); /* reserved */
+
+    /* trailing rollback bookkeeping */
+    index = ffw_put_f64(buffer, index, ns->vt_last_generated_mbit);
+    index = ffw_put_f64(buffer, index, ns->vt_last_sent_to_switch_mbit);
+    index = ffw_put_f64(buffer, index, ns->vt_last_received_mbit);
+    index = ffw_put_f64(buffer, index, ns->vt_last_total_pause_time_ns);
+    index = ffw_put_u64(buffer, index, ns->vt_last_pause_frames_received);
+    index = ffw_put_u64(buffer, index, ns->vt_last_resume_frames_received);
+    index = ffw_put_u64(buffer, index, ns->vt_last_pause_updates_received);
+    index = ffw_put_u64(buffer, index, ns->vt_last_rate_updates_received);
+
+    if (index != FFW_TERMINAL_VT_SAMPLE_SZ) {
+        tw_error(TW_LOC, "fluid-flow-wan terminal VT payload is %zu bytes, expected %zu", index,
+                 FFW_TERMINAL_VT_SAMPLE_SZ);
+    }
+
+    ns->vt_last_generated_mbit = ns->generated_mbit;
+    ns->vt_last_sent_to_switch_mbit = ns->sent_to_switch_mbit;
+    ns->vt_last_received_mbit = ns->received_mbit;
+    ns->vt_last_total_pause_time_ns = ns->total_pause_time_ns;
+    ns->vt_last_pause_frames_received = ns->pause_frames_received;
+    ns->vt_last_resume_frames_received = ns->resume_frames_received;
+    ns->vt_last_pause_updates_received = ns->pause_updates_received;
+    ns->vt_last_rate_updates_received = ns->rate_updates_received;
+}
+
+static void ffw_terminal_sample_rc_fn(terminal_state* ns, tw_bf* b, tw_lp* lp, void* sample) {
+    (void)b;
+    (void)lp;
+    const char* buffer = (const char*)sample;
+    size_t index = FFW_TERMINAL_VT_SAMPLE_SZ - FFW_TERMINAL_VT_TRAILER_SZ;
+
+    memcpy(&ns->vt_last_generated_mbit, &buffer[index], sizeof(double));
+    index += sizeof(double);
+    memcpy(&ns->vt_last_sent_to_switch_mbit, &buffer[index], sizeof(double));
+    index += sizeof(double);
+    memcpy(&ns->vt_last_received_mbit, &buffer[index], sizeof(double));
+    index += sizeof(double);
+    memcpy(&ns->vt_last_total_pause_time_ns, &buffer[index], sizeof(double));
+    index += sizeof(double);
+
+    std::uint64_t value = 0;
+    memcpy(&value, &buffer[index], sizeof(value));
+    ns->vt_last_pause_frames_received = (unsigned long long)value;
+    index += sizeof(value);
+    memcpy(&value, &buffer[index], sizeof(value));
+    ns->vt_last_resume_frames_received = (unsigned long long)value;
+    index += sizeof(value);
+    memcpy(&value, &buffer[index], sizeof(value));
+    ns->vt_last_pause_updates_received = (unsigned long long)value;
+    index += sizeof(value);
+    memcpy(&value, &buffer[index], sizeof(value));
+    ns->vt_last_rate_updates_received = (unsigned long long)value;
+}
+
+/*
+ * Per-port block shared by the switch GVT/RT and VT payloads: four double arrays followed by
+ * four int32 arrays, each of length ffw_stats_max_ports, entries beyond num_ports zeroed.
+ * last_port_sent_mbit / last_port_pause_time_ns are the caller's snapshot arrays (mstat_last_*
+ * or vt_last_*), against which the two per-port delta arrays are computed.
+ */
+static size_t ffw_switch_put_port_block(const switch_state* ns, const double* last_port_sent_mbit,
+                                        const double* last_port_pause_time_ns, char* buffer,
+                                        size_t index) {
+    const int ports = std::min(ns->num_ports, ffw_stats_max_ports);
+    for (int p = 0; p < ffw_stats_max_ports; ++p) {
+        index =
+            ffw_put_f64(buffer, index, p < ports ? ns->ports[p].capacity_mbit_per_interval : 0.0);
+    }
+    for (int p = 0; p < ffw_stats_max_ports; ++p) {
+        index = ffw_put_f64(buffer, index, p < ports ? queued_mbit_on_port(ns, p) : 0.0);
+    }
+    for (int p = 0; p < ffw_stats_max_ports; ++p) {
+        index = ffw_put_f64(buffer, index,
+                            p < ports ? ns->port_sent_mbit[p] - last_port_sent_mbit[p] : 0.0);
+    }
+    for (int p = 0; p < ffw_stats_max_ports; ++p) {
+        index = ffw_put_f64(buffer, index,
+                            p < ports ? ns->output_link_total_pause_time_ns[p] -
+                                            last_port_pause_time_ns[p]
+                                      : 0.0);
+    }
+    for (int p = 0; p < ffw_stats_max_ports; ++p) {
+        index = ffw_put_i32(buffer, index, p < ports ? ns->ports[p].is_terminal : 0);
+    }
+    for (int p = 0; p < ffw_stats_max_ports; ++p) {
+        index = ffw_put_i32(buffer, index, p < ports ? ns->ports[p].target_index : -1);
+    }
+    for (int p = 0; p < ffw_stats_max_ports; ++p) {
+        index = ffw_put_i32(buffer, index, p < ports ? ns->output_link_paused[p] : 0);
+    }
+    for (int p = 0; p < ffw_stats_max_ports; ++p) {
+        index =
+            ffw_put_i32(buffer, index, p < ports ? active_fluid_segment_count_on_port(ns, p) : 0);
+    }
+    return index;
+}
+
+/* GVT- and real-time-mode collection callback for switch LPs (--model-stats=1 or 2). */
+static void ffw_switch_model_stat_collect(switch_state* ns, tw_lp* lp, char* buffer) {
+    (void)lp;
+    const int ports = std::min(ns->num_ports, ffw_stats_max_ports);
+
+    size_t index = 0;
+    index = ffw_put_u64(buffer, index, (unsigned long long)ns->switch_id);
+    index = ffw_put_i32(buffer, index, ns->num_ports);
+    index = ffw_put_i32(buffer, index, 0); /* reserved */
+    index = ffw_put_f64(buffer, index, ns->shared_buffer_mbit);
+    index = ffw_put_f64(buffer, index, queued_mbit_on_switch(ns));
+    index = ffw_put_f64(buffer, index, ns->buffered_residual_mbit);
+    index = ffw_put_f64(buffer, index, ns->sent_mbit - ns->mstat_last_sent_mbit);
+    index =
+        ffw_put_f64(buffer, index, ns->delivered_local_mbit - ns->mstat_last_delivered_local_mbit);
+    index = ffw_put_f64(buffer, index, ns->dropped_mbit - ns->mstat_last_dropped_mbit);
+    index = ffw_put_u64(buffer, index, ns->pause_frames_sent - ns->mstat_last_pause_frames_sent);
+    index = ffw_put_u64(buffer, index, ns->resume_frames_sent - ns->mstat_last_resume_frames_sent);
+    index = ffw_put_u64(buffer, index, ns->pause_updates_sent - ns->mstat_last_pause_updates_sent);
+    index = ffw_put_u64(buffer, index,
+                        ns->pause_frames_received - ns->mstat_last_pause_frames_received);
+    index = ffw_put_u64(buffer, index,
+                        ns->resume_frames_received - ns->mstat_last_resume_frames_received);
+    index = ffw_put_u64(buffer, index,
+                        ns->pause_updates_received - ns->mstat_last_pause_updates_received);
+
+    index = ffw_switch_put_port_block(ns, ns->mstat_last_port_sent_mbit,
+                                      ns->mstat_last_port_pause_time_ns, buffer, index);
+
+    if (index != ffw_switch_mstat_sz(ffw_stats_max_ports)) {
+        tw_error(TW_LOC, "fluid-flow-wan switch mstat payload is %zu bytes, expected %zu", index,
+                 ffw_switch_mstat_sz(ffw_stats_max_ports));
+    }
+
+    ns->mstat_last_sent_mbit = ns->sent_mbit;
+    ns->mstat_last_delivered_local_mbit = ns->delivered_local_mbit;
+    ns->mstat_last_dropped_mbit = ns->dropped_mbit;
+    ns->mstat_last_pause_frames_sent = ns->pause_frames_sent;
+    ns->mstat_last_resume_frames_sent = ns->resume_frames_sent;
+    ns->mstat_last_pause_updates_sent = ns->pause_updates_sent;
+    ns->mstat_last_pause_frames_received = ns->pause_frames_received;
+    ns->mstat_last_resume_frames_received = ns->resume_frames_received;
+    ns->mstat_last_pause_updates_received = ns->pause_updates_received;
+    for (int p = 0; p < ports; ++p) {
+        ns->mstat_last_port_sent_mbit[p] = ns->port_sent_mbit[p];
+        ns->mstat_last_port_pause_time_ns[p] = ns->output_link_total_pause_time_ns[p];
+    }
+}
+
+/* Virtual-time-mode sampling callback for switch LPs (--model-stats=3). */
+static void ffw_switch_sample_fn(switch_state* ns, tw_bf* b, tw_lp* lp, void* sample) {
+    (void)b;
+    char* buffer = (char*)sample;
+    const int ports = std::min(ns->num_ports, ffw_stats_max_ports);
+
+    size_t index = 0;
+    index = ffw_put_u64(buffer, index, (unsigned long long)ns->switch_id);
+    index = ffw_put_f64(buffer, index, ns->shared_buffer_mbit);
+    index = ffw_put_f64(buffer, index, queued_mbit_on_switch(ns));
+    index = ffw_put_f64(buffer, index, ns->buffered_residual_mbit);
+    index = ffw_put_f64(buffer, index, ns->sent_mbit - ns->vt_last_sent_mbit);
+    index = ffw_put_f64(buffer, index, ns->delivered_local_mbit - ns->vt_last_delivered_local_mbit);
+    index = ffw_put_f64(buffer, index, ns->dropped_mbit - ns->vt_last_dropped_mbit);
+    index = ffw_put_u64(buffer, index, ns->pause_frames_sent - ns->vt_last_pause_frames_sent);
+    index = ffw_put_u64(buffer, index, ns->resume_frames_sent - ns->vt_last_resume_frames_sent);
+    index = ffw_put_u64(buffer, index, ns->pause_updates_sent - ns->vt_last_pause_updates_sent);
+    index =
+        ffw_put_u64(buffer, index, ns->pause_frames_received - ns->vt_last_pause_frames_received);
+    index =
+        ffw_put_u64(buffer, index, ns->resume_frames_received - ns->vt_last_resume_frames_received);
+    index =
+        ffw_put_u64(buffer, index, ns->pause_updates_received - ns->vt_last_pause_updates_received);
+    index = ffw_put_f64(buffer, index, tw_now(lp));
+    index = ffw_put_i32(buffer, index, ns->num_ports);
+    index = ffw_put_i32(buffer, index, 0); /* reserved */
+
+    index = ffw_switch_put_port_block(ns, ns->vt_last_port_sent_mbit,
+                                      ns->vt_last_port_pause_time_ns, buffer, index);
+
+    /* trailing rollback bookkeeping */
+    index = ffw_put_f64(buffer, index, ns->vt_last_sent_mbit);
+    index = ffw_put_f64(buffer, index, ns->vt_last_delivered_local_mbit);
+    index = ffw_put_f64(buffer, index, ns->vt_last_dropped_mbit);
+    index = ffw_put_u64(buffer, index, ns->vt_last_pause_frames_sent);
+    index = ffw_put_u64(buffer, index, ns->vt_last_resume_frames_sent);
+    index = ffw_put_u64(buffer, index, ns->vt_last_pause_updates_sent);
+    index = ffw_put_u64(buffer, index, ns->vt_last_pause_frames_received);
+    index = ffw_put_u64(buffer, index, ns->vt_last_resume_frames_received);
+    index = ffw_put_u64(buffer, index, ns->vt_last_pause_updates_received);
+    for (int p = 0; p < ffw_stats_max_ports; ++p) {
+        index = ffw_put_f64(buffer, index, p < ports ? ns->vt_last_port_sent_mbit[p] : 0.0);
+    }
+    for (int p = 0; p < ffw_stats_max_ports; ++p) {
+        index = ffw_put_f64(buffer, index, p < ports ? ns->vt_last_port_pause_time_ns[p] : 0.0);
+    }
+
+    if (index != ffw_switch_vt_sample_sz(ffw_stats_max_ports)) {
+        tw_error(TW_LOC, "fluid-flow-wan switch VT payload is %zu bytes, expected %zu", index,
+                 ffw_switch_vt_sample_sz(ffw_stats_max_ports));
+    }
+
+    ns->vt_last_sent_mbit = ns->sent_mbit;
+    ns->vt_last_delivered_local_mbit = ns->delivered_local_mbit;
+    ns->vt_last_dropped_mbit = ns->dropped_mbit;
+    ns->vt_last_pause_frames_sent = ns->pause_frames_sent;
+    ns->vt_last_resume_frames_sent = ns->resume_frames_sent;
+    ns->vt_last_pause_updates_sent = ns->pause_updates_sent;
+    ns->vt_last_pause_frames_received = ns->pause_frames_received;
+    ns->vt_last_resume_frames_received = ns->resume_frames_received;
+    ns->vt_last_pause_updates_received = ns->pause_updates_received;
+    for (int p = 0; p < ports; ++p) {
+        ns->vt_last_port_sent_mbit[p] = ns->port_sent_mbit[p];
+        ns->vt_last_port_pause_time_ns[p] = ns->output_link_total_pause_time_ns[p];
+    }
+}
+
+static void ffw_switch_sample_rc_fn(switch_state* ns, tw_bf* b, tw_lp* lp, void* sample) {
+    (void)b;
+    (void)lp;
+    const char* buffer = (const char*)sample;
+    const int ports = std::min(ns->num_ports, ffw_stats_max_ports);
+    size_t index = FFW_SWITCH_VT_HEADER_SZ + (size_t)ffw_stats_max_ports * FFW_STAT_PORT_STRIDE;
+
+    memcpy(&ns->vt_last_sent_mbit, &buffer[index], sizeof(double));
+    index += sizeof(double);
+    memcpy(&ns->vt_last_delivered_local_mbit, &buffer[index], sizeof(double));
+    index += sizeof(double);
+    memcpy(&ns->vt_last_dropped_mbit, &buffer[index], sizeof(double));
+    index += sizeof(double);
+
+    unsigned long long* const counters[] = {&ns->vt_last_pause_frames_sent,
+                                            &ns->vt_last_resume_frames_sent,
+                                            &ns->vt_last_pause_updates_sent,
+                                            &ns->vt_last_pause_frames_received,
+                                            &ns->vt_last_resume_frames_received,
+                                            &ns->vt_last_pause_updates_received};
+    for (size_t i = 0; i < sizeof(counters) / sizeof(counters[0]); ++i) {
+        std::uint64_t value = 0;
+        memcpy(&value, &buffer[index], sizeof(value));
+        *counters[i] = (unsigned long long)value;
+        index += sizeof(value);
+    }
+
+    for (int p = 0; p < ffw_stats_max_ports; ++p) {
+        double value = 0.0;
+        memcpy(&value, &buffer[index], sizeof(value));
+        if (p < ports) {
+            ns->vt_last_port_sent_mbit[p] = value;
+        }
+        index += sizeof(value);
+    }
+    for (int p = 0; p < ffw_stats_max_ports; ++p) {
+        double value = 0.0;
+        memcpy(&value, &buffer[index], sizeof(value));
+        if (p < ports) {
+            ns->vt_last_port_pause_time_ns[p] = value;
+        }
+        index += sizeof(value);
+    }
+}
+
+static st_model_types ffw_terminal_model_types[] = {
+    {(ev_trace_f)fluid_flow_wan_event_collect, sizeof(int),
+     (model_stat_f)ffw_terminal_model_stat_collect, FFW_TERMINAL_MSTAT_SZ,
+     (sample_event_f)ffw_terminal_sample_fn, (sample_revent_f)ffw_terminal_sample_rc_fn,
+     FFW_TERMINAL_VT_SAMPLE_SZ},
+    {NULL, 0, NULL, 0, NULL, NULL, 0}};
+
+static st_model_types ffw_switch_model_types[] = {
+    {(ev_trace_f)fluid_flow_wan_event_collect, sizeof(int),
+     (model_stat_f)ffw_switch_model_stat_collect,
+     0, /* topology dependent; set in fluid_flow_wan_register_model_types() */
+     (sample_event_f)ffw_switch_sample_fn, (sample_revent_f)ffw_switch_sample_rc_fn,
+     0}, /* topology dependent; set in fluid_flow_wan_register_model_types() */
+    {NULL, 0, NULL, 0, NULL, NULL, 0}};
+
+/*
+ * Attach the instrumentation callbacks to both LP types. Must run after add_lp_types() (a
+ * type has to be registered before callbacks can be attached to it) and before
+ * codes_mapping_setup(), which is where the callbacks get handed to ROSS per LP. The
+ * topology is already loaded at that point, so the per-switch port counts that size the
+ * switch payloads are known. One uniform size is used for every switch LP so a consumer can
+ * treat one record size as one LP type.
+ */
+static void fluid_flow_wan_register_model_types(void) {
+    ffw_stats_max_ports = 0;
+    for (size_t i = 0; i < switches.size(); ++i) {
+        const int ports = (int)switches[i].links.size() + switches[i].terminal_count;
+        if (ports > ffw_stats_max_ports) {
+            ffw_stats_max_ports = ports;
+        }
+    }
+    if (ffw_stats_max_ports <= 0) {
+        ffw_stats_max_ports = 1;
+    }
+    if (ffw_stats_max_ports > MAX_PORTS_PER_SWITCH) {
+        tw_error(TW_LOC, "topology needs %d ports per switch, max is %d", ffw_stats_max_ports,
+                 MAX_PORTS_PER_SWITCH);
+    }
+
+    ffw_switch_model_types[0].mstat_sz = ffw_switch_mstat_sz(ffw_stats_max_ports);
+    ffw_switch_model_types[0].sample_struct_sz = ffw_switch_vt_sample_sz(ffw_stats_max_ports);
+
+    st_model_type_register(TERMINAL_LP_NAME, &ffw_terminal_model_types[0]);
+    st_model_type_register(SWITCH_LP_NAME, &ffw_switch_model_types[0]);
+}
+/* ---- end of ROSS instrumentation additions ---------------------------------------------- */
 
 const tw_optdef app_opt[] = {TWOPT_GROUP("interval-fluid switch/terminal workload"), TWOPT_END()};
 
@@ -5430,6 +6015,16 @@ int main(int argc, char** argv) {
     validate_ross_message_size_or_abort(rank);
 
     add_lp_types();
+
+    /* attach the ROSS instrumentation callbacks when any instrumentation mode was requested
+     * on the command line (--model-stats / --event-trace); must happen after add_lp_types()
+     * and before codes_mapping_setup(), which is where the callbacks get handed to ROSS per
+     * LP. load_config() already ran, so the topology port counts that size the switch
+     * payloads are known here. */
+    if (g_st_ev_trace || g_st_model_stats || g_st_use_analysis_lps) {
+        fluid_flow_wan_register_model_types();
+    }
+
     /*
      * rng_seed is a workload-level reproducibility knob. The random-traffic
      * workload draws destinations and sizes from each terminal LP's ROSS RNG,
