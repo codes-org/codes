@@ -56,3 +56,6 @@ configure_file(kb.dfdally-72-milc-small.json kb.dfdally-72-milc-small.json COPYO
 configure_file(kb.dfdally-72-milc-small.alloc.conf kb.dfdally-72-milc-small.alloc.conf COPYONLY)
 configure_file(fluid-flow-wan-topology.yaml fluid-flow-wan-topology.yaml COPYONLY)
 configure_file(fluid-flow-wan-trace-traffic.csv fluid-flow-wan-trace-traffic.csv COPYONLY)
+# PAUSE-demo variant: same trace on 2 Gb buffers so Ethernet PAUSE engages.
+configure_file(fluid-flow-wan-topology-pause.yaml fluid-flow-wan-topology-pause.yaml COPYONLY)
+configure_file(fluid-flow-wan-trace-traffic-pause.yaml fluid-flow-wan-trace-traffic-pause.yaml COPYONLY)

@@ -39,8 +39,9 @@ and PAUSE counters; switch LPs report shared-buffer occupancy, egress volume, dr
 PAUSE counters, and per-output-port capacity/queue/egress/pause-time arrays.
 
 Copy the example inputs into a working directory first — the model resolves
-`topology_yaml_file` and `traffic_trace_file` relative to the current directory. Run
-this from your build directory (e.g. `build/debug`):
+`topology_yaml_file`, `traffic_trace_file`, and the CSV log paths relative to the
+directory containing the config file, and the `logs/` directory must already exist
+there. Run this from your build directory (e.g. `build/debug`):
 
 ```bash
 mkdir -p ffw-stats-demo/logs && cd ffw-stats-demo
@@ -75,3 +76,15 @@ python3 <codes-source-dir>/scripts/parse-ross-model-stats.py \
 All data volumes in the binary payloads are raw Mbit, regardless of whether the
 topology YAML used Mb or Gb units. The exact byte layouts are in
 [../model-stats-binary-format.md](../model-stats-binary-format.md).
+
+## PAUSE demo variant
+
+With the stock 64 Gb deep buffers this trace never crosses the PAUSE high
+watermark — max-min rate feedback caps switch B's standing backlog near 1.7 Gb,
+so rate feedback is the only backpressure signal you will see. To also exercise
+Ethernet PAUSE/RESUME, use `fluid-flow-wan-trace-traffic-pause.yaml`, which is
+identical except that it points at `fluid-flow-wan-topology-pause.yaml` (2 Gb
+buffers, PAUSE watermarks at 1.6/1 Gb). The same trace then drives switch B
+across the watermark: B PAUSEs its largest ingress contributor (the A->B link)
+and the PAUSE/RESUME frames, per-port pause time, and paused-port samples all
+appear in the CSV logs and in the instrumentation payloads.
