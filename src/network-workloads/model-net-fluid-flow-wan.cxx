@@ -29,6 +29,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <limits>
 #include <map>
@@ -5850,11 +5851,32 @@ static const char* find_config_arg(int argc, char** argv) {
     return NULL;
 }
 
+/*
+ * CSV log paths resolve relative to the config file's directory, so a fresh
+ * build/run tree usually lacks the configured log directory. Only rank 0
+ * touches the log files, and headers are always written before the merged
+ * append, so creating the directory here covers every open of the path.
+ */
+static void ensure_log_directory_exists(const char* path) {
+    const std::filesystem::path parent = std::filesystem::path(path).parent_path();
+    if (parent.empty()) {
+        return;
+    }
+
+    std::error_code ec;
+    std::filesystem::create_directories(parent, ec);
+    if (ec) {
+        tw_error(TW_LOC, "could not create CSV log directory '%s': %s", parent.c_str(),
+                 ec.message().c_str());
+    }
+}
+
 static void write_log_header_file(const char* path, const char* header) {
     if (path[0] == '\0') {
         return;
     }
 
+    ensure_log_directory_exists(path);
     std::remove(path);
 
     std::ofstream out(path, std::ios::out | std::ios::trunc);

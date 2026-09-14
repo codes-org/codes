@@ -4,15 +4,13 @@
 # congesting the 10 Gbps B->C link drive switch B across the PAUSE high
 # watermark and Ethernet PAUSE/RESUME frames appear alongside the rate
 # feedback. All relative paths below (topology, trace, logs) resolve against
-# this file's directory, so the CSV log directory must exist there. Run from
-# the build directory, for example:
-#   mkdir -p doc/example/logs
+# this file's directory; the model creates the CSV log directory if missing.
+# Run from the build directory, for example:
 #   mpirun -np 1 ./src/model-net-fluid-flow-wan-trace-traffic --sync=1 -- \
 #       doc/example/fluid-flow-wan-trace-traffic-pause.yaml
 #
 # With ROSS instrumentation for NetMaestro (see
 # fluid-flow-wan-trace-traffic.md; --vt-samp-end is mandatory):
-#   mkdir -p doc/example/logs
 #   mpirun -np 1 ./src/model-net-fluid-flow-wan-trace-traffic --sync=1 \
 #       --model-stats=3 --vt-interval=1e8 --vt-samp-end=1.7e10 \
 #       --stats-path=model-stats-out -- \

@@ -40,11 +40,11 @@ PAUSE counters, and per-output-port capacity/queue/egress/pause-time arrays.
 
 Copy the example inputs into a working directory first — the model resolves
 `topology_yaml_file`, `traffic_trace_file`, and the CSV log paths relative to the
-directory containing the config file, and the `logs/` directory must already exist
-there. Run this from your build directory (e.g. `build/debug`):
+directory containing the config file (missing log directories are created
+automatically). Run this from your build directory (e.g. `build/debug`):
 
 ```bash
-mkdir -p ffw-stats-demo/logs && cd ffw-stats-demo
+mkdir -p ffw-stats-demo && cd ffw-stats-demo
 cp ../doc/example/fluid-flow-wan-topology.yaml .
 cp ../doc/example/fluid-flow-wan-trace-traffic.csv .
 cp ../doc/example/fluid-flow-wan-trace-traffic.yaml .
