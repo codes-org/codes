@@ -1,0 +1,34 @@
+# PAUSE-demo variant of fluid-flow-wan-topology.yaml: identical links, but the
+# 64 Gb deep buffers are shrunk to 2 Gb so Ethernet PAUSE visibly engages.
+#
+# With the stock 64 Gb buffers the trace-traffic workload never crosses the
+# 80% PAUSE high watermark: max-min rate feedback caps switch B's standing
+# backlog near 1.7 Gb, so the only backpressure signal is the rate feedback
+# itself. At 2 Gb the same backlog crosses the 1.6 Gb watermark and switch B
+# PAUSEs its largest ingress contributor (the A->B link) until the 50%
+# low-watermark resume, so PAUSE/RESUME frames and per-port pause time show
+# up in the CSV logs and in the ROSS instrumentation output.
+topology:
+  switches:
+    A:
+      terminals: 2
+      terminal_bandwidth: "100 Gbps"
+      switch_buffer: "2 Gb"
+      connections:
+        B: "30 Gbps"
+
+    B:
+      terminals: 2
+      terminal_bandwidth: "100 Gbps"
+      switch_buffer: "2 Gb"
+      connections:
+        A: "30 Gbps"
+        C: "10 Gbps"
+
+    C:
+      terminals: 2
+      terminal_bandwidth: "100 Gbps"
+      switch_buffer: "2 Gb"
+      connections:
+        A: "20 Gbps"
+        B: "10 Gbps"

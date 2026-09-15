@@ -1348,6 +1348,11 @@ static void director_print_zmq_latency_stats_once(void) {
 }
 
 
+void director_print_external_zmq_latency_stats(void) {
+    director_print_zmq_latency_stats_once();
+}
+
+
 void director_finalize(director_state* s, tw_lp* lp) {
     director_print_zmq_latency_stats_once();
 

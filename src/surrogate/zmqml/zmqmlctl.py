@@ -28,6 +28,11 @@ def request(endpoint: str, cmd: str, args: list[str], bindata: bytes = b"", **ex
     return response
 
 
+def director_args(*values: object) -> list[str]:
+    items = [str(value) for value in values]
+    return [str(len(items)), *items]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Control client for zmqmlserver.py."
@@ -59,10 +64,10 @@ def main() -> int:
     )
 
     save = sub.add_parser("save", help="Save active Director surrogate model")
-    save.add_argument("path", help="Output .pt path")
+    save.add_argument("path", help="Output model path or directory")
 
     load = sub.add_parser("load", help="Load Director surrogate model")
-    load.add_argument("path", help="Input .pt path")
+    load.add_argument("path", help="Input model path or directory")
 
     status = sub.add_parser("status", help="Show Director surrogate model status")
     status.add_argument(
@@ -87,7 +92,7 @@ def main() -> int:
         resp = request(
             args.endpoint,
             "director-request",
-            [args.client],
+            director_args(args.client),
             operation="train-model",
             **director_meta,
         )
@@ -95,7 +100,7 @@ def main() -> int:
         resp = request(
             args.endpoint,
             "director-request",
-            [args.path],
+            director_args(args.path),
             operation="save-model",
             **director_meta,
         )
@@ -103,7 +108,7 @@ def main() -> int:
         resp = request(
             args.endpoint,
             "director-request",
-            [args.path],
+            director_args(args.path),
             operation="load-model",
             **director_meta,
         )
@@ -111,7 +116,7 @@ def main() -> int:
         resp = request(
             args.endpoint,
             "director-request",
-            [args.client],
+            director_args(args.client),
             operation="model-status",
             **director_meta,
         )
@@ -119,7 +124,7 @@ def main() -> int:
         resp = request(
             args.endpoint,
             "director-request",
-            [args.path],
+            director_args(args.path),
             operation="load-records-csv",
             **director_meta,
         )

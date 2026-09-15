@@ -3,8 +3,9 @@
 This document specifies the on-disk layout of the model-level data that CODES models emit
 through the ROSS instrumentation layer, so external tools (e.g. NetMaestro) can parse it
 without reading the C source. It covers the payloads written by the ping pong tutorial's
-server LP (`doc/example/tutorial-synthetic-ping-pong.c`) and the dragonfly-dally terminal
-and router LPs (`src/networks/model-net/dragonfly-dally.cxx`).
+server LP (`doc/example/tutorial-synthetic-ping-pong.c`), the dragonfly-dally terminal
+and router LPs (`src/networks/model-net/dragonfly-dally.cxx`), and the fluid-flow WAN
+terminal and switch LPs (`src/network-workloads/model-net-fluid-flow-wan.cxx`).
 
 For how a model *registers* these callbacks, see [codes-vis-readme.md](codes-vis-readme.md).
 A reference parser lives at `scripts/parse-ross-model-stats.py` (stdlib-only Python).
@@ -17,7 +18,7 @@ Model-level stats are enabled purely from the ROSS command line — no config-fi
 |---|---|
 | `--model-stats=1` | sample at GVT, every `--num-gvt`-th GVT (default 10) |
 | `--model-stats=2` | sample at wall-clock intervals of `--rt-interval` ms |
-| `--model-stats=3` | sample at virtual-time intervals of `--vt-interval` (until `--vt-samp-end`) via analysis LPs. `--vt-samp-end` defaults to the simulation end time — set it explicitly for models with a far-future `g_tw_ts_end` (the ping pong tutorial uses 24 h of virtual time), or the analysis LPs keep scheduling empty sample events long after the traffic ends |
+| `--model-stats=3` | sample at virtual-time intervals of `--vt-interval` (until `--vt-samp-end`) via analysis LPs. `--vt-samp-end` defaults to the simulation end time — set it explicitly for models with a far-future `g_tw_ts_end` (the ping pong tutorial uses 24 h of virtual time; the fluid-flow WAN models use a year), or the analysis LPs keep scheduling empty sample events long after the traffic ends |
 | `--model-stats=4` | all of the above |
 | `--event-trace=N` | event tracing (separate `evtrace` file; not covered here, see the ROSS docs) |
 | `--stats-path=<dir>` | output directory, default `stats-output` |
@@ -29,6 +30,15 @@ Example (ping pong tutorial, from the build directory):
 ```
 mpirun -np 3 doc/example/tutorial-synthetic-ping-pong --sync=3 --num_messages=100 \
     --model-stats=1 --num-gvt=8 --stats-path=model-stats-out -- doc/example/tutorial-ping-pong.conf
+```
+
+Example (fluid-flow WAN trace replay; the model reads its topology/trace from the working
+directory, so run it from a directory holding copies of `doc/example/fluid-flow-wan-*`):
+
+```
+mpirun -np 1 <builddir>/src/model-net-fluid-flow-wan-trace-traffic --sync=1 \
+    --model-stats=3 --vt-interval=1e8 --vt-samp-end=1.7e10 --stats-path=model-stats-out \
+    -- fluid-flow-wan-trace-traffic.yaml
 ```
 
 Outputs:
@@ -150,6 +160,86 @@ requires the topology/connection files used by the run.
 | 8+24·radix | i32 ×radix | vc_occupancy_sum — *snapshot*, bytes in all VCs of the port |
 | 8+28·radix | i32 ×radix | queued_count — *snapshot*, bytes in the port's overflow queue |
 
+### Payload: fluid-flow WAN terminal (`fluid-flow-wan-terminal-lp`) — 104 bytes, `<Q4i6d4Q`
+
+Emitted by both `model-net-fluid-flow-wan-random-traffic` and
+`model-net-fluid-flow-wan-trace-traffic` (one source file, two workload front ends; the
+instrumentation is identical).
+
+**All data volumes are raw Mbit.** The model's CSV logs and finalize lines optionally
+rescale to Gbit when the topology YAML was written in Gb units (`to_output_data_unit()`);
+that rescaling is deliberately *not* applied to these payloads, so a consumer never has to
+know which unit the config used.
+
+Fields marked *delta* cover the interval since the previous sample of the same mode and are
+computed as `lifetime_total - lifetime_total_at_previous_sample`, so they telescope exactly
+(their sum over all samples is the lifetime total at the last sample). Fields marked
+*gauge* are instantaneous values read from LP state at the sampling instant.
+
+Because the deltas are differences of lifetime totals, a rollback after a sample was taken
+shows up as a **single slightly negative GVT/RT delta**, not as lost volume — the running
+sum stays exact. Virtual-time samples cannot do even that: their reverse callback restores
+the previous snapshot bit-exactly (see the trailing rollback block below), so VT deltas are
+always non-negative.
+
+| off | type | field |
+|---|---|---|
+| 0 | u64 | terminal_id (terminal-relative id) |
+| 8 | i32 | attached_switch (switch-relative id of the switch this terminal hangs off) |
+| 12 | i32 | active_flows — *gauge*, source flows with `remaining_source_mbit > EPS` (the predicate the model's own `active_source_flows` finalize line uses) |
+| 16 | i32 | link_paused — *gauge*, 1 while this terminal's access link is PAUSE-asserted |
+| 20 | i32 | reserved (always 0) |
+| 24 | f64 | generated_mbit — *delta*, offered/generated volume admitted to source backlog |
+| 32 | f64 | sent_to_switch_mbit — *delta*, volume injected onto the access link |
+| 40 | f64 | received_mbit — *delta*, volume delivered to this terminal |
+| 48 | f64 | source_backlog_mbit — *gauge*, Σ `remaining_source_mbit` over active flows |
+| 56 | f64 | send_rate_sum_mbps — *gauge*, Σ `current_send_rate_mbps` over active flows (tracks max-min convergence) |
+| 64 | f64 | pause_time_ns — *delta* of `total_pause_time_ns`; only accrues when a PAUSE ends, so it is 0 for intervals spent entirely paused and jumps on resume |
+| 72 | u64 | pause_frames_received — *delta* |
+| 80 | u64 | resume_frames_received — *delta* |
+| 88 | u64 | pause_updates_received — *delta*, PAUSE/RESUME state changes actually applied |
+| 96 | u64 | rate_updates_received — *delta*, rate-feedback updates that changed state |
+
+### Payload: fluid-flow WAN switch (`fluid-flow-wan-switch-lp`) — `112 + 48P` bytes
+
+`P` = **max_ports**, the maximum port count over all switches in the loaded topology,
+fixed once at registration time so every switch LP emits the same record size; a switch
+with fewer ports zero-fills the trailing entries (its own count is in `num_ports`, and the
+per-port `port_target_index` entries are −1 beyond it). Recover it from the record's
+payload size: `P = (model_sz − 112) / 48` (must divide exactly and be ≥ 1).
+
+Port order is the order `switch_init()` builds it: inter-switch links first, in topology
+YAML order, then the switch's terminals. Volumes are raw Mbit, as above.
+
+| off | type | field |
+|---|---|---|
+| 0 | u64 | switch_id (switch-relative id) |
+| 8 | i32 | num_ports (this switch's real port count; ≤ P) |
+| 12 | i32 | reserved (always 0) |
+| 16 | f64 | shared_buffer_capacity_mbit — static, the switch's shared buffer size |
+| 24 | f64 | shared_buffer_occupancy_mbit — *gauge*, total queued Mbit across all output queues; this is exactly the quantity the PAUSE high/low watermarks act on |
+| 32 | f64 | buffered_residual_mbit — *gauge*, unsent arrival residual admitted to the physical buffer |
+| 40 | f64 | sent_mbit — *delta*, total egress volume (= Σ of the per-port `port_sent_mbit` below) |
+| 48 | f64 | delivered_local_mbit — *delta*, egress volume handed to locally attached terminals |
+| 56 | f64 | dropped_mbit — *delta* |
+| 64 | u64 | pause_frames_sent — *delta* |
+| 72 | u64 | resume_frames_sent — *delta* |
+| 80 | u64 | pause_updates_sent — *delta*, PAUSE/RESUME state changes pushed upstream |
+| 88 | u64 | pause_frames_received — *delta* |
+| 96 | u64 | resume_frames_received — *delta* |
+| 104 | u64 | pause_updates_received — *delta* |
+| 112 | f64 ×P | port_capacity_mbit_per_interval — static, link capacity per fluid interval |
+| 112+8P | f64 ×P | port_queued_mbit — *gauge*, volume queued on that output port |
+| 112+16P | f64 ×P | port_sent_mbit — *delta*, egress volume on that port (per-link utilization) |
+| 112+24P | f64 ×P | port_pause_time_ns — *delta* of that output link's `output_link_total_pause_time_ns` |
+| 112+32P | i32 ×P | port_target_is_terminal — static, 1 if the port faces a terminal, 0 if a switch |
+| 112+36P | i32 ×P | port_target_index — static, peer terminal or switch relative index (−1 for unused entries) |
+| 112+40P | i32 ×P | port_output_paused — *gauge*, 1 while that output link is PAUSE-asserted |
+| 112+44P | i32 ×P | port_queued_segments — *gauge*, number of non-empty queued fluid segments on the port |
+
+For the 3-switch example topology (`doc/example/fluid-flow-wan-topology.yaml`, max 2 links
++ 2 terminals) P = 4 → **304 bytes**.
+
 ## `ross-stats-analysis-lps.bin` — virtual-time samples
 
 Each record is: `lp_metadata` (48 B) + `sample_sz` payload bytes. Only LPs with a non-zero
@@ -220,10 +310,93 @@ Tutorial config: **152 bytes**.
 
 Tutorial config: **296 bytes**.
 
+### Fluid-flow WAN VT payloads — the trailing rollback block
+
+Unlike the dragonfly samples, the two fluid-flow WAN virtual-time payloads are **not C
+structs written verbatim**: they are assembled byte by byte, so there are no padding holes
+and no pointer slots to skip. Their scalar content is the same as the GVT/RT payloads above
+plus an `end_time` (f64, `tw_now()` at the sampling instant, per the convention the other
+models use).
+
+Both VT payloads end with a **trailing rollback block**. Virtual-time sampling runs inside
+an analysis-LP event that can be rolled back, so each sample records the delta bookkeeping
+that existed *before* it was taken; the reverse callback restores it bit-exactly from these
+bytes. It is internal state, not measurement — **consumers should ignore it**. It is kept
+at the tail so a parser can decode the useful prefix and stop.
+
+### Payload: fluid-flow WAN terminal VT — 176 bytes
+
+Useful prefix `<Q6d4Qd4i` (112 bytes), then a 64-byte rollback block.
+
+| off | type | field |
+|---|---|---|
+| 0 | u64 | terminal_id |
+| 8 | f64 | generated_mbit — *delta* |
+| 16 | f64 | sent_to_switch_mbit — *delta* |
+| 24 | f64 | received_mbit — *delta* |
+| 32 | f64 | source_backlog_mbit — *gauge* |
+| 40 | f64 | send_rate_sum_mbps — *gauge* |
+| 48 | f64 | pause_time_ns — *delta* |
+| 56 | u64 | pause_frames_received — *delta* |
+| 64 | u64 | resume_frames_received — *delta* |
+| 72 | u64 | pause_updates_received — *delta* |
+| 80 | u64 | rate_updates_received — *delta* |
+| 88 | f64 | end_time (virtual time of the sample) |
+| 96 | i32 | attached_switch |
+| 100 | i32 | active_flows — *gauge* |
+| 104 | i32 | link_paused — *gauge* |
+| 108 | i32 | reserved (always 0) |
+| 112 | 4×f64 + 4×u64 | rollback block — ignore |
+
+### Payload: fluid-flow WAN switch VT — `192 + 64P` bytes
+
+`P` = max_ports, as for the GVT/RT switch payload. Recover it from the record's payload
+size: `P = (sample_sz − 192) / 64` (must divide exactly and be ≥ 1). Example topology
+(P = 4): **448 bytes**.
+
+| off | type | field |
+|---|---|---|
+| 0 | u64 | switch_id |
+| 8 | f64 | shared_buffer_capacity_mbit — static |
+| 16 | f64 | shared_buffer_occupancy_mbit — *gauge* |
+| 24 | f64 | buffered_residual_mbit — *gauge* |
+| 32 | f64 | sent_mbit — *delta* |
+| 40 | f64 | delivered_local_mbit — *delta* |
+| 48 | f64 | dropped_mbit — *delta* |
+| 56 | u64 | pause_frames_sent — *delta* |
+| 64 | u64 | resume_frames_sent — *delta* |
+| 72 | u64 | pause_updates_sent — *delta* |
+| 80 | u64 | pause_frames_received — *delta* |
+| 88 | u64 | resume_frames_received — *delta* |
+| 96 | u64 | pause_updates_received — *delta* |
+| 104 | f64 | end_time |
+| 112 | i32 | num_ports |
+| 116 | i32 | reserved (always 0) |
+| 120 | — | per-port block, **identical layout to the GVT/RT payload's** (4 f64 arrays then 4 i32 arrays, each of length P, 48P bytes total) |
+| 120+48P | 3×f64 + 6×u64 + 2×(f64 ×P) | rollback block — ignore |
+
+### Why fluid-flow WAN sizes never collide with the dragonfly ones
+
+Every dragonfly-dally and ping pong payload size is a multiple of 8 except the 44-byte ping
+pong GVT payload. The fluid-flow WAN sizes are chosen so that the parametric switch sizes
+(`112 + 48P`, `192 + 64P`) can never equal a dally router size (`8 + 32·radix`,
+`72 + 32·radix`) for any integer radix — the two families differ by an odd multiple of 4 —
+and the fixed terminal sizes (104, 176) avoid the dally terminal sizes at the default
+1 rail / 1 QoS level. The two families never appear in the same simulation, but the
+reference parser dispatches by size alone, so it checks for collisions and fails loudly if
+an exotic `--num-rails`/`--num-qos`/`--radix` combination produces one (e.g. `--radix 3`
+makes the dally router payload 104 bytes). Pass
+`--model-family dragonfly|fluid-flow-wan` to drop the family the run did not use.
+
 ## Mapping LP ids to model entities
 
 The first payload field of every record is the **model-relative id** (svr_id /
-terminal_id / router_id) — prefer it over the global `lpid`. For reference, the tutorial
+terminal_id / router_id / switch_id) — prefer it over the global `lpid`. For the
+fluid-flow WAN models those ids index the topology YAML's declaration order: switches in
+the order they appear under `topology.switches`, terminals numbered consecutively per
+switch in that same order (switch A's terminals first, then B's, …). The switch payload's
+`port_target_is_terminal` / `port_target_index` arrays give the peer of each port, so link
+identity can be recovered from the records alone. For reference, the tutorial
 config lays LPs out in 36 repetitions of [2 `nw-lp`, 2 terminals, 1 router], so global
 `lpid = 5*rep + offset` with offsets 0–1 = servers, 2–3 = terminals, 4 = router
 (model-net's internal LP ordering within a repetition follows the config file's group
