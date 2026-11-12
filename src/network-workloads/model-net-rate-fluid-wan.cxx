@@ -648,6 +648,9 @@ struct switch_flow {
     int pause_received = 0;
     int pause_sent = 0;
     double path_cap_rate = INF_RATE;
+    /* Independent upstream supply bound, excluding this switch and its downstream. */
+    double upstream_offer_rate = INF_RATE;
+    double local_offer_rate = 0.0;
     double downstream_cap_rate = INF_RATE;
     double control_rate = 0.0;
     double incoming_rate = 0.0;
@@ -731,6 +734,7 @@ struct rate_msg {
     int threshold_flow_index = -1;
     double rate = 0.0;
     double path_cap_rate = 0.0;
+    double upstream_offer_rate = 0.0;
     double total_data = 0.0;
     tw_stime expected_time_ns = -1.0;
 
@@ -749,6 +753,7 @@ struct rate_msg {
     double rc_dt_seconds = 0.0;
     double rc_prev_queues[MAX_FLOWS_PER_LP];
     double rc_prev_control_rates[MAX_FLOWS_PER_LP];
+    double rc_prev_local_offer_rates[MAX_FLOWS_PER_LP];
     double rc_prev_outgoing_rates[MAX_FLOWS_PER_LP];
     int rc_prev_pause_received[MAX_FLOWS_PER_LP];
     int rc_prev_pause_sent[MAX_FLOWS_PER_LP];
@@ -892,6 +897,7 @@ static void snapshot_switch_for_rc(switch_state* ns, rate_msg* m) {
     for (int i = 0; i < ns->flow_count; ++i) {
         m->rc_prev_queues[i] = ns->flows[i].queued_data;
         m->rc_prev_control_rates[i] = ns->flows[i].control_rate;
+        m->rc_prev_local_offer_rates[i] = ns->flows[i].local_offer_rate;
         m->rc_prev_outgoing_rates[i] = ns->flows[i].outgoing_rate;
         m->rc_prev_pause_received[i] = ns->flows[i].pause_received;
         m->rc_prev_pause_sent[i] = ns->flows[i].pause_sent;
@@ -913,6 +919,7 @@ static void restore_switch_from_rc(switch_state* ns, rate_msg* m) {
     for (int i = 0; i < m->rc_prev_flow_count; ++i) {
         ns->flows[i].queued_data = m->rc_prev_queues[i];
         ns->flows[i].control_rate = m->rc_prev_control_rates[i];
+        ns->flows[i].local_offer_rate = m->rc_prev_local_offer_rates[i];
         ns->flows[i].outgoing_rate = m->rc_prev_outgoing_rates[i];
         ns->flows[i].pause_received = m->rc_prev_pause_received[i];
         ns->flows[i].pause_sent = m->rc_prev_pause_sent[i];
@@ -1029,6 +1036,7 @@ static void schedule_event(tw_lpid gid, int type, const rate_msg& src, double de
     m->source_switch = src.source_switch;
     m->rate = src.rate;
     m->path_cap_rate = src.path_cap_rate;
+    m->upstream_offer_rate = src.upstream_offer_rate;
     m->total_data = src.total_data;
     m->pause_asserted = src.pause_asserted;
     m->pause_source_switch = src.pause_source_switch;
@@ -1079,6 +1087,7 @@ static void send_data_update_downstream(switch_state* ns, switch_flow& f, double
     out.destination_terminal = f.destination_terminal;
     out.source_switch = ns->switch_id;
     out.rate = rate;
+    out.upstream_offer_rate = f.local_offer_rate;
     out.total_data = f.total_data;
     tw_lpid gid = p.is_terminal ? get_terminal_gid(p.target_index) : get_switch_gid(p.target_index);
 
@@ -1090,23 +1099,34 @@ static void recompute_switch(switch_state* ns, tw_lp* lp, bool emit,
                              int registering_flow_index = -1) {
     for (int p = 0; p < ns->num_ports; ++p) {
         std::vector<int> ids;
+        std::vector<double> offer_demands;
         std::vector<double> control_demands;
         for (int i = 0; i < ns->flow_count; ++i) {
             switch_flow& f = ns->flows[i];
             if (!f.valid || f.port_id != p || f.source_closed)
                 continue;
             ids.push_back(i);
+            /* Supply upstream of this port, independent of this port's
+             * previously advertised rate and all downstream feedback. */
+            const double upstream = std::min(f.path_cap_rate, f.upstream_offer_rate);
+            offer_demands.push_back(upstream);
             const double downstream_cap = f.downstream_ready ? f.downstream_cap_rate : INF_RATE;
-            control_demands.push_back(std::min(f.path_cap_rate, downstream_cap));
+            control_demands.push_back(std::min(upstream, downstream_cap));
         }
+        std::map<int, double> previous_offers;
+        for (int i : ids)
+            previous_offers[i] = ns->flows[i].local_offer_rate;
+        std::vector<double> offer_alloc;
+        maxmin_allocate(ids, offer_demands, ns->ports[p].capacity_rate, &offer_alloc);
         std::vector<double> control_alloc;
         maxmin_allocate(ids, control_demands, ns->ports[p].capacity_rate, &control_alloc);
         for (size_t j = 0; j < ids.size(); ++j) {
             switch_flow& f = ns->flows[ids[j]];
-            double old = f.control_rate, now = control_alloc[j];
-            f.control_rate = now;
-            if (emit && std::fabs(now - old) > EPS)
-                send_rate_feedback_upstream(ns, f, now, lp);
+            const double old_control = f.control_rate;
+            f.local_offer_rate = offer_alloc[j];
+            f.control_rate = control_alloc[j];
+            if (emit && std::fabs(f.control_rate - old_control) > EPS)
+                send_rate_feedback_upstream(ns, f, f.control_rate, lp);
         }
 
         ids.clear();
@@ -1136,7 +1156,11 @@ static void recompute_switch(switch_state* ns, tw_lp* lp, bool emit,
             double old = f.outgoing_rate;
             double now = new_rate.count(i) ? new_rate[i] : 0.0;
             f.outgoing_rate = now;
-            if (emit && std::fabs(now - old) > EPS && i != registering_flow_index)
+            const bool offer_changed =
+                previous_offers.count(i) &&
+                std::fabs(f.local_offer_rate - previous_offers[i]) > EPS;
+            if (emit && i != registering_flow_index &&
+                (std::fabs(now - old) > EPS || offer_changed))
                 send_data_update_downstream(ns, f, now, lp);
         }
     }
@@ -1326,6 +1350,7 @@ static int create_switch_flow(switch_state* ns, const rate_msg* m) {
         tw_error(TW_LOC, "switch %d has no route to terminal %d", ns->switch_id,
                  m->destination_terminal);
     f.path_cap_rate = m->path_cap_rate > EPS ? m->path_cap_rate : INF_RATE;
+    f.upstream_offer_rate = std::max(0.0, m->upstream_offer_rate);
     f.incoming_rate = std::max(0.0, m->rate);
     f.downstream_ready = 0;
     f.downstream_cap_rate = INF_RATE;
@@ -1369,6 +1394,7 @@ static void switch_event(switch_state* ns, tw_bf*, rate_msg* m, tw_lp* lp) {
         rate_msg out = *m;
         out.source_switch = ns->switch_id;
         out.rate = f.outgoing_rate;
+        out.upstream_offer_rate = f.local_offer_rate;
         out.path_cap_rate = std::min(f.path_cap_rate, p.capacity_rate);
         const tw_lpid gid =
             p.is_terminal ? get_terminal_gid(p.target_index) : get_switch_gid(p.target_index);
@@ -1392,6 +1418,7 @@ static void switch_event(switch_state* ns, tw_bf*, rate_msg* m, tw_lp* lp) {
         m->rc_switch_flow_before = ns->flows[i];
         debug_switch_event(ns, m, lp);
         ns->flows[i].incoming_rate = std::max(0.0, m->rate);
+        ns->flows[i].upstream_offer_rate = std::max(0.0, m->upstream_offer_rate);
         recompute_switch(ns, lp, true);
     } else if (m->event_type == PAUSE_UPDATE) {
         int i = find_switch_flow(ns, m->flow_id);
@@ -1521,6 +1548,9 @@ static void send_source_data_rate(terminal_state* ns, terminal_flow& f, double r
     out.destination_terminal = f.destination_terminal;
     out.source_switch = -1;
     out.rate = rate;
+    /* A source's independent supply bound is its access capacity, not
+     * its sending rate (which may reflect feedback or PAUSE). */
+    out.upstream_offer_rate = switches[ns->attached_switch].terminal_bandwidth;
     out.total_data = f.total_data;
     schedule_ordered_flow_event(get_switch_gid(ns->attached_switch), DATA_RATE_UPDATE, out,
                                 cfg.link_latency_seconds, &f.last_downstream_flow_event_arrival_ns,
@@ -1615,6 +1645,7 @@ static void terminal_event(terminal_state* ns, tw_bf*, rate_msg* m, tw_lp* lp) {
         out.source_switch = -1;
         out.rate = initial_rate;
         out.path_cap_rate = initial_rate;
+        out.upstream_offer_rate = initial_rate;
         schedule_ordered_flow_event(get_switch_gid(ns->attached_switch), FLOW_REGISTER, out,
                                     cfg.link_latency_seconds,
                                     &f.last_downstream_flow_event_arrival_ns, lp);
