@@ -229,6 +229,7 @@ if(USE_DUMPI)
     add_executable(model-net-dumpi-traces-dump network-workloads/model-net-dumpi-traces-dump.c)
 endif()
 add_executable(model-net-synthetic network-workloads/model-net-synthetic.c)
+add_executable(model-net-rate-fluid-wan network-workloads/model-net-rate-fluid-wan.cxx)
 add_executable(model-net-synthetic-slimfly network-workloads/model-net-synthetic-slimfly.c)
 add_executable(model-net-synthetic-fattree network-workloads/model-net-synthetic-fattree.c)
 add_executable(model-net-synthetic-dragonfly-all network-workloads/model-net-synthetic-dragonfly-all.c)
@@ -237,6 +238,7 @@ set(CODES_TARGETS
     topology-test
     model-net-mpi-replay
     model-net-synthetic
+    model-net-rate-fluid-wan
     model-net-synthetic-slimfly
     model-net-synthetic-fattree
     model-net-synthetic-dragonfly-all

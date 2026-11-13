@@ -21,18 +21,25 @@ fi
 # What to compile
 CUR_DIR="$PWD"
 
+# Prefer Homebrew Bison on macOS because /usr/bin/bison is too old.
+if command -v brew >/dev/null 2>&1; then
+    bison_prefix="$(brew --prefix bison 2>/dev/null || true)"
+    if [ -n "$bison_prefix" ] && [ -x "$bison_prefix/bin/bison" ]; then
+        export PATH="$bison_prefix/bin:$PATH"
+    fi
+fi
 
 
 ##### Downloading everything #####
 
 if [ ! -d codes/.git ]; then
-    git clone https://github.com/codes-org/codes --depth=100 --branch=v1.5.0
+    git clone https://github.com/codes-org/codes --depth=100
 else
     echo "Using existing codes checkout: $(realpath codes)"
 fi
 
 if [ ! -d ross/.git ]; then
-    git clone https://github.com/ross-org/ross --depth=100 --branch=v8.1.0
+    git clone https://github.com/ross-org/ross --depth=100
 else
     echo "Using existing ross checkout: $(realpath ross)"
 fi
@@ -67,6 +74,7 @@ fi
 
 mkdir -p ross/build
 pushd ross/build
+mkdir -p bin
 
 # ---- CODES CUDA arch autodetection from CUDA_HOME ----
 # CUDA is opt-in: set CUDA_HOME to enable GPU/Torch CUDA compilation.
@@ -224,6 +232,7 @@ fi
 
 mkdir -p codes/build
 pushd codes/build
+mkdir -p bin
 
 torch_cmake_prefix=""
 torch_dir=""

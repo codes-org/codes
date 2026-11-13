@@ -211,6 +211,16 @@ finalize:
     return rc;
 }
 
+
+int configuration_free(ConfigHandle* handle) {
+    if (handle == NULL || *handle == NULL)
+        return 0;
+
+    cf_free(*handle);
+    *handle = NULL;
+    return 0;
+}
+
 int configuration_get_value(ConfigHandle* handle, const char* section_name, const char* key_name,
                             const char* annotation, char* value, size_t len) {
     SectionHandle section_handle;

@@ -52,3 +52,9 @@ configure_file(kb.dfdally-72-milc-small.workload.conf.in kb.dfdally-72-milc-smal
 configure_file(kb.dfdally-72-milc-small.json kb.dfdally-72-milc-small.json COPYONLY)
 configure_file(kb.dfdally-72-milc-small.alloc.conf kb.dfdally-72-milc-small.alloc.conf COPYONLY)
 configure_file(kb.dfdally-72-zeromq-director.conf.in kb.dfdally-72-zeromq-director.conf)
+
+# Rate-based fluid-flow WAN example.
+configure_file(rate-fluid-wan.yaml.in rate-fluid-wan.yaml @ONLY)
+configure_file(rate-fluid-wan-topology.yaml rate-fluid-wan-topology.yaml COPYONLY)
+configure_file(rate-fluid-wan-flows.csv rate-fluid-wan-flows.csv COPYONLY)
+

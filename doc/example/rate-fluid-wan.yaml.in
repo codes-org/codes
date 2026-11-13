@@ -1,0 +1,34 @@
+schema_version: 1
+
+topology:
+  format: groups
+  params:
+    message_size: 65536
+  groups:
+    RATE_FLUID_WAN_GRP:
+      repetitions: 1
+      lps:
+        rate-fluid-wan-switch-lp: 3
+        rate-fluid-wan-terminal-lp: 6
+
+simulation:
+  end_time: "30s"
+  pe_mem_factor: 1024
+
+sections:
+  rate_fluid_wan:
+    topology_file: "rate-fluid-wan-topology.yaml"
+    flow_file: "rate-fluid-wan-flows.csv"
+
+    # DATA_RATE_UPDATE, RATE_FEEDBACK, FLOW_REGISTER, FLOW_COMPLETE, and
+    # PAUSE_UPDATE all traverse one physical hop using this latency.
+    link_latency: "1 ms"
+
+    pause_enabled: 1
+    pause_high_watermark_fraction: 0.80
+    pause_low_watermark_fraction: 0.50
+
+    # Print every model event with its flow, LP, timestamp, and rate/state.
+    debug: 1
+
+    flow_summary_file: "rate-fluid-flow-summary.csv"
