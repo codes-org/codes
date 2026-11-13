@@ -1120,11 +1120,49 @@ static void recompute_switch(switch_state* ns, tw_lp* lp, bool emit,
         maxmin_allocate(ids, offer_demands, ns->ports[p].capacity_rate, &offer_alloc);
         std::vector<double> control_alloc;
         maxmin_allocate(ids, control_demands, ns->ports[p].capacity_rate, &control_alloc);
+
+        /* Control feedback is an *admissible downstream allowance*, not
+         * the current effective allocation.  An upstream-limited flow
+         * must not receive its own upstream offer back as a downstream
+         * restriction: that creates a circular dependency and delays
+         * rate recovery by an extra downstream/upstream control trip.
+         *
+         * For each upstream-limited flow, calculate the local allowance
+         * it could obtain if just its upstream supply were increased,
+         * holding other flows' advertised supplies and all downstream
+         * caps fixed.  Those other flows may borrow the unused share
+         * meanwhile; their grants are reduced when the upstream offer
+         * actually rises.  The existing queue and PAUSE logic handles
+         * in-flight transients during that change.
+         *
+         * Only flows currently capped by their upstream offer need the
+         * counterfactual allocation.  This preserves the fast path for
+         * ordinary local-bottleneck allocations.
+         */
+        std::vector<double> feedback_alloc = control_alloc;
+        for (size_t j = 0; j < ids.size(); ++j) {
+            const switch_flow& f = ns->flows[ids[j]];
+            const double upstream = std::min(f.path_cap_rate, f.upstream_offer_rate);
+            const double downstream_cap = f.downstream_ready ? f.downstream_cap_rate : INF_RATE;
+            if (upstream > control_alloc[j] + EPS ||
+                upstream >= downstream_cap - EPS)
+                continue;
+
+            /* Lift only this flow's upstream constraint.  Its own
+             * downstream bound, other flows' constraints, and this
+             * egress link's physical capacity remain in force. */
+            std::vector<double> hypothetical_demands = control_demands;
+            hypothetical_demands[j] = downstream_cap;
+            std::vector<double> hypothetical_alloc;
+            maxmin_allocate(ids, hypothetical_demands, ns->ports[p].capacity_rate,
+                            &hypothetical_alloc);
+            feedback_alloc[j] = hypothetical_alloc[j];
+        }
         for (size_t j = 0; j < ids.size(); ++j) {
             switch_flow& f = ns->flows[ids[j]];
             const double old_control = f.control_rate;
             f.local_offer_rate = offer_alloc[j];
-            f.control_rate = control_alloc[j];
+            f.control_rate = feedback_alloc[j];
             if (emit && std::fabs(f.control_rate - old_control) > EPS)
                 send_rate_feedback_upstream(ns, f, f.control_rate, lp);
         }
